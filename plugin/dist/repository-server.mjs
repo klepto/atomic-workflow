@@ -5133,7 +5133,7 @@ var recursive = /* @__PURE__ */ new WeakMap();
 var NONE = 0;
 var ASSUMED = 1;
 var PROVEN = 2;
-function isRecursive(inst, stack, resolve) {
+function isRecursive(inst, stack, resolve2) {
   const cached2 = recursive.get(inst);
   if (cached2 !== void 0)
     return cached2 ? PROVEN : NONE;
@@ -5143,7 +5143,7 @@ function isRecursive(inst, stack, resolve) {
   let result = NONE;
   const check2 = (child) => {
     if (result !== PROVEN && child?._zod) {
-      const answer = isRecursive(child, stack, resolve);
+      const answer = isRecursive(child, stack, resolve2);
       if (answer > result)
         result = answer;
     }
@@ -5154,7 +5154,7 @@ function isRecursive(inst, stack, resolve) {
       const desc = Object.getOwnPropertyDescriptor(sh, key);
       if (spread && !desc.enumerable)
         continue;
-      const child = desc.get ? ASSUMED : desc.value?._zod ? isRecursive(desc.value, stack, resolve) : NONE;
+      const child = desc.get ? ASSUMED : desc.value?._zod ? isRecursive(desc.value, stack, resolve2) : NONE;
       if (child > answer)
         answer = child;
     }
@@ -5218,7 +5218,7 @@ function isRecursive(inst, stack, resolve) {
       break;
     // `$ZodLazy` caches its inner on the def, so a resolved edge is followed exactly
     case "lazy": {
-      const inner = def._cachedInner ?? (resolve ? inst._zod.innerType : void 0);
+      const inner = def._cachedInner ?? (resolve2 ? inst._zod.innerType : void 0);
       merge2(inner ? isRecursive(inner, stack, false) : ASSUMED);
       break;
     }
@@ -19796,10 +19796,18 @@ var HELLO_RESULT = external_exports.object({
 
 // src/attachment/serve-repository.socket.ts
 var FIRST_ATTACH_TIMEOUT = 1e4;
-var socketServeRepository = async (address, url2, methods, dependencies) => {
+var socketServeRepository = async (address, url2, methods, context, dependencies) => {
   const server = createServer();
-  const closed = new Promise((resolve) => server.once("close", () => resolve()));
-  const repository = { server, url: url2, methods, dependencies, sessions: 0, firstAttachTimer: void 0 };
+  const closed = new Promise((resolve2) => server.once("close", () => resolve2()));
+  const repository = {
+    server,
+    url: url2,
+    methods,
+    context,
+    dependencies,
+    sessions: 0,
+    firstAttachTimer: void 0
+  };
   server.on("connection", (socket) => serve(repository, socket));
   await listenReclaiming(server, address);
   repository.firstAttachTimer = setTimeout(() => server.close(), FIRST_ATTACH_TIMEOUT);
@@ -19819,7 +19827,7 @@ var serve = (repository, socket) => {
     if (session && repository.sessions === 0) repository.server.close();
   });
   const methods = [helloMethod(repository.url, attachSession), ...repository.methods];
-  openConnection(socket, (message) => dispatch(methods, message));
+  openConnection(socket, (message) => dispatch(methods, repository.context, message));
 };
 var helloMethod = (url2, attachSession) => {
   return {
@@ -19847,21 +19855,21 @@ var listenReclaiming = async (server, address) => {
   if (retryError !== void 0) throw retryError;
 };
 var listenCatching = (server, address) => {
-  return new Promise((resolve) => {
-    server.once("error", resolve);
+  return new Promise((resolve2) => {
+    server.once("error", resolve2);
     server.listen(address, () => {
-      server.off("error", resolve);
-      resolve(void 0);
+      server.off("error", resolve2);
+      resolve2(void 0);
     });
   });
 };
 var isServed = (address) => {
-  return new Promise((resolve) => {
+  return new Promise((resolve2) => {
     const socket = createConnection(address);
-    socket.once("error", () => resolve(false));
+    socket.once("error", () => resolve2(false));
     socket.once("connect", () => {
       socket.destroy();
-      resolve(true);
+      resolve2(true);
     });
   });
 };
@@ -19876,11 +19884,11 @@ var REQUEST = external_exports.object({
   method: external_exports.string(),
   params: external_exports.unknown().optional()
 });
-var zodDispatch = async (methods, message) => {
+var zodDispatch = async (methods, context, message) => {
   const request2 = REQUEST.safeParse(message);
   if (!request2.success) return new RpcError(RpcErrorCode.INVALID_REQUEST, "Invalid request").toResponse(idOf(message));
   const { id, method, params } = request2.data;
-  const outcome = await call(methods, method, params);
+  const outcome = await call(methods, context, method, params);
   if (id === void 0) return void 0;
   return "error" in outcome ? { jsonrpc: "2.0", id, error: outcome.error } : { jsonrpc: "2.0", id, result: outcome.result };
 };
@@ -19888,14 +19896,14 @@ var idOf = (message) => {
   if (typeof message !== "object" || message === null || !("id" in message)) return null;
   return typeof message.id === "string" || typeof message.id === "number" ? message.id : null;
 };
-var call = async (methods, name, params) => {
+var call = async (methods, context, name, params) => {
   const method = methods.find((candidate) => candidate.name === name);
   if (method === void 0)
     return { error: { code: RpcErrorCode.METHOD_NOT_FOUND, message: `Unknown method ${name}` } };
   const parsed = method.params.safeParse(params ?? {});
   if (!parsed.success) return { error: { code: RpcErrorCode.INVALID_PARAMS, message: external_exports.prettifyError(parsed.error) } };
   try {
-    return { result: await method.handle(parsed.data) ?? null };
+    return { result: await method.handle(parsed.data, context) ?? null };
   } catch (error62) {
     return { error: errorObject(error62) };
   }
@@ -19918,8 +19926,65 @@ var echoMethod = {
   handle: async ({ message }) => ({ message })
 };
 
+// src/rpc/method.list-messages.ts
+var PARAMS2 = external_exports.object({
+  sessionId: external_exports.string().optional().describe("Identifier of the session whose messages to return, all when left out"),
+  after: external_exports.number().int().nonnegative().optional().describe("Identifier after which the list starts, 0 for the start, the latest messages when left out"),
+  limit: external_exports.number().int().min(1).max(1e3).default(100).describe("Greatest number of messages to return")
+});
+var listMessagesMethod = {
+  name: "listMessages",
+  description: "Returns the messages of the message log of the repository after an identifier, or the latest ones.",
+  agent: false,
+  params: PARAMS2,
+  handle: async ({ sessionId, after, limit }, { messageLog }) => ({
+    messages: await messageLog.list({ sessionId, after, limit })
+  })
+};
+
+// src/storage/message-log-store.ts
+var MESSAGE_SENDERS = ["user", "agent"];
+
+// src/rpc/method.log-message.ts
+var PARAMS3 = external_exports.object({
+  sessionId: external_exports.string().describe("Identifier of the registered session that the message belongs to"),
+  messageId: external_exports.string().optional().describe("Identifier that the agent gives the message, unique in its session"),
+  sender: external_exports.enum(MESSAGE_SENDERS).describe("Who wrote the message: user or agent"),
+  content: external_exports.string().describe("Text of the message"),
+  timestamp: external_exports.number().int().nonnegative().optional().describe("Time of the message in ms since the epoch")
+});
+var logMessageMethod = {
+  name: "logMessage",
+  description: "Adds a message to the message log of the repository, and returns it with its identifier.",
+  agent: false,
+  params: PARAMS3,
+  handle: async ({ sessionId, messageId, sender, content, timestamp = Date.now() }, { sessions, messageLog }) => {
+    if (await sessions.get(sessionId) === void 0)
+      throw new RpcError(RpcErrorCode.INVALID_PARAMS, `No session ${sessionId} is registered`);
+    return messageLog.append({ sessionId, messageId: messageId ?? null, sender, content, timestamp });
+  }
+};
+
+// src/storage/session-store.ts
+var AGENTS = ["claude", "codex"];
+
+// src/rpc/method.register-session.ts
+var PARAMS4 = external_exports.object({
+  sessionId: external_exports.string().min(1).describe("Identifier of the session, as the agent gives it"),
+  agent: external_exports.enum(AGENTS).describe("Agent that the session runs in: claude or codex"),
+  directory: external_exports.string().min(1).describe("Absolute path of the directory of the project of the session"),
+  startedAt: external_exports.number().int().nonnegative().optional().describe("Time when the session started in ms since the epoch")
+});
+var registerSessionMethod = {
+  name: "registerSession",
+  description: "Registers a session of an agent in the repository, so that its messages can be logged.",
+  agent: false,
+  params: PARAMS4,
+  handle: ({ sessionId, agent, directory, startedAt = Date.now() }, { sessions }) => sessions.register({ id: sessionId, agent, directory, startedAt })
+};
+
 // src/rpc/method.ts
-var Methods = [echoMethod];
+var Methods = [echoMethod, registerSessionMethod, logMessageMethod, listMessagesMethod];
 
 // src/rpc/rpc-connection.ndjson.ts
 import { createInterface } from "node:readline";
@@ -19927,7 +19992,7 @@ var ndjsonOpenRpcConnection = (stream, handle) => {
   const connection = { stream, pending: /* @__PURE__ */ new Map(), nextId: 1 };
   stream.on("error", () => {
   });
-  const closed = new Promise((resolve) => stream.once("close", () => resolve()));
+  const closed = new Promise((resolve2) => stream.once("close", () => resolve2()));
   void closed.then(() => rejectPending(connection));
   createInterface({ input: stream, crlfDelay: Number.POSITIVE_INFINITY }).on("line", (line) => {
     void receive(connection, handle, line);
@@ -19942,7 +20007,7 @@ var rejectPending = (connection) => {
   for (const request2 of connection.pending.values()) request2.reject(new Error("The connection closed"));
 };
 var request = (connection, method, params, signal) => {
-  return new Promise((resolve, reject) => {
+  return new Promise((resolve2, reject) => {
     if (!connection.stream.writable) return reject(new Error("The connection is closed"));
     if (signal?.aborted) return reject(abortError(method, signal.reason));
     const id = connection.nextId;
@@ -19956,7 +20021,7 @@ var request = (connection, method, params, signal) => {
     connection.pending.set(id, {
       resolve: (result) => {
         finish();
-        resolve(result);
+        resolve2(result);
       },
       reject: (error62) => {
         finish();
@@ -20003,32 +20068,231 @@ var send = (connection, message) => {
 // src/rpc/rpc-connection.ts
 var OpenRpcConnection = ndjsonOpenRpcConnection;
 
+// src/storage/database-path.git.ts
+import { execFile } from "node:child_process";
+import { join, resolve } from "node:path";
+import { promisify } from "node:util";
+var execFileAsync = promisify(execFile);
+var DATABASE_FILE = join(".agents", "atomic-workflow", "database", "database.db");
+var WORKTREE_PREFIX = "worktree ";
+var gitDatabasePath = async (directory) => {
+  const commandLine = ["worktree", "list", "--porcelain"];
+  const { stdout } = await execFileAsync("git", commandLine, { cwd: directory, windowsHide: true });
+  const [firstLine = ""] = stdout.split("\n");
+  if (!firstLine.startsWith(WORKTREE_PREFIX)) throw new Error(`Git listed no worktree for ${directory}`);
+  return join(resolve(firstLine.slice(WORKTREE_PREFIX.length).trimEnd()), DATABASE_FILE);
+};
+
+// src/storage/database-path.ts
+var DatabasePath = gitDatabasePath;
+
+// src/storage/open-storage.sqlite.ts
+import { mkdir, writeFile } from "node:fs/promises";
+import { dirname, join as join2 } from "node:path";
+import { DatabaseSync } from "node:sqlite";
+
+// src/storage/message-log-store.sqlite.ts
+var COLUMNS = "id, session_id AS sessionId, message_id AS messageId, sender, content, timestamp";
+var sqliteMessageLogStore = (database) => {
+  const insert = database.prepare(
+    `INSERT INTO message_log (session_id, message_id, sender, content, timestamp)
+    VALUES (:sessionId, :messageId, :sender, :content, :timestamp)
+    ON CONFLICT (session_id, message_id) DO NOTHING
+    RETURNING ${COLUMNS}`
+  );
+  const selectMessageId = database.prepare(
+    `SELECT ${COLUMNS} FROM message_log WHERE session_id = :sessionId AND message_id = :messageId`
+  );
+  const selectAfter = database.prepare(`SELECT ${COLUMNS} FROM message_log WHERE id > :after ORDER BY id LIMIT :limit`);
+  const selectSessionAfter = database.prepare(
+    `SELECT ${COLUMNS} FROM message_log WHERE session_id = :sessionId AND id > :after ORDER BY id LIMIT :limit`
+  );
+  const selectLatest = database.prepare(
+    `SELECT * FROM (SELECT ${COLUMNS} FROM message_log ORDER BY id DESC LIMIT :limit) ORDER BY id`
+  );
+  const selectSessionLatest = database.prepare(
+    `SELECT * FROM (
+      SELECT ${COLUMNS} FROM message_log WHERE session_id = :sessionId ORDER BY id DESC LIMIT :limit
+    ) ORDER BY id`
+  );
+  return {
+    append: async (message) => {
+      const { sessionId, messageId } = message;
+      const row = insert.get({ ...message }) ?? selectMessageId.get({ sessionId, messageId });
+      return row;
+    },
+    list: async ({ sessionId, after, limit }) => {
+      if (after === void 0) {
+        const rows2 = sessionId === void 0 ? selectLatest.all({ limit }) : selectSessionLatest.all({ sessionId, limit });
+        return rows2;
+      }
+      const rows = sessionId === void 0 ? selectAfter.all({ after, limit }) : selectSessionAfter.all({ sessionId, after, limit });
+      return rows;
+    }
+  };
+};
+
+// src/storage/session-store.sqlite.ts
+var sqliteSessionStore = (database) => {
+  const insert = database.prepare(
+    `INSERT INTO session (id, agent, directory, started_at) VALUES (:id, :agent, :directory, :startedAt)
+    ON CONFLICT (id) DO NOTHING`
+  );
+  const select = database.prepare("SELECT id, agent, directory, started_at AS startedAt FROM session WHERE id = :id");
+  const get = (id) => select.get({ id });
+  return {
+    register: async (session) => {
+      insert.run({ ...session });
+      return get(session.id) ?? session;
+    },
+    get: async (id) => get(id)
+  };
+};
+
+// src/storage/open-storage.sqlite.ts
+var BUSY_TIMEOUT = 5e3;
+var GITIGNORE = "*\n";
+var MIGRATIONS = [
+  `CREATE TABLE session (
+    id TEXT PRIMARY KEY,
+    agent TEXT NOT NULL CHECK (agent IN ('claude', 'codex')),
+    directory TEXT NOT NULL,
+    started_at INTEGER NOT NULL
+  ) STRICT;
+  CREATE TABLE message_log (
+    id INTEGER PRIMARY KEY,
+    session_id TEXT NOT NULL REFERENCES session (id),
+    message_id TEXT,
+    sender TEXT NOT NULL CHECK (sender IN ('user', 'agent')),
+    content TEXT NOT NULL,
+    timestamp INTEGER NOT NULL,
+    UNIQUE (session_id, message_id)
+  ) STRICT;
+  CREATE INDEX message_log_session ON message_log (session_id, id);`
+];
+var sqliteOpenStorage = async (path) => {
+  const directory = dirname(path);
+  await mkdir(directory, { recursive: true });
+  await writeFile(join2(directory, ".gitignore"), GITIGNORE);
+  const database = new DatabaseSync(path, { timeout: BUSY_TIMEOUT, enableForeignKeyConstraints: true });
+  try {
+    database.exec("PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL;");
+    migrate(database);
+    return {
+      sessions: sqliteSessionStore(database),
+      messageLog: sqliteMessageLogStore(database),
+      close: () => database.close()
+    };
+  } catch (error62) {
+    database.close();
+    throw error62;
+  }
+};
+var migrate = (database) => {
+  database.exec("BEGIN IMMEDIATE");
+  try {
+    const version2 = userVersion(database);
+    if (version2 > MIGRATIONS.length)
+      throw new Error(`The database has schema version ${version2}, newer than ${MIGRATIONS.length}`);
+    for (const step of MIGRATIONS.slice(version2)) database.exec(step);
+    database.exec(`PRAGMA user_version = ${MIGRATIONS.length}`);
+    database.exec("COMMIT");
+  } catch (error62) {
+    database.exec("ROLLBACK");
+    throw error62;
+  }
+};
+var userVersion = (database) => {
+  const row = database.prepare("PRAGMA user_version").get();
+  return Number(row?.user_version ?? 0);
+};
+
+// src/storage/open-storage.ts
+var OpenStorage = sqliteOpenStorage;
+
 // src/web/start-web-server.http.ts
 import { createServer as createServer2 } from "node:http";
 import { text } from "node:stream/consumers";
 var HOST = "127.0.0.1";
 var RPC_PATH = "/rpc";
-var PAGE = [
-  "<!doctype html>",
-  '<html lang="en">',
-  '<head><meta charset="utf-8"><title>atomic-workflow</title></head>',
-  "<body>",
-  "<h1>Hello world</h1>",
-  '<form id="echo"><input name="message" value="Hello" required> <button>Echo</button></form>',
-  '<pre id="response"></pre>',
-  "<script>",
-  "document.getElementById('echo').addEventListener('submit', async (event) => {",
-  "  event.preventDefault();",
-  "  const message = new FormData(event.target).get('message');",
-  "  const request = { jsonrpc: '2.0', id: 1, method: 'echo', params: { message } };",
-  `  const response = await fetch('${RPC_PATH}', { method: 'POST', body: JSON.stringify(request) });`,
-  "  document.getElementById('response').textContent = JSON.stringify(await response.json(), null, 2);",
-  "});",
-  "</script>",
-  "</body>",
-  "</html>",
-  ""
-].join("\n");
+var LATEST_LIMIT = 100;
+var REFRESH_INTERVAL = 2e3;
+var PAGE = `<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>atomic-workflow</title>
+<style>
+  :root { color-scheme: light dark; --muted: #888; --line: #8884; --user: #2a7ae2; --agent: #2e9d5b; }
+  body { margin: 0 auto; max-width: 56rem; padding: 1.5rem; font: 15px/1.5 system-ui, sans-serif; }
+  h1 { font-size: 1.25rem; margin: 0 0 1rem; }
+  #status { color: var(--muted); }
+  article { border-top: 1px solid var(--line); padding: 0.75rem 0; }
+  header { display: flex; gap: 0.75rem; align-items: baseline; font-size: 0.85rem; color: var(--muted); }
+  .sender { font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; }
+  .user .sender { color: var(--user); }
+  .agent .sender { color: var(--agent); }
+  .session { font-family: ui-monospace, monospace; }
+  .content { margin: 0.25rem 0 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+</style>
+</head>
+<body>
+<h1>Message log</h1>
+<p id="status">Loading\u2026</p>
+<main id="messages"></main>
+<script>
+const list = document.getElementById('messages');
+const status = document.getElementById('status');
+let last;
+
+const call = async (method, params) => {
+  const request = { jsonrpc: '2.0', id: 1, method, params };
+  const response = await fetch('${RPC_PATH}', { method: 'POST', body: JSON.stringify(request) });
+  const answer = await response.json();
+  if (answer.error) throw new Error(answer.error.message);
+  return answer.result;
+};
+
+const element = (tag, className, text) => {
+  const node = document.createElement(tag);
+  node.className = className;
+  node.textContent = text;
+  return node;
+};
+
+const render = (message) => {
+  const session = element('span', 'session', message.sessionId.slice(0, 8));
+  session.title = message.sessionId;
+  const header = document.createElement('header');
+  header.append(
+    element('span', 'sender', message.sender),
+    element('time', 'time', new Date(message.timestamp).toLocaleString()),
+    session,
+  );
+  const article = element('article', message.sender, '');
+  article.append(header, element('p', 'content', message.content));
+  return article;
+};
+
+const refresh = async () => {
+  try {
+    const params = last === undefined ? { limit: ${LATEST_LIMIT} } : { after: last, limit: 1000 };
+    const { messages } = await call('listMessages', params);
+    for (const message of messages) list.prepend(render(message));
+    last = messages.length > 0 ? messages[messages.length - 1].id : (last ?? 0);
+    status.textContent = list.childElementCount === 0 ? 'No messages yet.' : '';
+  } catch (error) {
+    status.textContent = 'Could not load the messages: ' + error.message;
+  }
+  setTimeout(refresh, ${REFRESH_INTERVAL});
+};
+
+refresh();
+</script>
+</body>
+</html>
+`;
 var httpStartWebServer = async (handle) => {
   const server = createServer2((request2, response) => void route(handle, request2, response));
   await listen(server);
@@ -20058,17 +20322,17 @@ var respond = (response, status, type, body) => {
   response.end(body);
 };
 var listen = (server) => {
-  return new Promise((resolve, reject) => {
+  return new Promise((resolve2, reject) => {
     server.once("error", reject);
     server.listen(0, HOST, () => {
       server.off("error", reject);
-      resolve();
+      resolve2();
     });
   });
 };
 var close = (server) => {
-  return new Promise((resolve, reject) => {
-    server.close((error62) => error62 === void 0 ? resolve() : reject(error62));
+  return new Promise((resolve2, reject) => {
+    server.close((error62) => error62 === void 0 ? resolve2() : reject(error62));
     server.closeAllConnections();
   });
 };
@@ -20078,11 +20342,21 @@ var StartWebServer = httpStartWebServer;
 
 // src/repository-server.main.ts
 var main = async () => {
-  const { values } = parseArgs({ options: { address: { type: "string" } } });
+  const { values } = parseArgs({ options: { address: { type: "string" }, directory: { type: "string" } } });
   if (values.address === void 0) throw new Error("The argument --address <address> is missing");
-  const webServer = await StartWebServer((message) => Dispatch(Methods, message));
+  if (values.directory === void 0) throw new Error("The argument --directory <directory> is missing");
+  const storage = await OpenStorage(await DatabasePath(values.directory));
   try {
-    await ServeRepository(values.address, webServer.url, Methods, {
+    await serve2(values.address, storage);
+  } finally {
+    storage.close();
+  }
+};
+var serve2 = async (address, storage) => {
+  const context = { sessions: storage.sessions, messageLog: storage.messageLog };
+  const webServer = await StartWebServer((message) => Dispatch(Methods, context, message));
+  try {
+    await ServeRepository(address, webServer.url, Methods, context, {
       dispatch: Dispatch,
       openConnection: OpenRpcConnection
     });

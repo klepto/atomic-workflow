@@ -1,6 +1,6 @@
 import { rm } from 'node:fs/promises';
 import { createConnection, createServer, type Server, type Socket } from 'node:net';
-import type { Method } from '../rpc/method.ts';
+import type { Method, MethodContext } from '../rpc/method.ts';
 import { RpcError, RpcErrorCode } from '../rpc/rpc-error.ts';
 import { HELLO_METHOD, HELLO_PARAMS, type HelloResult, PROTOCOL_VERSION } from './hello.ts';
 import type { ServeRepositoryDependencies, ServeRepositoryFunction } from './serve-repository.ts';
@@ -30,6 +30,11 @@ interface Repository {
   readonly methods: readonly Method[];
 
   /**
+   * Services that the methods run with.
+   */
+  readonly context: MethodContext;
+
+  /**
    * Dependencies of the repository server.
    */
   readonly dependencies: ServeRepositoryDependencies;
@@ -49,10 +54,18 @@ interface Repository {
  * `ServeRepositoryFunction` that listens on a named pipe or a Unix domain socket, and counts the connections that say
  * hello as a session server.
  */
-export const socketServeRepository: ServeRepositoryFunction = async (address, url, methods, dependencies) => {
+export const socketServeRepository: ServeRepositoryFunction = async (address, url, methods, context, dependencies) => {
   const server = createServer();
   const closed = new Promise<void>((resolve) => server.once('close', () => resolve()));
-  const repository: Repository = { server, url, methods, dependencies, sessions: 0, firstAttachTimer: undefined };
+  const repository: Repository = {
+    server,
+    url,
+    methods,
+    context,
+    dependencies,
+    sessions: 0,
+    firstAttachTimer: undefined,
+  };
   server.on('connection', (socket) => serve(repository, socket));
   await listenReclaiming(server, address);
   repository.firstAttachTimer = setTimeout(() => server.close(), FIRST_ATTACH_TIMEOUT);
@@ -77,7 +90,7 @@ const serve = (repository: Repository, socket: Socket): void => {
     if (session && repository.sessions === 0) repository.server.close();
   });
   const methods = [helloMethod(repository.url, attachSession), ...repository.methods];
-  openConnection(socket, (message) => dispatch(methods, message));
+  openConnection(socket, (message) => dispatch(methods, repository.context, message));
 };
 
 /**

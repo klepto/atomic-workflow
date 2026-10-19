@@ -22,7 +22,7 @@ const main = async (): Promise<void> => {
   const { connection } = await Attach(address, 'client', {
     launch: () => Promise.reject(new Error(`No atomic-workflow server runs at ${address}`)),
     openConnection: OpenRpcConnection,
-    handle: (message) => Dispatch([], message),
+    handle: (message) => Dispatch([], undefined, message),
   });
   try {
     const result = await connection.request(method, JSON.parse(params));

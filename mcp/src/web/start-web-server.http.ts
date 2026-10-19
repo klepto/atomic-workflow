@@ -16,29 +16,95 @@ const HOST = '127.0.0.1';
 const RPC_PATH = '/rpc';
 
 /**
- * Page that the web server serves at its root.
+ * Number of the latest messages that the page shows when it opens.
  */
-const PAGE = [
-  '<!doctype html>',
-  '<html lang="en">',
-  '<head><meta charset="utf-8"><title>atomic-workflow</title></head>',
-  '<body>',
-  '<h1>Hello world</h1>',
-  '<form id="echo"><input name="message" value="Hello" required> <button>Echo</button></form>',
-  '<pre id="response"></pre>',
-  '<script>',
-  "document.getElementById('echo').addEventListener('submit', async (event) => {",
-  '  event.preventDefault();',
-  "  const message = new FormData(event.target).get('message');",
-  "  const request = { jsonrpc: '2.0', id: 1, method: 'echo', params: { message } };",
-  `  const response = await fetch('${RPC_PATH}', { method: 'POST', body: JSON.stringify(request) });`,
-  "  document.getElementById('response').textContent = JSON.stringify(await response.json(), null, 2);",
-  '});',
-  '</script>',
-  '</body>',
-  '</html>',
-  '',
-].join('\n');
+const LATEST_LIMIT = 100;
+
+/**
+ * Time in ms between two checks of the page for messages that were logged since the last one.
+ */
+const REFRESH_INTERVAL = 2_000;
+
+/**
+ * Page that the web server serves at its root. It shows the latest messages of the message log, newest first, and
+ * adds the messages that are logged later every `REFRESH_INTERVAL` ms. Content is set as text, never as HTML.
+ */
+const PAGE = `<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>atomic-workflow</title>
+<style>
+  :root { color-scheme: light dark; --muted: #888; --line: #8884; --user: #2a7ae2; --agent: #2e9d5b; }
+  body { margin: 0 auto; max-width: 56rem; padding: 1.5rem; font: 15px/1.5 system-ui, sans-serif; }
+  h1 { font-size: 1.25rem; margin: 0 0 1rem; }
+  #status { color: var(--muted); }
+  article { border-top: 1px solid var(--line); padding: 0.75rem 0; }
+  header { display: flex; gap: 0.75rem; align-items: baseline; font-size: 0.85rem; color: var(--muted); }
+  .sender { font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; }
+  .user .sender { color: var(--user); }
+  .agent .sender { color: var(--agent); }
+  .session { font-family: ui-monospace, monospace; }
+  .content { margin: 0.25rem 0 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+</style>
+</head>
+<body>
+<h1>Message log</h1>
+<p id="status">Loading…</p>
+<main id="messages"></main>
+<script>
+const list = document.getElementById('messages');
+const status = document.getElementById('status');
+let last;
+
+const call = async (method, params) => {
+  const request = { jsonrpc: '2.0', id: 1, method, params };
+  const response = await fetch('${RPC_PATH}', { method: 'POST', body: JSON.stringify(request) });
+  const answer = await response.json();
+  if (answer.error) throw new Error(answer.error.message);
+  return answer.result;
+};
+
+const element = (tag, className, text) => {
+  const node = document.createElement(tag);
+  node.className = className;
+  node.textContent = text;
+  return node;
+};
+
+const render = (message) => {
+  const session = element('span', 'session', message.sessionId.slice(0, 8));
+  session.title = message.sessionId;
+  const header = document.createElement('header');
+  header.append(
+    element('span', 'sender', message.sender),
+    element('time', 'time', new Date(message.timestamp).toLocaleString()),
+    session,
+  );
+  const article = element('article', message.sender, '');
+  article.append(header, element('p', 'content', message.content));
+  return article;
+};
+
+const refresh = async () => {
+  try {
+    const params = last === undefined ? { limit: ${LATEST_LIMIT} } : { after: last, limit: 1000 };
+    const { messages } = await call('listMessages', params);
+    for (const message of messages) list.prepend(render(message));
+    last = messages.length > 0 ? messages[messages.length - 1].id : (last ?? 0);
+    status.textContent = list.childElementCount === 0 ? 'No messages yet.' : '';
+  } catch (error) {
+    status.textContent = 'Could not load the messages: ' + error.message;
+  }
+  setTimeout(refresh, ${REFRESH_INTERVAL});
+};
+
+refresh();
+</script>
+</body>
+</html>
+`;
 
 /**
  * `StartWebServerFunction` that serves over HTTP on a port that the system picks. It serves the page at `/`, and

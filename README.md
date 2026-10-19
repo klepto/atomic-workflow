@@ -29,7 +29,7 @@ A Claude Code plugin with one skill, `/atomic-workflow`, and one MCP server that
 
 ## Phase 1
 
-The repository server serves a web UI, which only says hello world so far.
+The repository server serves a web UI, which only said hello world in this phase.
 
 - The repository server starts an HTTP server on a free port of `127.0.0.1` before it listens on its address, and stops
   it when it ends.
@@ -63,6 +63,100 @@ its message.
 ← {"jsonrpc":"2.0","id":1,"result":{"message":"Hi"}}
 ```
 
+## Phase 3
+
+The repository server keeps persistent data in one SQLite database per repository. The first data is the sessions and
+a message log:
+
+- A session has the identifier that its agent gives it, its agent, `claude` or `codex`, the directory of its project
+  and its start time. A session stays registered for good, and registering it again changes nothing.
+- A message belongs to a registered session, and has a sender, `user` or `agent`, a content and a timestamp in ms
+  since the epoch. It may have a message id, which the agent gives it, and which its session logs only once.
+  The log can be read for one session or for all of them.
+
+How it works:
+
+- Data sits behind stores, one interface per kind of data, such as `MessageLogStore`. Methods reach the stores through
+  the context that dispatch passes to them, never through SQLite.
+- The database file is `.agents/atomic-workflow/database/database.db` in the main worktree, which `git worktree list`
+  names first. Every worktree of a repository shares it. The files of the write-ahead log sit beside it, and a
+  `.gitignore` with `*` keeps the whole directory out of git.
+- Only the repository server opens the database, so no two processes write to it at once, except for a moment when two
+  repository servers start at the same time. The session server passes the directory of its project with
+  `--directory`.
+- The database uses the built-in `node:sqlite` of Node.js, so the bundles stay free of native modules.
+- `PRAGMA user_version` counts the steps of the schema that the database has run. The repository server runs the
+  missing steps on start, in one transaction, and refuses a database that is newer than itself.
+- The methods `registerSession`, `logMessage` and `listMessages` register a session, add to the log and read it.
+  Agents do not see them as tools.
+
+## Phase 4
+
+The session server logs the transcript of its session into the message log, from `activate` until its connection to
+the repository server closes. The log costs the session no tokens: no tool, no tool result and no hook takes part in
+it, and its failures go to the standard error of the session server, which only the logs of the agent show.
+
+- The transcript is the file that the agent appends one line of JSON to for each entry of the session. A `Transcript`
+  hides the agent: it names the agent, the session and the file, and turns a line into a message, or into none.
+  `FindTranscript` detects the agent from the environment. Only Claude Code is supported; Codex needs one more
+  implementation of `FindTranscriptFunction`, which `FindTranscript` then tries as well.
+- Claude Code writes the transcript to
+  `<session id>.jsonl` in a directory of `~/.claude/projects/`, or of `$CLAUDE_CONFIG_DIR/projects/`. The session
+  server looks for the file in every directory there. A file that does not exist yet is expected in the directory that
+  is named after `CLAUDE_PROJECT_DIR`, with each character that is not a letter or a digit replaced by `-`.
+- A user message is an entry of the type `user` with text. An agent message is the text of an entry of the type
+  `assistant`. Tool calls, tool results, thinking, entries that Claude Code wrote itself (`isMeta`), entries of
+  subagents (`isSidechain`) and summaries of a compaction are no messages. The format is internal to Claude Code, so
+  the session server reads only the fields that it needs, and skips a line that it does not understand.
+- The session server registers the session, then reads the transcript from its start and checks its size every 500 ms
+  for appended bytes. It keeps an incomplete last line, and a character whose bytes a read splits, for the next read.
+  A check of the size works the same on every file system, which a watch of the file does not.
+- Each message carries the identifier that the agent gives it, `uuid` for Claude Code, as its message id. A session
+  logs each message id once, so a session server that reads the transcript again from its start,
+  after a new `activate`, adds no message twice.
+- After `/clear`, Claude Code runs a new session with a new transcript in the same process, so the session server and
+  its connection stay. Claude Code writes the id of the session that it runs now to `sessions/<process id>.json` in its
+  configuration directory, and the session server is a direct child of Claude Code, so it finds the file through the
+  process id of its parent. While attached, it reads the file every 500 ms. When the id changes, it reads the old
+  transcript one last time, then registers the new session and logs its transcript, with no new `activate`. Without
+  the file, it uses `CLAUDE_CODE_SESSION_ID`, the session that Claude Code started it in, and does not follow `/clear`.
+- The page of the web server shows the latest 100 messages of the log, newest first, and asks every 2 seconds for
+  the messages after the newest one it shows. `listMessages` without `after` returns the latest messages.
+
+Rejected:
+
+- The agent calls a tool for each message. It costs tokens on every turn, depends on the model, and cannot log the
+  last output of the model.
+- Hooks on `UserPromptSubmit`, `PostToolUse` and `Stop`. Each event starts a Node process, about 100 ms on Windows,
+  and the text of the assistant between tools is missing, so the transcript is needed anyway.
+
+## Ideas
+
+Findings for later phases. Nothing here is built yet.
+
+### Deliver messages to a session
+
+The repository server calls a new method `deliver` on the session server of the target session, and the session
+server puts the message into the chat. The JSON-RPC 2.0 connection already carries requests in both directions.
+
+- `hello` takes the session id beside the role, so that the repository server can send a message to the connection of
+  one session.
+- The session server answers `deliver` through the list of methods that it passes to `dispatch`, which is empty today.
+- Preferred way into the chat: a channel. The MCP server declares the experimental capability `claude/channel` and
+  sends the notification `notifications/claude/channel` with the message. The agent sees it as a new event, also while
+  the session is idle. Channels are a research preview, need the flag `--channels`, and a plugin outside the allowlist
+  needs `--dangerously-load-development-channels`. The names are from memory: check the docs first.
+- Fallback: a command `watch` of the command line tool connects to the repository server and prints one line per
+  message. The agent starts it once with the Monitor tool, and each line wakes the agent. It only uses stable
+  features, but it needs one more process, and the agent must start it.
+- Delivered messages land in the transcript, so the log of phase 4 has them without more work.
+
+Rejected:
+
+- Hooks that poll on `UserPromptSubmit` or `Stop`. They only deliver at the boundaries of a turn, so an idle session
+  never sees the message.
+- `CLAUDE_CODE_MESSAGING_SOCKET` and the inbox tools of Claude Code. Their protocol is internal and not documented.
+
 ## Layout
 
 ```
@@ -81,6 +175,8 @@ mcp/                              the MCP project: sources, configs and build
                                   hello
     rpc/                          JSON-RPC 2.0: messages, connection, dispatch, and the methods
     launch/                       start of a process outside the process tree of the caller
+    storage/                      persistent data: the stores, their SQLite implementations and the database file
+    transcript/                   the transcript of a session: find it, follow it, and log its messages
     web/                          the web server of the repository server
   scripts/build.main.ts           builds plugin/dist/
 ```

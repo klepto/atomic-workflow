@@ -8,6 +8,9 @@ import { Launch, type LaunchFunction } from './launch/launch.ts';
 import { Dispatch, type DispatchFunction } from './rpc/dispatch.ts';
 import { type Method, Methods } from './rpc/method.ts';
 import { OpenRpcConnection, type OpenRpcConnectionFunction, type RpcConnection } from './rpc/rpc-connection.ts';
+import { FindTranscript, type FindTranscriptFunction } from './transcript/find-transcript.ts';
+import { LogTranscript, type LogTranscriptFunction } from './transcript/log-transcript.ts';
+import { TailFile, type TailFileFunction } from './transcript/tail-file.ts';
 
 /**
  * Name of the MCP server, under which a session sees its tools.
@@ -52,6 +55,21 @@ interface SessionDependencies {
    * Function that runs each request of the repository server with its method.
    */
   readonly dispatch: DispatchFunction;
+
+  /**
+   * Function that finds the transcript of the session.
+   */
+  readonly findTranscript: FindTranscriptFunction;
+
+  /**
+   * Function that logs the transcript of the session to the repository server.
+   */
+  readonly logTranscript: LogTranscriptFunction;
+
+  /**
+   * Function that follows the file of the transcript.
+   */
+  readonly tailFile: TailFileFunction;
 }
 
 /**
@@ -62,6 +80,16 @@ interface Session {
    * Directory of the project of the session.
    */
   readonly directory: string;
+
+  /**
+   * Environment variables of the session server, which tell the agent of the session and the session.
+   */
+  readonly environment: NodeJS.ProcessEnv;
+
+  /**
+   * Process id of the parent of the session server, which is the agent of the session.
+   */
+  readonly parentProcessId: number;
 
   /**
    * Dependencies of the session server.
@@ -89,12 +117,17 @@ const main = async (): Promise<void> => {
   const server = new McpServer({ name: SERVER_NAME, version: '0.0.0' });
   const session: Session = {
     directory: process.env.CLAUDE_PROJECT_DIR ?? process.cwd(),
+    environment: process.env,
+    parentProcessId: process.ppid,
     dependencies: {
       repositoryAddress: RepositoryAddress,
       attach: Attach,
       launch: Launch,
       openConnection: OpenRpcConnection,
       dispatch: Dispatch,
+      findTranscript: FindTranscript,
+      logTranscript: LogTranscript,
+      tailFile: TailFile,
     },
     server,
     attachment: undefined,
@@ -137,25 +170,62 @@ const attachedMessage = (attachment: Attachment): string => {
 
 /**
  * Returns the attachment of `session` to the repository server, and offers one tool per method of `Methods` that
- * agents can call while it lasts. When the connection closes, the tools go away and the session becomes dormant again.
+ * agents can call while it lasts. While it lasts, the transcript of the session is logged to the repository server as
+ * well. When the connection closes, the tools go away, the log stops and the session becomes dormant again.
  */
 const attach = async (session: Session): Promise<Attachment> => {
   const { repositoryAddress, attach, launch, openConnection, dispatch } = session.dependencies;
   const address = await repositoryAddress(session.directory);
   const attachment = await attach(address, 'session', {
-    launch: () => launch([process.execPath, REPOSITORY_SERVER, '--address', address]),
+    launch: () => launch([process.execPath, REPOSITORY_SERVER, '--address', address, '--directory', session.directory]),
     openConnection,
     // The repository server calls no method of a session server yet.
-    handle: (message) => dispatch([], message),
+    handle: (message) => dispatch([], undefined, message),
   });
   const tools = Methods.filter((method) => method.agent).map((method) =>
     registerTool(session.server, attachment.connection, method),
   );
+  const logging = new AbortController();
   void attachment.connection.closed.then(() => {
     session.attachment = undefined;
+    logging.abort();
     for (const tool of tools) tool.remove();
   });
+  void tailTranscript(session, attachment.connection, logging.signal);
   return attachment;
+};
+
+/**
+ * Logs the transcript of `session` over `connection` until `signal` aborts. When the agent moves on to a new session,
+ * such as after `/clear`, the log moves on to the transcript of the new session. The log costs the session no tokens,
+ * since no tool and no result takes part in it, so a failure goes to the standard error, which only the logs of the
+ * agent show. A session of an agent without a known transcript logs nothing.
+ */
+const tailTranscript = async (session: Session, connection: RpcConnection, signal: AbortSignal): Promise<void> => {
+  try {
+    while (!signal.aborted && (await logCurrentTranscript(session, connection, signal)));
+  } catch (error) {
+    // A request that the close of the connection cuts short is no failure of the log.
+    if (!signal.aborted)
+      process.stderr.write(`Could not log the transcript: ${messageOf(error)}
+`);
+  }
+};
+
+/**
+ * Logs the transcript of the session that the agent of `session` runs now over `connection`, until that session ends
+ * or `signal` aborts, and returns `true`. If the agent has no known transcript, returns `false` instead.
+ */
+const logCurrentTranscript = async (
+  session: Session,
+  connection: RpcConnection,
+  signal: AbortSignal,
+): Promise<boolean> => {
+  const { findTranscript, logTranscript, tailFile } = session.dependencies;
+  const transcript = await findTranscript(session.environment, session.parentProcessId);
+  if (transcript === undefined) return false;
+  await logTranscript(transcript, session.directory, connection, signal, { tailFile });
+  return true;
 };
 
 /**

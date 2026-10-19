@@ -18,11 +18,11 @@ const REQUEST = z.object({
  * `DispatchFunction` that checks the request and the parameters with zod. Batches are not supported: an array is not
  * a valid request.
  */
-export const zodDispatch: DispatchFunction = async (methods, message) => {
+export const zodDispatch: DispatchFunction = async (methods, context, message) => {
   const request = REQUEST.safeParse(message);
   if (!request.success) return new RpcError(RpcErrorCode.INVALID_REQUEST, 'Invalid request').toResponse(idOf(message));
   const { id, method, params } = request.data;
-  const outcome = await call(methods, method, params);
+  const outcome = await call(methods, context, method, params);
   if (id === undefined) return undefined;
   return 'error' in outcome
     ? { jsonrpc: '2.0', id, error: outcome.error }
@@ -38,11 +38,12 @@ const idOf = (message: unknown): RpcId | null => {
 };
 
 /**
- * Returns the result of the method of `methods` named `name` with the parameters `params`, or the error object of its
- * failure.
+ * Returns the result of the method of `methods` named `name` with the parameters `params` and the services of
+ * `context`, or the error object of its failure.
  */
-const call = async (
-  methods: readonly Method[],
+const call = async <Context>(
+  methods: readonly Method<z.ZodObject, unknown, Context>[],
+  context: Context,
   name: string,
   params: unknown,
 ): Promise<{ readonly result: unknown } | { readonly error: RpcErrorObject }> => {
@@ -53,7 +54,7 @@ const call = async (
   if (!parsed.success) return { error: { code: RpcErrorCode.INVALID_PARAMS, message: z.prettifyError(parsed.error) } };
   try {
     // JSON leaves out a result that is `undefined`, which a response must have.
-    return { result: (await method.handle(parsed.data)) ?? null };
+    return { result: (await method.handle(parsed.data, context)) ?? null };
   } catch (error) {
     return { error: errorObject(error) };
   }

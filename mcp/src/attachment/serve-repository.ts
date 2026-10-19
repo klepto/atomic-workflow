@@ -1,5 +1,5 @@
 import type { DispatchFunction } from '../rpc/dispatch.ts';
-import type { Method } from '../rpc/method.ts';
+import type { Method, MethodContext } from '../rpc/method.ts';
 import type { OpenRpcConnectionFunction } from '../rpc/rpc-connection.ts';
 import { socketServeRepository } from './serve-repository.socket.ts';
 
@@ -20,7 +20,8 @@ export interface ServeRepositoryDependencies {
 
 /**
  * Function that serves as the repository server at `address`, and resolves when the last session server that
- * attached to it leaves. Each client calls `hello` first, which returns `url`, and then the methods of `methods`. A
+ * attached to it leaves. Each client calls `hello` first, which returns `url`, and then the methods of `methods`,
+ * which run with the services of `context`. A
  * client counts as an attached session server once it says hello in the role `session`. A repository server that no
  * session server attaches to in its first seconds ends as well.
  * If another repository server serves `address` already, rejects.
@@ -29,6 +30,7 @@ export type ServeRepositoryFunction = (
   address: string,
   url: string,
   methods: readonly Method[],
+  context: MethodContext,
   dependencies: ServeRepositoryDependencies,
 ) => Promise<void>;
 
