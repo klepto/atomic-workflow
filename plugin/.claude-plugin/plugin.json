@@ -1,0 +1,7 @@
+{
+  "name": "atomic-workflow",
+  "version": "0.0.0",
+  "description": "Atomic workflow of a repository, served by one MCP server per repository.",
+  "author": { "name": "klepto" },
+  "license": "MIT"
+}

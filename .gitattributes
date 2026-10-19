@@ -1,0 +1,2 @@
+# The build writes the plugin with line feeds only, so a build on any system gives the same bytes.
+plugin/dist/** -text

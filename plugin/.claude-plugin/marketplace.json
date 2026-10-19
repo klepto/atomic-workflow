@@ -1,0 +1,12 @@
+{
+  "name": "atomic-workflow",
+  "description": "Local marketplace for the atomic-workflow plugin.",
+  "owner": { "name": "klepto" },
+  "plugins": [
+    {
+      "name": "atomic-workflow",
+      "source": "./",
+      "description": "Atomic workflow of a repository, served by one MCP server per repository."
+    }
+  ]
+}
