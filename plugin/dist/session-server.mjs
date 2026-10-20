@@ -36596,7 +36596,7 @@ import { createConnection } from "node:net";
 import { setTimeout as sleep } from "node:timers/promises";
 
 // src/attachment/hello.ts
-var PROTOCOL_VERSION = 1;
+var PROTOCOL_VERSION = 2;
 var HELLO_METHOD = "hello";
 var HELLO_PARAMS = external_exports.object({
   protocol: external_exports.number().int(),
@@ -36654,6 +36654,12 @@ var hello = async (connection, role) => {
 
 // src/attachment/attach.ts
 var Attach = socketAttach;
+
+// src/attachment/bind-session.ts
+var BIND_SESSION_METHOD = "bindSession";
+var BIND_SESSION_PARAMS = external_exports.object({
+  sessionId: external_exports.string().min(1)
+});
 
 // src/attachment/repository-address.git.ts
 import { execFile } from "node:child_process";
@@ -36802,18 +36808,57 @@ var errorObject = (error62) => {
 // src/rpc/dispatch.ts
 var Dispatch = zodDispatch;
 
+// src/rpc/session-method.deliver.ts
+var PARAMS = external_exports.object({ content: external_exports.string().min(1).describe("Text of the message") });
+var deliverMethod = {
+  name: "deliver",
+  description: "Puts a message into the chat of the session.",
+  agent: false,
+  params: PARAMS,
+  handle: ({ content }, { pushMessage: pushMessage2 }) => pushMessage2(content)
+};
+
+// src/rpc/method.deliver-message.ts
+var PARAMS2 = external_exports.object({
+  sessionId: external_exports.string().describe("Identifier of the attached session to deliver the message to"),
+  content: external_exports.string().min(1).describe("Text of the message")
+});
+var deliverMessageMethod = {
+  name: "deliverMessage",
+  description: "Puts a message into the chat of an attached session of the repository.",
+  agent: false,
+  params: PARAMS2,
+  handle: async ({ sessionId, content }, { sessionConnections }) => {
+    const connection = sessionConnections.get(sessionId);
+    if (connection === void 0)
+      throw new RpcError(RpcErrorCode.INVALID_PARAMS, `No session ${sessionId} is attached`);
+    const params = { content };
+    await connection.request(deliverMethod.name, params);
+  }
+};
+
 // src/rpc/method.echo.ts
-var PARAMS = external_exports.object({ message: external_exports.string().describe("Text to send back") });
+var PARAMS3 = external_exports.object({ message: external_exports.string().describe("Text to send back") });
 var echoMethod = {
   name: "echo",
   description: "Sends a message to the atomic-workflow server, which returns it unchanged. Use it to test the connection.",
   agent: true,
-  params: PARAMS,
+  params: PARAMS3,
   handle: async ({ message }) => ({ message })
 };
 
+// src/rpc/method.list-attached-sessions.ts
+var PARAMS4 = external_exports.object({});
+var listAttachedSessionsMethod = {
+  name: "listAttachedSessions",
+  description: "Returns the ids of the sessions of the repository that messages can be delivered to now.",
+  agent: false,
+  params: PARAMS4,
+  handle: async (_params, { sessionConnections }) => ({ sessionIds: sessionConnections.list() })
+};
+
 // src/rpc/method.list-messages.ts
-var PARAMS2 = external_exports.object({
+var PARAMS5 = external_exports.object({
   sessionId: external_exports.string().optional().describe("Identifier of the session whose messages to return, all when left out"),
   after: external_exports.number().int().nonnegative().optional().describe("Identifier after which the list starts, 0 for the start, the latest messages when left out"),
   limit: external_exports.number().int().min(1).max(1e3).default(100).describe("Greatest number of messages to return")
@@ -36822,7 +36867,7 @@ var listMessagesMethod = {
   name: "listMessages",
   description: "Returns the messages of the message log of the repository after an identifier, or the latest ones.",
   agent: false,
-  params: PARAMS2,
+  params: PARAMS5,
   handle: async ({ sessionId, after, limit }, { messageLog }) => ({
     messages: await messageLog.list({ sessionId, after, limit })
   })
@@ -36832,7 +36877,7 @@ var listMessagesMethod = {
 var MESSAGE_SENDERS = ["user", "agent"];
 
 // src/rpc/method.log-message.ts
-var PARAMS3 = external_exports.object({
+var PARAMS6 = external_exports.object({
   sessionId: external_exports.string().describe("Identifier of the registered session that the message belongs to"),
   messageId: external_exports.string().optional().describe("Identifier that the agent gives the message, unique in its session"),
   sender: external_exports.enum(MESSAGE_SENDERS).describe("Who wrote the message: user or agent"),
@@ -36843,7 +36888,7 @@ var logMessageMethod = {
   name: "logMessage",
   description: "Adds a message to the message log of the repository, and returns it with its identifier.",
   agent: false,
-  params: PARAMS3,
+  params: PARAMS6,
   handle: async ({ sessionId, messageId, sender, content, timestamp = Date.now() }, { sessions, messageLog }) => {
     if (await sessions.get(sessionId) === void 0)
       throw new RpcError(RpcErrorCode.INVALID_PARAMS, `No session ${sessionId} is registered`);
@@ -36855,7 +36900,7 @@ var logMessageMethod = {
 var AGENTS = ["claude", "codex"];
 
 // src/rpc/method.register-session.ts
-var PARAMS4 = external_exports.object({
+var PARAMS7 = external_exports.object({
   sessionId: external_exports.string().min(1).describe("Identifier of the session, as the agent gives it"),
   agent: external_exports.enum(AGENTS).describe("Agent that the session runs in: claude or codex"),
   directory: external_exports.string().min(1).describe("Absolute path of the directory of the project of the session"),
@@ -36865,12 +36910,19 @@ var registerSessionMethod = {
   name: "registerSession",
   description: "Registers a session of an agent in the repository, so that its messages can be logged.",
   agent: false,
-  params: PARAMS4,
+  params: PARAMS7,
   handle: ({ sessionId, agent, directory, startedAt = Date.now() }, { sessions }) => sessions.register({ id: sessionId, agent, directory, startedAt })
 };
 
 // src/rpc/method.ts
-var Methods = [echoMethod, registerSessionMethod, logMessageMethod, listMessagesMethod];
+var Methods = [
+  echoMethod,
+  registerSessionMethod,
+  logMessageMethod,
+  listMessagesMethod,
+  listAttachedSessionsMethod,
+  deliverMessageMethod
+];
 
 // src/rpc/rpc-connection.ndjson.ts
 import { createInterface } from "node:readline";
@@ -36954,6 +37006,9 @@ var send = (connection, message) => {
 // src/rpc/rpc-connection.ts
 var OpenRpcConnection = ndjsonOpenRpcConnection;
 
+// src/rpc/session-method.ts
+var SessionMethods = [deliverMethod];
+
 // src/transcript/find-transcript.claude.ts
 import { access, readdir, readFile } from "node:fs/promises";
 import { homedir } from "node:os";
@@ -36966,6 +37021,7 @@ var ENTRY = external_exports.object({
   isMeta: external_exports.boolean().optional(),
   isSidechain: external_exports.boolean().optional(),
   isCompactSummary: external_exports.boolean().optional(),
+  origin: external_exports.object({ kind: external_exports.string() }).optional(),
   message: external_exports.object({
     content: external_exports.union([external_exports.string(), external_exports.array(external_exports.object({ type: external_exports.string(), text: external_exports.string().optional() }))])
   })
@@ -37038,13 +37094,16 @@ var expectedTranscriptFile = (projects, name, environment) => {
   const directory = environment.CLAUDE_PROJECT_DIR;
   return directory === void 0 ? void 0 : join2(projects, directory.replace(/[^a-zA-Z0-9]/g, "-"), name);
 };
+var CHANNEL_TAG = /^<channel\b[^>]*>\n?([\s\S]*?)\n?<\/channel>$/;
 var parseEntry = (line) => {
   const entry = ENTRY.safeParse(parseJson(line));
   if (!entry.success) return void 0;
-  const { type, uuid: uuid3, timestamp, isMeta, isSidechain, isCompactSummary, message } = entry.data;
+  const { type, uuid: uuid3, timestamp, isMeta, isSidechain, isCompactSummary, origin, message } = entry.data;
   const sender = SENDERS.get(type);
-  if (sender === void 0 || isMeta || isSidechain || isCompactSummary) return void 0;
-  const content = textOf(message.content);
+  const channel = origin?.kind === "channel";
+  if (sender === void 0 || isMeta && !channel || isSidechain || isCompactSummary) return void 0;
+  const text2 = textOf(message.content);
+  const content = channel ? CHANNEL_TAG.exec(text2)?.[1] ?? text2 : text2;
   return content === "" ? void 0 : { messageId: uuid3, sender, content, timestamp: Date.parse(timestamp) };
 };
 var textOf = (content) => {
@@ -37138,12 +37197,16 @@ var TailFile = pollTailFile;
 
 // src/session-server.main.ts
 var SERVER_NAME = "atomic-workflow";
+var INSTRUCTIONS = 'Messages from the atomic-workflow server arrive as <channel source="...atomic-workflow"> events. Handle each one like a message of the user.';
 var REPOSITORY_SERVER = join3(
   import.meta.dirname,
   basename(import.meta.filename).replace("session-server", "repository-server")
 );
 var main = async () => {
-  const server = new McpServer({ name: SERVER_NAME, version: "0.0.0" });
+  const server = new McpServer(
+    { name: SERVER_NAME, version: "0.0.0" },
+    { capabilities: { experimental: { "claude/channel": {} } }, instructions: INSTRUCTIONS }
+  );
   const session = {
     directory: process.env.CLAUDE_PROJECT_DIR ?? process.cwd(),
     environment: process.env,
@@ -37159,6 +37222,7 @@ var main = async () => {
       tailFile: TailFile
     },
     server,
+    context: { pushMessage: (content) => pushMessage(server, content) },
     attachment: void 0
   };
   server.registerTool(
@@ -37168,6 +37232,9 @@ var main = async () => {
   );
   process.stdin.once("close", () => process.exit());
   await server.connect(new StdioServerTransport());
+};
+var pushMessage = (server, content) => {
+  return server.server.notification({ method: "notifications/claude/channel", params: { content } });
 };
 var activate = (session) => {
   const active = session.attachment !== void 0;
@@ -37193,8 +37260,7 @@ var attach = async (session) => {
   const attachment2 = await attach2(address, "session", {
     launch: () => launch([process.execPath, REPOSITORY_SERVER, "--address", address, "--directory", session.directory]),
     openConnection,
-    // The repository server calls no method of a session server yet.
-    handle: (message) => dispatch([], void 0, message)
+    handle: (message) => dispatch(SessionMethods, session.context, message)
   });
   const tools = Methods.filter((method) => method.agent).map(
     (method) => registerTool(session.server, attachment2.connection, method)
@@ -37205,22 +37271,24 @@ var attach = async (session) => {
     logging.abort();
     for (const tool of tools) tool.remove();
   });
-  void tailTranscript(session, attachment2.connection, logging.signal);
+  void followSessions(session, attachment2.connection, logging.signal);
   return attachment2;
 };
-var tailTranscript = async (session, connection, signal) => {
+var followSessions = async (session, connection, signal) => {
   try {
-    while (!signal.aborted && await logCurrentTranscript(session, connection, signal)) ;
+    while (!signal.aborted && await followCurrentSession(session, connection, signal)) ;
   } catch (error62) {
     if (!signal.aborted)
-      process.stderr.write(`Could not log the transcript: ${messageOf(error62)}
+      process.stderr.write(`Could not follow the session: ${messageOf(error62)}
 `);
   }
 };
-var logCurrentTranscript = async (session, connection, signal) => {
+var followCurrentSession = async (session, connection, signal) => {
   const { findTranscript, logTranscript, tailFile } = session.dependencies;
   const transcript = await findTranscript(session.environment, session.parentProcessId);
   if (transcript === void 0) return false;
+  const params = { sessionId: transcript.sessionId };
+  await connection.request(BIND_SESSION_METHOD, params, signal);
   await logTranscript(transcript, session.directory, connection, signal, { tailFile });
   return true;
 };

@@ -106,8 +106,10 @@ it, and its failures go to the standard error of the session server, which only 
   is named after `CLAUDE_PROJECT_DIR`, with each character that is not a letter or a digit replaced by `-`.
 - A user message is an entry of the type `user` with text. An agent message is the text of an entry of the type
   `assistant`. Tool calls, tool results, thinking, entries that Claude Code wrote itself (`isMeta`), entries of
-  subagents (`isSidechain`) and summaries of a compaction are no messages. The format is internal to Claude Code, so
-  the session server reads only the fields that it needs, and skips a line that it does not understand.
+  subagents (`isSidechain`) and summaries of a compaction are no messages. A message that a channel delivered is an
+  entry that Claude Code wrote itself, but with `origin.kind` `channel`, so it is a user message, without the
+  `<channel>` tag around it. The format is internal to Claude Code, so the session server reads only the fields that it
+  needs, and skips a line that it does not understand.
 - The session server registers the session, then reads the transcript from its start and checks its size every 500 ms
   for appended bytes. It keeps an incomplete last line, and a character whose bytes a read splits, for the next read.
   A check of the size works the same on every file system, which a watch of the file does not.
@@ -130,32 +132,50 @@ Rejected:
 - Hooks on `UserPromptSubmit`, `PostToolUse` and `Stop`. Each event starts a Node process, about 100 ms on Windows,
   and the text of the assistant between tools is missing, so the transcript is needed anyway.
 
-## Ideas
+## Phase 5
 
-Findings for later phases. Nothing here is built yet.
+The repository server delivers messages to an attached session, and the session server puts each one into the chat
+of its session, where the agent sees it as a new event, also while the session is idle.
 
-### Deliver messages to a session
+- A session server calls `bindSession` with the id of its session after `hello`, and again each time the agent moves
+  on to a new session, such as after `/clear`. The repository server keeps the connection of each bound session in
+  memory. A connection serves one session at a time, and a closed connection serves none. Only a client in the role
+  `session` can bind a session.
+- `deliverMessage` takes the id of a session and the text of a message, and calls `deliver` on the session server of
+  that session. It fails when no attached session server serves the session. Agents do not see it as a tool.
+- `listAttachedSessions` returns the ids of the bound sessions, the latest bound last.
+- The page of the web server has a form above the log: a text area, the attached session to send to, the latest one
+  unless another is picked, and a button. Ctrl+Enter sends as well. The form calls `deliverMessage`, and the list of
+  sessions is refreshed with the log.
+- `deliver` is the only method of a session server, in its own list, `SessionMethods`. Its context pushes the message
+  into the chat.
+- The way into the chat is a channel, a research preview of Claude Code. The session server declares the experimental
+  capability `claude/channel` and sends the notification `notifications/claude/channel` with the message as its
+  `content`. The agent sees it as `<channel source="...">` with the message in it. Its `instructions` tell the agent to
+  handle each message like a message of the user.
+- Claude Code loads a channel only when the session starts with `--channels`, which only accepts plugins of an
+  allowlist. This plugin is not on it, so the session needs
+  `--dangerously-load-development-channels plugin:atomic-workflow@atomic-workflow` and a confirmation at start.
+  Without it, Claude Code drops each message without a word, and `deliverMessage` still succeeds.
+- Claude Code confirms no message, so `deliverMessage` resolves once the session server has sent it to the agent.
+- `PROTOCOL_VERSION` is 2. A session server and a repository server of different versions do not attach: a repository
+  server that still runs from before the update serves until its last session leaves.
+- The web server only answers requests to the host and port of its URL, and a `POST` to `/rpc` must declare
+  `Content-Type: application/json`. A web page of another origin then cannot send a message, and a host name that
+  resolves to the local host does not reach the web server.
 
-The repository server calls a new method `deliver` on the session server of the target session, and the session
-server puts the message into the chat. The JSON-RPC 2.0 connection already carries requests in both directions.
-
-- `hello` takes the session id beside the role, so that the repository server can send a message to the connection of
-  one session.
-- The session server answers `deliver` through the list of methods that it passes to `dispatch`, which is empty today.
-- Preferred way into the chat: a channel. The MCP server declares the experimental capability `claude/channel` and
-  sends the notification `notifications/claude/channel` with the message. The agent sees it as a new event, also while
-  the session is idle. Channels are a research preview, need the flag `--channels`, and a plugin outside the allowlist
-  needs `--dangerously-load-development-channels`. The names are from memory: check the docs first.
-- Fallback: a command `watch` of the command line tool connects to the repository server and prints one line per
-  message. The agent starts it once with the Monitor tool, and each line wakes the agent. It only uses stable
-  features, but it needs one more process, and the agent must start it.
-- Delivered messages land in the transcript, so the log of phase 4 has them without more work.
+```
+node src/cli.main.ts deliverMessage '{"sessionId":"<session id>","content":"Run the tests"}'
+```
 
 Rejected:
 
+- A command `watch` of the command line tool that prints one line per message, which the agent starts with the Monitor
+  tool. It only uses stable features, but it needs one more process, and the agent must start it.
 - Hooks that poll on `UserPromptSubmit` or `Stop`. They only deliver at the boundaries of a turn, so an idle session
   never sees the message.
 - `CLAUDE_CODE_MESSAGING_SOCKET` and the inbox tools of Claude Code. Their protocol is internal and not documented.
+- The session id in `hello`. It changes after `/clear` while the connection stays.
 
 ## Layout
 
@@ -171,8 +191,8 @@ mcp/                              the MCP project: sources, configs and build
     session-server.main.ts        entry point of the session server
     repository-server.main.ts     entry point of the repository server
     cli.main.ts                   entry point of the command line tool, which calls one method
-    attachment/                   the pipe between clients and the repository server: address, attach, serve and
-                                  hello
+    attachment/                   the pipe between clients and the repository server: address, attach, serve,
+                                  hello and the connections of the bound sessions
     rpc/                          JSON-RPC 2.0: messages, connection, dispatch, and the methods
     launch/                       start of a process outside the process tree of the caller
     storage/                      persistent data: the stores, their SQLite implementations and the database file
@@ -186,4 +206,6 @@ mcp/                              the MCP project: sources, configs and build
 - Run `npm` and `npx` in `mcp/`.
 - `npm run build` bundles `plugin/dist/`. `npm run typecheck` and `npx biome ci` check the sources.
 - `claude --plugin-dir ./plugin` runs a session with the plugin loaded from the working copy.
+- `claude --dangerously-load-development-channels plugin:atomic-workflow@atomic-workflow` runs a session that receives
+  delivered messages, with the plugin installed from its local marketplace.
 - `node src/cli.main.ts echo '{"message":"Hi"}'` calls a method on the running repository server of the repository.

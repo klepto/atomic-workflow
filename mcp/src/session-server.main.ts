@@ -3,11 +3,13 @@ import { McpServer, type RegisteredTool } from '@modelcontextprotocol/sdk/server
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import { Attach, type AttachFunction, type Attachment } from './attachment/attach.ts';
+import { BIND_SESSION_METHOD, type BindSessionParams } from './attachment/bind-session.ts';
 import { RepositoryAddress, type RepositoryAddressFunction } from './attachment/repository-address.ts';
 import { Launch, type LaunchFunction } from './launch/launch.ts';
 import { Dispatch, type DispatchFunction } from './rpc/dispatch.ts';
 import { type Method, Methods } from './rpc/method.ts';
 import { OpenRpcConnection, type OpenRpcConnectionFunction, type RpcConnection } from './rpc/rpc-connection.ts';
+import { type SessionMethodContext, SessionMethods } from './rpc/session-method.ts';
 import { FindTranscript, type FindTranscriptFunction } from './transcript/find-transcript.ts';
 import { LogTranscript, type LogTranscriptFunction } from './transcript/log-transcript.ts';
 import { TailFile, type TailFileFunction } from './transcript/tail-file.ts';
@@ -16,6 +18,14 @@ import { TailFile, type TailFileFunction } from './transcript/tail-file.ts';
  * Name of the MCP server, under which a session sees its tools.
  */
 const SERVER_NAME = 'atomic-workflow';
+
+/**
+ * Instructions that the agent receives when the MCP server connects. The agent sees a message that the server pushes
+ * into the chat as a `<channel>` event.
+ */
+const INSTRUCTIONS =
+  'Messages from the atomic-workflow server arrive as <channel source="...atomic-workflow"> events. ' +
+  'Handle each one like a message of the user.';
 
 /**
  * Absolute path of the repository server entry point, which sits beside this entry point and is named like it with
@@ -102,6 +112,11 @@ interface Session {
   readonly server: McpServer;
 
   /**
+   * Services that the methods of `SessionMethods` run with.
+   */
+  readonly context: SessionMethodContext;
+
+  /**
    * Attachment to the repository server while the session server is active, or a try to attach that is under way.
    * The session server is dormant while this is `undefined`.
    */
@@ -111,10 +126,14 @@ interface Session {
 /**
  * Serves the MCP server of one Claude Code session over the standard input and output. The server lies dormant until
  * the tool `activate` attaches it to the repository server of the project. While attached, it offers one tool per
- * method of `Methods` that agents can call. It ends when the session closes its standard input.
+ * method of `Methods` that agents can call, and puts the messages that the repository server delivers into the chat
+ * as channel events. It ends when the session closes its standard input.
  */
 const main = async (): Promise<void> => {
-  const server = new McpServer({ name: SERVER_NAME, version: '0.0.0' });
+  const server = new McpServer(
+    { name: SERVER_NAME, version: '0.0.0' },
+    { capabilities: { experimental: { 'claude/channel': {} } }, instructions: INSTRUCTIONS },
+  );
   const session: Session = {
     directory: process.env.CLAUDE_PROJECT_DIR ?? process.cwd(),
     environment: process.env,
@@ -130,6 +149,7 @@ const main = async (): Promise<void> => {
       tailFile: TailFile,
     },
     server,
+    context: { pushMessage: (content) => pushMessage(server, content) },
     attachment: undefined,
   };
   server.registerTool(
@@ -140,6 +160,14 @@ const main = async (): Promise<void> => {
   // The open connection to the repository server would keep the process alive after the session has gone.
   process.stdin.once('close', () => process.exit());
   await server.connect(new StdioServerTransport());
+};
+
+/**
+ * Pushes the message `content` into the chat of the session of `server` as a channel event. The agent drops the event
+ * without a word when it has not loaded the server as a channel.
+ */
+const pushMessage = (server: McpServer, content: string): Promise<void> => {
+  return server.server.notification({ method: 'notifications/claude/channel', params: { content } });
 };
 
 /**
@@ -170,8 +198,9 @@ const attachedMessage = (attachment: Attachment): string => {
 
 /**
  * Returns the attachment of `session` to the repository server, and offers one tool per method of `Methods` that
- * agents can call while it lasts. While it lasts, the transcript of the session is logged to the repository server as
- * well. When the connection closes, the tools go away, the log stops and the session becomes dormant again.
+ * agents can call while it lasts. While it lasts, the session server answers the methods of `SessionMethods`, binds
+ * each session of the agent to the connection, and logs its transcript to the repository server. When the connection
+ * closes, the tools go away, the log stops and the session becomes dormant again.
  */
 const attach = async (session: Session): Promise<Attachment> => {
   const { repositoryAddress, attach, launch, openConnection, dispatch } = session.dependencies;
@@ -179,8 +208,7 @@ const attach = async (session: Session): Promise<Attachment> => {
   const attachment = await attach(address, 'session', {
     launch: () => launch([process.execPath, REPOSITORY_SERVER, '--address', address, '--directory', session.directory]),
     openConnection,
-    // The repository server calls no method of a session server yet.
-    handle: (message) => dispatch([], undefined, message),
+    handle: (message) => dispatch(SessionMethods, session.context, message),
   });
   const tools = Methods.filter((method) => method.agent).map((method) =>
     registerTool(session.server, attachment.connection, method),
@@ -191,32 +219,34 @@ const attach = async (session: Session): Promise<Attachment> => {
     logging.abort();
     for (const tool of tools) tool.remove();
   });
-  void tailTranscript(session, attachment.connection, logging.signal);
+  void followSessions(session, attachment.connection, logging.signal);
   return attachment;
 };
 
 /**
- * Logs the transcript of `session` over `connection` until `signal` aborts. When the agent moves on to a new session,
- * such as after `/clear`, the log moves on to the transcript of the new session. The log costs the session no tokens,
- * since no tool and no result takes part in it, so a failure goes to the standard error, which only the logs of the
- * agent show. A session of an agent without a known transcript logs nothing.
+ * Binds the session of the agent of `session` to `connection`, and logs its transcript over `connection`, until
+ * `signal` aborts. When the agent moves on to a new session, such as after `/clear`, the binding and the log move on to
+ * the new session. The log costs the session no tokens, since no tool and no result takes part in it, so a failure
+ * goes to the standard error, which only the logs of the agent show. A session of an agent without a known transcript
+ * is neither bound nor logged.
  */
-const tailTranscript = async (session: Session, connection: RpcConnection, signal: AbortSignal): Promise<void> => {
+const followSessions = async (session: Session, connection: RpcConnection, signal: AbortSignal): Promise<void> => {
   try {
-    while (!signal.aborted && (await logCurrentTranscript(session, connection, signal)));
+    while (!signal.aborted && (await followCurrentSession(session, connection, signal)));
   } catch (error) {
     // A request that the close of the connection cuts short is no failure of the log.
     if (!signal.aborted)
-      process.stderr.write(`Could not log the transcript: ${messageOf(error)}
+      process.stderr.write(`Could not follow the session: ${messageOf(error)}
 `);
   }
 };
 
 /**
- * Logs the transcript of the session that the agent of `session` runs now over `connection`, until that session ends
- * or `signal` aborts, and returns `true`. If the agent has no known transcript, returns `false` instead.
+ * Binds the session that the agent of `session` runs now to `connection`, and logs its transcript over `connection`,
+ * until that session ends or `signal` aborts, and returns `true`. If the agent has no known transcript, returns `false`
+ * instead.
  */
-const logCurrentTranscript = async (
+const followCurrentSession = async (
   session: Session,
   connection: RpcConnection,
   signal: AbortSignal,
@@ -224,6 +254,8 @@ const logCurrentTranscript = async (
   const { findTranscript, logTranscript, tailFile } = session.dependencies;
   const transcript = await findTranscript(session.environment, session.parentProcessId);
   if (transcript === undefined) return false;
+  const params: BindSessionParams = { sessionId: transcript.sessionId };
+  await connection.request(BIND_SESSION_METHOD, params, signal);
   await logTranscript(transcript, session.directory, connection, signal, { tailFile });
   return true;
 };

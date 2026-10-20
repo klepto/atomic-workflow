@@ -17,6 +17,7 @@ const ENTRY = z.object({
   isMeta: z.boolean().optional(),
   isSidechain: z.boolean().optional(),
   isCompactSummary: z.boolean().optional(),
+  origin: z.object({ kind: z.string() }).optional(),
   message: z.object({
     content: z.union([z.string(), z.array(z.object({ type: z.string(), text: z.string().optional() }))]),
   }),
@@ -146,17 +147,26 @@ const expectedTranscriptFile = (projects: string, name: string, environment: Nod
 };
 
 /**
+ * Pattern of the text of a message that a channel delivered, which Claude Code wraps in a `channel` tag. The first
+ * group is the message.
+ */
+const CHANNEL_TAG = /^<channel\b[^>]*>\n?([\s\S]*?)\n?<\/channel>$/;
+
+/**
  * Returns the message of a user or an agent that the line `line` of a Claude Code transcript holds. Entries that only
  * Claude Code wrote, such as the text of a skill, and entries of subagents are no messages, and neither are tool
- * calls, tool results and thinking. If the line holds no message, returns `undefined` instead.
+ * calls, tool results and thinking. A message that a channel delivered is a message of the user, without the
+ * `channel` tag around it. If the line holds no message, returns `undefined` instead.
  */
 const parseEntry = (line: string): TranscriptMessage | undefined => {
   const entry = ENTRY.safeParse(parseJson(line));
   if (!entry.success) return undefined;
-  const { type, uuid, timestamp, isMeta, isSidechain, isCompactSummary, message } = entry.data;
+  const { type, uuid, timestamp, isMeta, isSidechain, isCompactSummary, origin, message } = entry.data;
   const sender = SENDERS.get(type);
-  if (sender === undefined || isMeta || isSidechain || isCompactSummary) return undefined;
-  const content = textOf(message.content);
+  const channel = origin?.kind === 'channel';
+  if (sender === undefined || (isMeta && !channel) || isSidechain || isCompactSummary) return undefined;
+  const text = textOf(message.content);
+  const content = channel ? (CHANNEL_TAG.exec(text)?.[1] ?? text) : text;
   return content === '' ? undefined : { messageId: uuid, sender, content, timestamp: Date.parse(timestamp) };
 };
 

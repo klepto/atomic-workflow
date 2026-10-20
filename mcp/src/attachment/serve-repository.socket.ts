@@ -1,7 +1,9 @@
 import { rm } from 'node:fs/promises';
 import { createConnection, createServer, type Server, type Socket } from 'node:net';
 import type { Method, MethodContext } from '../rpc/method.ts';
+import type { RpcConnection } from '../rpc/rpc-connection.ts';
 import { RpcError, RpcErrorCode } from '../rpc/rpc-error.ts';
+import { BIND_SESSION_METHOD, BIND_SESSION_PARAMS } from './bind-session.ts';
 import { HELLO_METHOD, HELLO_PARAMS, type HelloResult, PROTOCOL_VERSION } from './hello.ts';
 import type { ServeRepositoryDependencies, ServeRepositoryFunction } from './serve-repository.ts';
 
@@ -89,8 +91,12 @@ const serve = (repository: Repository, socket: Socket): void => {
     if (session) repository.sessions -= 1;
     if (session && repository.sessions === 0) repository.server.close();
   });
-  const methods = [helloMethod(repository.url, attachSession), ...repository.methods];
-  openConnection(socket, (message) => dispatch(methods, repository.context, message));
+  const methods = [
+    helloMethod(repository.url, attachSession),
+    bindSessionMethod(() => (session ? connection : undefined)),
+    ...repository.methods,
+  ];
+  const connection = openConnection(socket, (message) => dispatch(methods, repository.context, message));
 };
 
 /**
@@ -111,6 +117,28 @@ const helloMethod = (url: string, attachSession: () => void): Method<typeof HELL
         );
       if (role === 'session') attachSession();
       return { url };
+    },
+  };
+};
+
+/**
+ * Returns the method `bindSession` of one connection, which binds a session to the connection that
+ * `sessionConnection` returns. Before the client says hello as a session server, `sessionConnection` returns
+ * `undefined`, and the method fails.
+ */
+const bindSessionMethod = (
+  sessionConnection: () => RpcConnection | undefined,
+): Method<typeof BIND_SESSION_PARAMS, void> => {
+  return {
+    name: BIND_SESSION_METHOD,
+    description: 'Binds a session to the connection, so that the repository server reaches the session over it.',
+    agent: false,
+    params: BIND_SESSION_PARAMS,
+    handle: async ({ sessionId }, { sessionConnections }) => {
+      const connection = sessionConnection();
+      if (connection === undefined)
+        throw new RpcError(RpcErrorCode.INVALID_REQUEST, 'Only a session server can bind a session');
+      sessionConnections.bind(sessionId, connection);
     },
   };
 };

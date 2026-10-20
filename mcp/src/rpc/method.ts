@@ -1,7 +1,10 @@
 import type { z } from 'zod';
+import type { SessionConnections } from '../attachment/session-connections.ts';
 import type { MessageLogStore } from '../storage/message-log-store.ts';
 import type { SessionStore } from '../storage/session-store.ts';
+import { deliverMessageMethod } from './method.deliver-message.ts';
 import { echoMethod } from './method.echo.ts';
+import { listAttachedSessionsMethod } from './method.list-attached-sessions.ts';
 import { listMessagesMethod } from './method.list-messages.ts';
 import { logMessageMethod } from './method.log-message.ts';
 import { registerSessionMethod } from './method.register-session.ts';
@@ -19,10 +22,15 @@ export interface MethodContext {
    * Store of the message log.
    */
   readonly messageLog: MessageLogStore;
+
+  /**
+   * Connections of the attached session servers, by session.
+   */
+  readonly sessionConnections: SessionConnections;
 }
 
 /**
- * Operation of the repository server that a client calls by its name over JSON-RPC 2.0.
+ * Operation that a client calls by its name over JSON-RPC 2.0, on the repository server by default.
  */
 export interface Method<Params extends z.ZodObject = z.ZodObject, Result = unknown, Context = MethodContext> {
   /**
@@ -56,4 +64,11 @@ export interface Method<Params extends z.ZodObject = z.ZodObject, Result = unkno
 /**
  * Methods that every client of the repository server can call.
  */
-export const Methods: readonly Method[] = [echoMethod, registerSessionMethod, logMessageMethod, listMessagesMethod];
+export const Methods: readonly Method[] = [
+  echoMethod,
+  registerSessionMethod,
+  logMessageMethod,
+  listMessagesMethod,
+  listAttachedSessionsMethod,
+  deliverMessageMethod,
+];

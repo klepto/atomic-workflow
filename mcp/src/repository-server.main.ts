@@ -1,5 +1,6 @@
 import { parseArgs } from 'node:util';
 import { ServeRepository } from './attachment/serve-repository.ts';
+import { CreateSessionConnections } from './attachment/session-connections.ts';
 import { Dispatch } from './rpc/dispatch.ts';
 import { type MethodContext, Methods } from './rpc/method.ts';
 import { OpenRpcConnection } from './rpc/rpc-connection.ts';
@@ -29,7 +30,11 @@ const main = async (): Promise<void> => {
  * Serves as the repository server at `address`, with the stores of `storage`, until the last session server leaves.
  */
 const serve = async (address: string, storage: Storage): Promise<void> => {
-  const context: MethodContext = { sessions: storage.sessions, messageLog: storage.messageLog };
+  const context: MethodContext = {
+    sessions: storage.sessions,
+    messageLog: storage.messageLog,
+    sessionConnections: CreateSessionConnections(),
+  };
   const webServer = await StartWebServer((message) => Dispatch(Methods, context, message));
   try {
     await ServeRepository(address, webServer.url, Methods, context, {

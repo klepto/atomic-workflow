@@ -19783,8 +19783,14 @@ function date4(params) {
   return _coercedDate(ZodDate, params);
 }
 
+// src/attachment/bind-session.ts
+var BIND_SESSION_METHOD = "bindSession";
+var BIND_SESSION_PARAMS = external_exports.object({
+  sessionId: external_exports.string().min(1)
+});
+
 // src/attachment/hello.ts
-var PROTOCOL_VERSION = 1;
+var PROTOCOL_VERSION = 2;
 var HELLO_METHOD = "hello";
 var HELLO_PARAMS = external_exports.object({
   protocol: external_exports.number().int(),
@@ -19826,8 +19832,12 @@ var serve = (repository, socket) => {
     if (session) repository.sessions -= 1;
     if (session && repository.sessions === 0) repository.server.close();
   });
-  const methods = [helloMethod(repository.url, attachSession), ...repository.methods];
-  openConnection(socket, (message) => dispatch(methods, repository.context, message));
+  const methods = [
+    helloMethod(repository.url, attachSession),
+    bindSessionMethod(() => session ? connection : void 0),
+    ...repository.methods
+  ];
+  const connection = openConnection(socket, (message) => dispatch(methods, repository.context, message));
 };
 var helloMethod = (url2, attachSession) => {
   return {
@@ -19843,6 +19853,20 @@ var helloMethod = (url2, attachSession) => {
         );
       if (role === "session") attachSession();
       return { url: url2 };
+    }
+  };
+};
+var bindSessionMethod = (sessionConnection) => {
+  return {
+    name: BIND_SESSION_METHOD,
+    description: "Binds a session to the connection, so that the repository server reaches the session over it.",
+    agent: false,
+    params: BIND_SESSION_PARAMS,
+    handle: async ({ sessionId }, { sessionConnections }) => {
+      const connection = sessionConnection();
+      if (connection === void 0)
+        throw new RpcError(RpcErrorCode.INVALID_REQUEST, "Only a session server can bind a session");
+      sessionConnections.bind(sessionId, connection);
     }
   };
 };
@@ -19876,6 +19900,27 @@ var isServed = (address) => {
 
 // src/attachment/serve-repository.ts
 var ServeRepository = socketServeRepository;
+
+// src/attachment/session-connections.map.ts
+var mapCreateSessionConnections = () => {
+  const connections = /* @__PURE__ */ new Map();
+  return {
+    bind: (sessionId, connection) => bind(connections, sessionId, connection),
+    get: (sessionId) => connections.get(sessionId),
+    list: () => [...connections.keys()]
+  };
+};
+var bind = (connections, sessionId, connection) => {
+  for (const [boundId, bound] of connections) if (bound === connection) connections.delete(boundId);
+  connections.delete(sessionId);
+  connections.set(sessionId, connection);
+  void connection.closed.then(() => {
+    if (connections.get(sessionId) === connection) connections.delete(sessionId);
+  });
+};
+
+// src/attachment/session-connections.ts
+var CreateSessionConnections = mapCreateSessionConnections;
 
 // src/rpc/dispatch.zod.ts
 var REQUEST = external_exports.object({
@@ -19916,18 +19961,57 @@ var errorObject = (error62) => {
 // src/rpc/dispatch.ts
 var Dispatch = zodDispatch;
 
+// src/rpc/session-method.deliver.ts
+var PARAMS = external_exports.object({ content: external_exports.string().min(1).describe("Text of the message") });
+var deliverMethod = {
+  name: "deliver",
+  description: "Puts a message into the chat of the session.",
+  agent: false,
+  params: PARAMS,
+  handle: ({ content }, { pushMessage }) => pushMessage(content)
+};
+
+// src/rpc/method.deliver-message.ts
+var PARAMS2 = external_exports.object({
+  sessionId: external_exports.string().describe("Identifier of the attached session to deliver the message to"),
+  content: external_exports.string().min(1).describe("Text of the message")
+});
+var deliverMessageMethod = {
+  name: "deliverMessage",
+  description: "Puts a message into the chat of an attached session of the repository.",
+  agent: false,
+  params: PARAMS2,
+  handle: async ({ sessionId, content }, { sessionConnections }) => {
+    const connection = sessionConnections.get(sessionId);
+    if (connection === void 0)
+      throw new RpcError(RpcErrorCode.INVALID_PARAMS, `No session ${sessionId} is attached`);
+    const params = { content };
+    await connection.request(deliverMethod.name, params);
+  }
+};
+
 // src/rpc/method.echo.ts
-var PARAMS = external_exports.object({ message: external_exports.string().describe("Text to send back") });
+var PARAMS3 = external_exports.object({ message: external_exports.string().describe("Text to send back") });
 var echoMethod = {
   name: "echo",
   description: "Sends a message to the atomic-workflow server, which returns it unchanged. Use it to test the connection.",
   agent: true,
-  params: PARAMS,
+  params: PARAMS3,
   handle: async ({ message }) => ({ message })
 };
 
+// src/rpc/method.list-attached-sessions.ts
+var PARAMS4 = external_exports.object({});
+var listAttachedSessionsMethod = {
+  name: "listAttachedSessions",
+  description: "Returns the ids of the sessions of the repository that messages can be delivered to now.",
+  agent: false,
+  params: PARAMS4,
+  handle: async (_params, { sessionConnections }) => ({ sessionIds: sessionConnections.list() })
+};
+
 // src/rpc/method.list-messages.ts
-var PARAMS2 = external_exports.object({
+var PARAMS5 = external_exports.object({
   sessionId: external_exports.string().optional().describe("Identifier of the session whose messages to return, all when left out"),
   after: external_exports.number().int().nonnegative().optional().describe("Identifier after which the list starts, 0 for the start, the latest messages when left out"),
   limit: external_exports.number().int().min(1).max(1e3).default(100).describe("Greatest number of messages to return")
@@ -19936,7 +20020,7 @@ var listMessagesMethod = {
   name: "listMessages",
   description: "Returns the messages of the message log of the repository after an identifier, or the latest ones.",
   agent: false,
-  params: PARAMS2,
+  params: PARAMS5,
   handle: async ({ sessionId, after, limit }, { messageLog }) => ({
     messages: await messageLog.list({ sessionId, after, limit })
   })
@@ -19946,7 +20030,7 @@ var listMessagesMethod = {
 var MESSAGE_SENDERS = ["user", "agent"];
 
 // src/rpc/method.log-message.ts
-var PARAMS3 = external_exports.object({
+var PARAMS6 = external_exports.object({
   sessionId: external_exports.string().describe("Identifier of the registered session that the message belongs to"),
   messageId: external_exports.string().optional().describe("Identifier that the agent gives the message, unique in its session"),
   sender: external_exports.enum(MESSAGE_SENDERS).describe("Who wrote the message: user or agent"),
@@ -19957,7 +20041,7 @@ var logMessageMethod = {
   name: "logMessage",
   description: "Adds a message to the message log of the repository, and returns it with its identifier.",
   agent: false,
-  params: PARAMS3,
+  params: PARAMS6,
   handle: async ({ sessionId, messageId, sender, content, timestamp = Date.now() }, { sessions, messageLog }) => {
     if (await sessions.get(sessionId) === void 0)
       throw new RpcError(RpcErrorCode.INVALID_PARAMS, `No session ${sessionId} is registered`);
@@ -19969,7 +20053,7 @@ var logMessageMethod = {
 var AGENTS = ["claude", "codex"];
 
 // src/rpc/method.register-session.ts
-var PARAMS4 = external_exports.object({
+var PARAMS7 = external_exports.object({
   sessionId: external_exports.string().min(1).describe("Identifier of the session, as the agent gives it"),
   agent: external_exports.enum(AGENTS).describe("Agent that the session runs in: claude or codex"),
   directory: external_exports.string().min(1).describe("Absolute path of the directory of the project of the session"),
@@ -19979,12 +20063,19 @@ var registerSessionMethod = {
   name: "registerSession",
   description: "Registers a session of an agent in the repository, so that its messages can be logged.",
   agent: false,
-  params: PARAMS4,
+  params: PARAMS7,
   handle: ({ sessionId, agent, directory, startedAt = Date.now() }, { sessions }) => sessions.register({ id: sessionId, agent, directory, startedAt })
 };
 
 // src/rpc/method.ts
-var Methods = [echoMethod, registerSessionMethod, logMessageMethod, listMessagesMethod];
+var Methods = [
+  echoMethod,
+  registerSessionMethod,
+  logMessageMethod,
+  listMessagesMethod,
+  listAttachedSessionsMethod,
+  deliverMessageMethod
+];
 
 // src/rpc/rpc-connection.ndjson.ts
 import { createInterface } from "node:readline";
@@ -20215,6 +20306,7 @@ import { createServer as createServer2 } from "node:http";
 import { text } from "node:stream/consumers";
 var HOST = "127.0.0.1";
 var RPC_PATH = "/rpc";
+var RPC_TYPE = "application/json";
 var LATEST_LIMIT = 100;
 var REFRESH_INTERVAL = 2e3;
 var PAGE = `<!doctype html>
@@ -20235,20 +20327,45 @@ var PAGE = `<!doctype html>
   .agent .sender { color: var(--agent); }
   .session { font-family: ui-monospace, monospace; }
   .content { margin: 0.25rem 0 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+  form { display: grid; gap: 0.5rem; margin: 0 0 1.5rem; }
+  form .row { display: flex; gap: 0.75rem; align-items: center; }
+  select, textarea, button { font: inherit; }
+  select { font-family: ui-monospace, monospace; }
+  textarea { box-sizing: border-box; width: 100%; min-height: 5rem; padding: 0.5rem; resize: vertical; }
+  #delivery { color: var(--muted); font-size: 0.85rem; }
 </style>
 </head>
 <body>
+<h1>Send a message</h1>
+<form id="send">
+  <textarea id="content" placeholder="Message to the session. Ctrl+Enter sends." required></textarea>
+  <div class="row">
+    <select id="target" title="Attached session" disabled></select>
+    <button id="submit" type="submit" disabled>Send</button>
+    <span id="delivery"></span>
+  </div>
+</form>
 <h1>Message log</h1>
 <p id="status">Loading\u2026</p>
 <main id="messages"></main>
 <script>
 const list = document.getElementById('messages');
 const status = document.getElementById('status');
+const form = document.getElementById('send');
+const content = document.getElementById('content');
+const target = document.getElementById('target');
+const submit = document.getElementById('submit');
+const delivery = document.getElementById('delivery');
 let last;
+let sending = false;
 
 const call = async (method, params) => {
   const request = { jsonrpc: '2.0', id: 1, method, params };
-  const response = await fetch('${RPC_PATH}', { method: 'POST', body: JSON.stringify(request) });
+  const response = await fetch('${RPC_PATH}', {
+    method: 'POST',
+    headers: { 'content-type': '${RPC_TYPE}' },
+    body: JSON.stringify(request),
+  });
   const answer = await response.json();
   if (answer.error) throw new Error(answer.error.message);
   return answer.result;
@@ -20275,7 +20392,63 @@ const render = (message) => {
   return article;
 };
 
+const option = (sessionId) => {
+  const node = element('option', '', sessionId.slice(0, 8));
+  node.value = sessionId;
+  node.title = sessionId;
+  return node;
+};
+
+const showTargets = (sessionIds) => {
+  const picked = target.value;
+  const latest = sessionIds[sessionIds.length - 1];
+  target.replaceChildren(...sessionIds.slice().reverse().map(option));
+  target.value = sessionIds.includes(picked) ? picked : (latest ?? '');
+  target.disabled = sessionIds.length === 0;
+  submit.disabled = sessionIds.length === 0 || sending;
+  if (sessionIds.length === 0) target.replaceChildren(element('option', '', 'No attached session'));
+};
+
+const refreshTargets = async () => {
+  try {
+    const { sessionIds } = await call('listAttachedSessions', {});
+    showTargets(sessionIds);
+  } catch (error) {
+    showTargets([]);
+    delivery.textContent = 'Could not load the attached sessions: ' + error.message;
+  }
+};
+
+const send = async () => {
+  if (sending || target.disabled || content.value.trim() === '') return;
+  sending = true;
+  submit.disabled = true;
+  delivery.textContent = 'Sending\u2026';
+  try {
+    await call('deliverMessage', { sessionId: target.value, content: content.value });
+    content.value = '';
+    delivery.textContent = 'Delivered at ' + new Date().toLocaleTimeString() + '.';
+  } catch (error) {
+    delivery.textContent = 'Could not deliver the message: ' + error.message;
+  } finally {
+    sending = false;
+    submit.disabled = target.disabled;
+  }
+};
+
+form.addEventListener('submit', (event) => {
+  event.preventDefault();
+  send();
+});
+
+content.addEventListener('keydown', (event) => {
+  if (event.key !== 'Enter' || !(event.ctrlKey || event.metaKey)) return;
+  event.preventDefault();
+  send();
+});
+
 const refresh = async () => {
+  await refreshTargets();
   try {
     const params = last === undefined ? { limit: ${LATEST_LIMIT} } : { after: last, limit: 1000 };
     const { messages } = await call('listMessages', params);
@@ -20301,9 +20474,13 @@ var httpStartWebServer = async (handle) => {
 };
 var route = async (handle, request2, response) => {
   const { pathname } = new URL(request2.url ?? "/", `http://${HOST}`);
+  if (request2.headers.host !== `${HOST}:${request2.socket.localPort}`)
+    return void respond(response, 421, "text/plain", "Unknown host");
   if (pathname === "/" && request2.method === "GET") return void respond(response, 200, "text/html", PAGE);
   if (pathname !== RPC_PATH) return void respond(response, 404, "text/plain", "Not found");
   if (request2.method !== "POST") return void respond(response, 405, "text/plain", "Only POST is allowed");
+  if (request2.headers["content-type"]?.split(";")[0]?.trim() !== RPC_TYPE)
+    return void respond(response, 415, "text/plain", `Only ${RPC_TYPE} is allowed`);
   const answer = await call2(handle, await text(request2));
   if (answer === void 0) return void respond(response, 204);
   respond(response, 200, "application/json", JSON.stringify(answer));
@@ -20353,7 +20530,11 @@ var main = async () => {
   }
 };
 var serve2 = async (address, storage) => {
-  const context = { sessions: storage.sessions, messageLog: storage.messageLog };
+  const context = {
+    sessions: storage.sessions,
+    messageLog: storage.messageLog,
+    sessionConnections: CreateSessionConnections()
+  };
   const webServer = await StartWebServer((message) => Dispatch(Methods, context, message));
   try {
     await ServeRepository(address, webServer.url, Methods, context, {
