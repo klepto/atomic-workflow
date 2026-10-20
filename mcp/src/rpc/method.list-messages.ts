@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import type { LoggedMessage } from '../storage/message-log-store.ts';
+import { SESSION_ROLES } from '../storage/session-store.ts';
 import type { Method } from './method.ts';
 
 /**
@@ -7,6 +8,7 @@ import type { Method } from './method.ts';
  */
 const PARAMS = z.object({
   sessionId: z.string().optional().describe('Identifier of the session whose messages to return, all when left out'),
+  role: z.enum(SESSION_ROLES).optional().describe('Role of the sessions whose messages to return, all when left out'),
   after: z
     .number()
     .int()
@@ -18,14 +20,15 @@ const PARAMS = z.object({
 
 /**
  * `Method` named `listMessages`, which returns the messages of the message log after an identifier, or the latest
- * messages without one, in the order of the log. With a session, returns only the messages of that session.
+ * messages without one, in the order of the log. With a session, returns only the messages of that session, and with
+ * a role, only the messages of the sessions of that role.
  */
 export const listMessagesMethod: Method<typeof PARAMS, { readonly messages: readonly LoggedMessage[] }> = {
   name: 'listMessages',
   description: 'Returns the messages of the message log of the repository after an identifier, or the latest ones.',
   agent: false,
   params: PARAMS,
-  handle: async ({ sessionId, after, limit }, { messageLog }) => ({
-    messages: await messageLog.list({ sessionId, after, limit }),
+  handle: async ({ sessionId, role, after, limit }, { messageLog }) => ({
+    messages: await messageLog.list({ sessionId, role, after, limit }),
   }),
 };

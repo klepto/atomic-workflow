@@ -38,6 +38,9 @@ const MIGRATIONS: readonly string[] = [
     UNIQUE (session_id, message_id)
   ) STRICT;
   CREATE INDEX message_log_session ON message_log (session_id, id);`,
+  `ALTER TABLE session ADD COLUMN role TEXT NOT NULL DEFAULT 'orchestrator'
+    CHECK (role IN ('orchestrator', 'subagent'));
+  ALTER TABLE session ADD COLUMN parent_id TEXT REFERENCES session (id);`,
 ];
 
 /**

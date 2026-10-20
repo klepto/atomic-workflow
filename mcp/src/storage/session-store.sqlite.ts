@@ -6,11 +6,14 @@ import type { RegisteredSession, SessionStore } from './session-store.ts';
  */
 export const sqliteSessionStore = (database: DatabaseSync): SessionStore => {
   const insert = database.prepare(
-    `INSERT INTO session (id, agent, directory, started_at) VALUES (:id, :agent, :directory, :startedAt)
+    `INSERT INTO session (id, agent, directory, started_at, role, parent_id)
+    VALUES (:id, :agent, :directory, :startedAt, :role, :parentId)
     ON CONFLICT (id) DO NOTHING`,
   );
-  const select = database.prepare('SELECT id, agent, directory, started_at AS startedAt FROM session WHERE id = :id');
-  // The table is strict and checks the agent, so each row has the shape of a registered session.
+  const select = database.prepare(
+    `SELECT id, agent, directory, started_at AS startedAt, role, parent_id AS parentId FROM session WHERE id = :id`,
+  );
+  // The table is strict and checks the agent and the role, so each row has the shape of a registered session.
   const get = (id: string): RegisteredSession | undefined => select.get({ id }) as RegisteredSession | undefined;
   return {
     register: async (session) => {

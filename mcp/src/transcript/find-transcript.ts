@@ -1,6 +1,6 @@
 import type { MessageSender } from '../storage/message-log-store.ts';
 import type { Agent } from '../storage/session-store.ts';
-import { claudeFindTranscript } from './find-transcript.claude.ts';
+import { claudeFindSubagentTranscript, claudeFindTranscript } from './find-transcript.claude.ts';
 
 /**
  * Message of a user or an agent that a transcript holds.
@@ -54,8 +54,8 @@ export interface Transcript {
   parse(line: string): TranscriptMessage | undefined;
 
   /**
-   * Resolves when the agent moves on from the session of the transcript to a new session, such as after `/clear` in
-   * Claude Code. The transcript grows no more after that. Also resolves when `signal` aborts.
+   * Resolves when the session of the transcript ends, such as when Claude Code moves on to a new session after
+   * `/clear`, or when a subagent finishes. The transcript grows no more after that. Also resolves when `signal` aborts.
    * If the agent cannot be asked for its session, rejects.
    */
   waitForEnd(signal: AbortSignal): Promise<void>;
@@ -75,3 +75,19 @@ export type FindTranscriptFunction = (
  * Default `FindTranscriptFunction`, which finds the transcript of a Claude Code session.
  */
 export const FindTranscript: FindTranscriptFunction = claudeFindTranscript;
+
+/**
+ * Function that returns the transcript of the subagent with the session id `sessionId`, which runs inside the session
+ * of the transcript `parent`, and whose prompt names `sessionId`. It waits a few seconds for the transcript to appear.
+ * If no such transcript appears, or `signal` aborts first, returns `undefined` instead.
+ */
+export type FindSubagentTranscriptFunction = (
+  parent: Transcript,
+  sessionId: string,
+  signal: AbortSignal,
+) => Promise<Transcript | undefined>;
+
+/**
+ * Default `FindSubagentTranscriptFunction`, which finds the transcript of a subagent of a Claude Code session.
+ */
+export const FindSubagentTranscript: FindSubagentTranscriptFunction = claudeFindSubagentTranscript;

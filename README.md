@@ -177,6 +177,66 @@ Rejected:
 - `CLAUDE_CODE_MESSAGING_SOCKET` and the inbox tools of Claude Code. Their protocol is internal and not documented.
 - The session id in `hello`. It changes after `/clear` while the connection stays.
 
+## Phase 6
+
+The repository server starts subagents inside an orchestrator session, and sends them commands. An orchestrator is a
+session that a user runs. A subagent runs inside it, and shows up in its terminal as a background agent of the
+orchestrator.
+
+- A session has a role, `orchestrator` or `subagent`, and a subagent has the id of its orchestrator as its parent.
+  Step 2 of the schema adds both to the sessions. A session that `registerSession` registers without a role is an
+  orchestrator.
+- `startSubagent` takes an optional prompt and the session id of an orchestrator, the one that was bound last by
+  default. It gives the subagent a new session id, registers it, and puts the prompt into its inbox as its first
+  command. It then delivers a message into the chat of the orchestrator that asks it to call the Agent tool in the
+  background, with the agent `atomic-workflow:worker` of the plugin and a prompt that names only the session id of the
+  subagent. The method returns `{"sessionId": "..."}` once the subagent has attached, and fails after 60 seconds
+  without it.
+- A Claude Code subagent cannot receive channel events, which only reach the orchestrator. The definition of the agent
+  `worker` makes it call the tool `awaitCommand` with its session id in a loop. The first call attaches the subagent.
+  Each call returns the next command of its inbox, with the status `command` and the content, or waits for one up to
+  23 hours and returns the status `idle`. The status `stop` ends the subagent with the single word `stopped`.
+- Claude Code hands the last message of a background agent back to its orchestrator as a notification, and no
+  setting turns that off. The word `stopped` keeps the notification short, and the message that asks for the spawn
+  tells the orchestrator not to act on it.
+- Each idle return costs the subagent a turn, which reads its whole context again, so the wait is long. Claude Code
+  ends a tool call after `MCP_TOOL_TIMEOUT`, about 28 hours by default, which the environment can lower. The
+  `timeout` of the session server in `.mcp.json`, 24 hours, overrides it, and the wait stays below it.
+- The repository server keeps the subagents in memory, beside the connections of the bound sessions. A subagent goes
+  away when it is stopped, when it ends, or when the connection of its orchestrator closes.
+- `deliverMessage` to a subagent puts the message into its inbox. The subagent receives it as the result of a tool,
+  which is no message of its transcript, so the repository server logs it as a message of the user.
+- `stopSubagent` takes the session id of a subagent. The subagent gets the status `stop` from its pending or next
+  `awaitCommand`.
+- `listAttachedSessions` returns `{"sessions": [...]}`, each with its session id, role and parent: the bound
+  orchestrators first, then the attached subagents.
+- Once the subagent attaches, the repository server calls `followSubagent` on the session server of the orchestrator,
+  which logs the transcript of the subagent. Claude Code writes it to `subagents/agent-<agent id>.jsonl` in a
+  directory beside the transcript of the orchestrator, named after its session. The session server finds it by the
+  session id in its first entry, the prompt, and keeps only the entries of the subagent, `isSidechain`. It stops when
+  `agent-<agent id>.meta.json` beside it sets `finished`, and then calls `endSubagent` on the repository server, which
+  removes the subagent. This covers a subagent that ends without `stopSubagent`, such as one that `TaskStop` kills or
+  that fails. A subagent that `stopSubagent` removed already stays removed.
+- `listMessages` takes a role. The page shows the messages of the orchestrators, or only the messages of the picked
+  subagent.
+- The list of sessions of the page shows each attached subagent below its orchestrator, and the form sends to the
+  picked one. A second button, which only an orchestrator enables, calls `startSubagent` inside it, with the text of
+  the text area as the prompt if one is typed, and then picks the new subagent.
+- `PROTOCOL_VERSION` is 4, since the session server calls `endSubagent`, which an older repository server lacks.
+
+```
+node src/cli.main.ts startSubagent '{"prompt":"Run the tests"}'
+node src/cli.main.ts deliverMessage '{"sessionId":"<subagent session id>","content":"Fix the failing test"}'
+node src/cli.main.ts stopSubagent '{"sessionId":"<subagent session id>"}'
+```
+
+Rejected:
+
+- A subagent as a separate `claude -p` process. It would have its own session server and channel, but it would not
+  show up as a child of the orchestrator.
+- A tool `reply` that the subagent calls with the result of each command. The transcript holds the result already, at
+  no cost in tokens.
+
 ## Layout
 
 ```
@@ -185,6 +245,7 @@ plugin/                           the plugin, and the local marketplace that hol
   .claude-plugin/marketplace.json local marketplace, with the plugin at its root
   .mcp.json                       the session server
   skills/atomic-workflow/SKILL.md
+  agents/worker.md                the subagent that waits for the commands of the repository server
   dist/                           bundles, built by `npm run build` and committed
 mcp/                              the MCP project: sources, configs and build
   src/                            sources of both servers and the command line tool
@@ -192,7 +253,7 @@ mcp/                              the MCP project: sources, configs and build
     repository-server.main.ts     entry point of the repository server
     cli.main.ts                   entry point of the command line tool, which calls one method
     attachment/                   the pipe between clients and the repository server: address, attach, serve,
-                                  hello and the connections of the bound sessions
+                                  hello, the connections of the bound sessions and the subagents
     rpc/                          JSON-RPC 2.0: messages, connection, dispatch, and the methods
     launch/                       start of a process outside the process tree of the caller
     storage/                      persistent data: the stores, their SQLite implementations and the database file

@@ -1,6 +1,7 @@
 import { parseArgs } from 'node:util';
 import { ServeRepository } from './attachment/serve-repository.ts';
 import { CreateSessionConnections } from './attachment/session-connections.ts';
+import { CreateSubagents } from './attachment/subagents.ts';
 import { Dispatch } from './rpc/dispatch.ts';
 import { type MethodContext, Methods } from './rpc/method.ts';
 import { OpenRpcConnection } from './rpc/rpc-connection.ts';
@@ -34,6 +35,7 @@ const serve = async (address: string, storage: Storage): Promise<void> => {
     sessions: storage.sessions,
     messageLog: storage.messageLog,
     sessionConnections: CreateSessionConnections(),
+    subagents: CreateSubagents(),
   };
   const webServer = await StartWebServer((message) => Dispatch(Methods, context, message));
   try {

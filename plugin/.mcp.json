@@ -2,7 +2,8 @@
   "mcpServers": {
     "atomic-workflow": {
       "command": "node",
-      "args": ["${CLAUDE_PLUGIN_ROOT}/dist/session-server.mjs"]
+      "args": ["${CLAUDE_PLUGIN_ROOT}/dist/session-server.mjs"],
+      "timeout": 86400000
     }
   }
 }

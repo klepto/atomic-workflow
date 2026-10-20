@@ -7,8 +7,9 @@ import type { LoggedMessage, MessageLogStore } from './message-log-store.ts';
 const COLUMNS = 'id, session_id AS sessionId, message_id AS messageId, sender, content, timestamp';
 
 /**
- * Returns the `MessageLogStore` that keeps the message log in the table `message_log` of `database`. The table is
- * strict and checks the sender, so each row that it selects has the shape of a logged message.
+ * Returns the `MessageLogStore` that keeps the message log in the table `message_log` of `database`, and reads the
+ * role of a session from the table `session`. The table is strict and checks the sender, so each row that it selects
+ * has the shape of a logged message.
  */
 export const sqliteMessageLogStore = (database: DatabaseSync): MessageLogStore => {
   const insert = database.prepare(
@@ -20,17 +21,14 @@ export const sqliteMessageLogStore = (database: DatabaseSync): MessageLogStore =
   const selectMessageId = database.prepare(
     `SELECT ${COLUMNS} FROM message_log WHERE session_id = :sessionId AND message_id = :messageId`,
   );
-  const selectAfter = database.prepare(`SELECT ${COLUMNS} FROM message_log WHERE id > :after ORDER BY id LIMIT :limit`);
-  const selectSessionAfter = database.prepare(
-    `SELECT ${COLUMNS} FROM message_log WHERE session_id = :sessionId AND id > :after ORDER BY id LIMIT :limit`,
+  // A filter that is `null` selects every message.
+  const filter = `(:sessionId IS NULL OR session_id = :sessionId)
+    AND (:role IS NULL OR session_id IN (SELECT id FROM session WHERE role = :role))`;
+  const selectAfter = database.prepare(
+    `SELECT ${COLUMNS} FROM message_log WHERE ${filter} AND id > :after ORDER BY id LIMIT :limit`,
   );
   const selectLatest = database.prepare(
-    `SELECT * FROM (SELECT ${COLUMNS} FROM message_log ORDER BY id DESC LIMIT :limit) ORDER BY id`,
-  );
-  const selectSessionLatest = database.prepare(
-    `SELECT * FROM (
-      SELECT ${COLUMNS} FROM message_log WHERE session_id = :sessionId ORDER BY id DESC LIMIT :limit
-    ) ORDER BY id`,
+    `SELECT * FROM (SELECT ${COLUMNS} FROM message_log WHERE ${filter} ORDER BY id DESC LIMIT :limit) ORDER BY id`,
   );
   return {
     append: async (message) => {
@@ -39,16 +37,11 @@ export const sqliteMessageLogStore = (database: DatabaseSync): MessageLogStore =
       const row = insert.get({ ...message }) ?? selectMessageId.get({ sessionId, messageId });
       return row as unknown as LoggedMessage;
     },
-    list: async ({ sessionId, after, limit }) => {
-      if (after === undefined) {
-        const rows =
-          sessionId === undefined ? selectLatest.all({ limit }) : selectSessionLatest.all({ sessionId, limit });
-        return rows as unknown as LoggedMessage[];
-      }
+    list: async ({ sessionId = null, role = null, after, limit }) => {
       const rows =
-        sessionId === undefined
-          ? selectAfter.all({ after, limit })
-          : selectSessionAfter.all({ sessionId, after, limit });
+        after === undefined
+          ? selectLatest.all({ sessionId, role, limit })
+          : selectAfter.all({ sessionId, role, after, limit });
       return rows as unknown as LoggedMessage[];
     },
   };

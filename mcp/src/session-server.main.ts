@@ -2,15 +2,23 @@ import { basename, join } from 'node:path';
 import { McpServer, type RegisteredTool } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
+import type { z } from 'zod';
 import { Attach, type AttachFunction, type Attachment } from './attachment/attach.ts';
 import { BIND_SESSION_METHOD, type BindSessionParams } from './attachment/bind-session.ts';
 import { RepositoryAddress, type RepositoryAddressFunction } from './attachment/repository-address.ts';
 import { Launch, type LaunchFunction } from './launch/launch.ts';
 import { Dispatch, type DispatchFunction } from './rpc/dispatch.ts';
+import { endSubagentMethod } from './rpc/method.end-subagent.ts';
 import { type Method, Methods } from './rpc/method.ts';
 import { OpenRpcConnection, type OpenRpcConnectionFunction, type RpcConnection } from './rpc/rpc-connection.ts';
 import { type SessionMethodContext, SessionMethods } from './rpc/session-method.ts';
-import { FindTranscript, type FindTranscriptFunction } from './transcript/find-transcript.ts';
+import {
+  FindSubagentTranscript,
+  type FindSubagentTranscriptFunction,
+  FindTranscript,
+  type FindTranscriptFunction,
+  type Transcript,
+} from './transcript/find-transcript.ts';
 import { LogTranscript, type LogTranscriptFunction } from './transcript/log-transcript.ts';
 import { TailFile, type TailFileFunction } from './transcript/tail-file.ts';
 
@@ -72,6 +80,11 @@ interface SessionDependencies {
   readonly findTranscript: FindTranscriptFunction;
 
   /**
+   * Function that finds the transcript of a subagent of the session.
+   */
+  readonly findSubagentTranscript: FindSubagentTranscriptFunction;
+
+  /**
    * Function that logs the transcript of the session to the repository server.
    */
   readonly logTranscript: LogTranscriptFunction;
@@ -121,6 +134,11 @@ interface Session {
    * The session server is dormant while this is `undefined`.
    */
   attachment: Promise<Attachment> | undefined;
+
+  /**
+   * Transcript of the session that the agent runs now, while it is logged, or `undefined` while none is.
+   */
+  transcript: Transcript | undefined;
 }
 
 /**
@@ -145,12 +163,17 @@ const main = async (): Promise<void> => {
       openConnection: OpenRpcConnection,
       dispatch: Dispatch,
       findTranscript: FindTranscript,
+      findSubagentTranscript: FindSubagentTranscript,
       logTranscript: LogTranscript,
       tailFile: TailFile,
     },
     server,
-    context: { pushMessage: (content) => pushMessage(server, content) },
+    context: {
+      pushMessage: (content) => pushMessage(server, content),
+      followSubagent: (sessionId, parentId) => followSubagent(session, sessionId, parentId),
+    },
     attachment: undefined,
+    transcript: undefined,
   };
   server.registerTool(
     'activate',
@@ -216,6 +239,7 @@ const attach = async (session: Session): Promise<Attachment> => {
   const logging = new AbortController();
   void attachment.connection.closed.then(() => {
     session.attachment = undefined;
+    session.transcript = undefined;
     logging.abort();
     for (const tool of tools) tool.remove();
   });
@@ -254,10 +278,53 @@ const followCurrentSession = async (
   const { findTranscript, logTranscript, tailFile } = session.dependencies;
   const transcript = await findTranscript(session.environment, session.parentProcessId);
   if (transcript === undefined) return false;
+  session.transcript = transcript;
   const params: BindSessionParams = { sessionId: transcript.sessionId };
   await connection.request(BIND_SESSION_METHOD, params, signal);
   await logTranscript(transcript, session.directory, connection, signal, { tailFile });
   return true;
+};
+
+/**
+ * Logs the transcript of the subagent `sessionId`, which runs inside the session `parentId` of `session`, in the
+ * background, until the subagent finishes or the connection to the repository server closes. Once the subagent
+ * finishes, the repository server learns that it has ended. A failure of the log goes to the standard error, like a
+ * failure of the log of the session.
+ * If `session` is not attached, or `parentId` is not the session that the agent runs now, throws.
+ */
+const followSubagent = (session: Session, sessionId: string, parentId: string): void => {
+  const parent = session.transcript;
+  if (session.attachment === undefined || parent?.sessionId !== parentId)
+    throw new Error(`The session ${parentId} is not the current session`);
+  void logSubagent(session, session.attachment, parent, sessionId);
+};
+
+/**
+ * Finds the transcript of the subagent `sessionId` of the session of the transcript `parent`, and logs it over the
+ * connection of `attachment` until the subagent finishes or the connection closes. Once the subagent finishes, tells
+ * the repository server that it has ended. A failure goes to the standard error.
+ */
+const logSubagent = async (
+  session: Session,
+  attachment: Promise<Attachment>,
+  parent: Transcript,
+  sessionId: string,
+): Promise<void> => {
+  const { findSubagentTranscript, logTranscript, tailFile } = session.dependencies;
+  const logging = new AbortController();
+  try {
+    const { connection } = await attachment;
+    void connection.closed.then(() => logging.abort());
+    const transcript = await findSubagentTranscript(parent, sessionId, logging.signal);
+    if (transcript === undefined) throw new Error('Found no transcript');
+    await logTranscript(transcript, session.directory, connection, logging.signal, { tailFile });
+    if (logging.signal.aborted) return;
+    const params: z.input<typeof endSubagentMethod.params> = { sessionId };
+    await connection.request(endSubagentMethod.name, params, logging.signal);
+  } catch (error) {
+    // A request that the close of the connection cuts short is no failure of the log.
+    if (!logging.signal.aborted) process.stderr.write(`Could not log the subagent ${sessionId}: ${messageOf(error)}\n`);
+  }
 };
 
 /**

@@ -776,9 +776,9 @@ function nullish(input2) {
   return input2 === null || input2 === void 0;
 }
 function cleanRegex(source) {
-  const start = source.startsWith("^") ? 1 : 0;
+  const start2 = source.startsWith("^") ? 1 : 0;
   const end = source.endsWith("$") ? source.length - 1 : source.length;
-  return source.slice(start, end);
+  return source.slice(start2, end);
 }
 function floatSafeRemainder(val, step) {
   const ratio = val / step;
@@ -1249,9 +1249,9 @@ function sizeCaps(defChecks) {
   }
   return caps;
 }
-function attachSchema(issues, start, inst) {
+function attachSchema(issues, start2, inst) {
   var _a3;
-  for (let i = start; i < issues.length; i++) {
+  for (let i = start2; i < issues.length; i++) {
     (_a3 = issues[i]).schema ?? (_a3.schema = inst);
   }
 }
@@ -3436,10 +3436,10 @@ function capSize(inst, size) {
     if (n > cap && !ctx?.skipChecks && ctx?.direction !== "backward") {
       for (const [max, ch] of sizeCaps(inst._zod.def.checks)) {
         if (n > max && ch._zod.def.when(payload)) {
-          const start = payload.issues.length;
+          const start2 = payload.issues.length;
           ch._zod.check(payload);
-          payload.issues[start].continue = false;
-          attachSchema(payload.issues, start, inst);
+          payload.issues[start2].continue = false;
+          attachSchema(payload.issues, start2, inst);
           return payload;
         }
       }
@@ -16271,8 +16271,8 @@ var contributors = {
 function aggregateChecks(schema) {
   const agg = {};
   const def = schema._zod.def;
-  const list = schema._zod.traits.has("$ZodCheck") ? [schema, ...def.checks ?? []] : def.checks ?? [];
-  for (const ch of list)
+  const list2 = schema._zod.traits.has("$ZodCheck") ? [schema, ...def.checks ?? []] : def.checks ?? [];
+  for (const ch of list2)
     contributors[ch._zod.def.check]?.(agg, ch._zod.def);
   const bag = schema._zod.bag;
   if (bag.minimum !== void 0)
@@ -19790,7 +19790,7 @@ var BIND_SESSION_PARAMS = external_exports.object({
 });
 
 // src/attachment/hello.ts
-var PROTOCOL_VERSION = 2;
+var PROTOCOL_VERSION = 4;
 var HELLO_METHOD = "hello";
 var HELLO_PARAMS = external_exports.object({
   protocol: external_exports.number().int(),
@@ -19922,6 +19922,78 @@ var bind = (connections, sessionId, connection) => {
 // src/attachment/session-connections.ts
 var CreateSessionConnections = mapCreateSessionConnections;
 
+// src/attachment/subagents.map.ts
+var mapCreateSubagents = () => {
+  const subagents = /* @__PURE__ */ new Map();
+  return {
+    start: (sessionId, parentId, connection) => start(subagents, sessionId, parentId, connection),
+    waitForAttach: (sessionId, signal) => waitForAttach(subagents.get(sessionId), sessionId, signal),
+    awaitCommand: (sessionId, signal) => awaitCommand(subagents.get(sessionId), signal),
+    deliver: (sessionId, content) => deliver(subagents.get(sessionId), content),
+    stop: (sessionId) => stop(subagents, sessionId),
+    list: () => list(subagents)
+  };
+};
+var start = (subagents, sessionId, parentId, connection) => {
+  const subagent = {
+    parentId,
+    inbox: [],
+    attached: Promise.withResolvers(),
+    isAttached: false,
+    waiter: void 0
+  };
+  subagent.attached.promise.catch(() => void 0);
+  subagents.set(sessionId, subagent);
+  void connection.closed.then(() => {
+    if (subagents.get(sessionId) === subagent) stop(subagents, sessionId);
+  });
+};
+var waitForAttach = (subagent, sessionId, signal) => {
+  if (subagent === void 0) return Promise.reject(new Error(`No subagent ${sessionId} is started`));
+  const aborted2 = new Promise((_, reject) => {
+    signal.addEventListener("abort", () => reject(signal.reason), { once: true });
+  });
+  return Promise.race([subagent.attached.promise, aborted2]);
+};
+var awaitCommand = (subagent, signal) => {
+  if (subagent === void 0) return Promise.resolve({ status: "stop" });
+  subagent.isAttached = true;
+  subagent.attached.resolve();
+  const content = subagent.inbox.shift();
+  if (content !== void 0) return Promise.resolve({ status: "command", content });
+  subagent.waiter?.({ status: "idle" });
+  return new Promise((resolve2) => {
+    const finish = (command) => {
+      if (subagent.waiter === finish) subagent.waiter = void 0;
+      signal.removeEventListener("abort", idle);
+      resolve2(command);
+    };
+    const idle = () => finish({ status: "idle" });
+    subagent.waiter = finish;
+    signal.addEventListener("abort", idle, { once: true });
+  });
+};
+var deliver = (subagent, content) => {
+  if (subagent === void 0) return false;
+  if (subagent.waiter === void 0) subagent.inbox.push(content);
+  else subagent.waiter({ status: "command", content });
+  return true;
+};
+var stop = (subagents, sessionId) => {
+  const subagent = subagents.get(sessionId);
+  if (subagent === void 0) return false;
+  subagents.delete(sessionId);
+  subagent.waiter?.({ status: "stop" });
+  subagent.attached.reject(new Error(`The subagent ${sessionId} was stopped`));
+  return true;
+};
+var list = (subagents) => {
+  return [...subagents].filter(([, subagent]) => subagent.isAttached).map(([sessionId, { parentId }]) => ({ sessionId, parentId }));
+};
+
+// src/attachment/subagents.ts
+var CreateSubagents = mapCreateSubagents;
+
 // src/rpc/dispatch.zod.ts
 var REQUEST = external_exports.object({
   jsonrpc: external_exports.literal("2.0"),
@@ -19961,27 +20033,44 @@ var errorObject = (error62) => {
 // src/rpc/dispatch.ts
 var Dispatch = zodDispatch;
 
+// src/rpc/method.await-command.ts
+var WAIT_TIMEOUT = 23 * 60 * 6e4;
+var PARAMS = external_exports.object({
+  sessionId: external_exports.string().min(1).describe("Session id of the subagent, as its prompt gives it")
+});
+var awaitCommandMethod = {
+  name: "awaitCommand",
+  description: 'Waits for the next command of an atomic-workflow subagent. Call it only as a subagent whose prompt tells you to, with the session id from that prompt. Returns status "command" with the content to carry out, "idle" when no command came in time, or "stop" when the subagent ends.',
+  agent: true,
+  params: PARAMS,
+  handle: ({ sessionId }, { subagents }) => subagents.awaitCommand(sessionId, AbortSignal.timeout(WAIT_TIMEOUT))
+};
+
 // src/rpc/session-method.deliver.ts
-var PARAMS = external_exports.object({ content: external_exports.string().min(1).describe("Text of the message") });
+var PARAMS2 = external_exports.object({ content: external_exports.string().min(1).describe("Text of the message") });
 var deliverMethod = {
   name: "deliver",
   description: "Puts a message into the chat of the session.",
   agent: false,
-  params: PARAMS,
+  params: PARAMS2,
   handle: ({ content }, { pushMessage }) => pushMessage(content)
 };
 
 // src/rpc/method.deliver-message.ts
-var PARAMS2 = external_exports.object({
-  sessionId: external_exports.string().describe("Identifier of the attached session to deliver the message to"),
+var PARAMS3 = external_exports.object({
+  sessionId: external_exports.string().describe("Identifier of the attached session or subagent to deliver the message to"),
   content: external_exports.string().min(1).describe("Text of the message")
 });
 var deliverMessageMethod = {
   name: "deliverMessage",
-  description: "Puts a message into the chat of an attached session of the repository.",
+  description: "Puts a message into the chat of an attached session of the repository, or of a subagent.",
   agent: false,
-  params: PARAMS2,
-  handle: async ({ sessionId, content }, { sessionConnections }) => {
+  params: PARAMS3,
+  handle: async ({ sessionId, content }, { sessionConnections, subagents, messageLog }) => {
+    if (subagents.deliver(sessionId, content)) {
+      await messageLog.append({ sessionId, messageId: null, sender: "user", content, timestamp: Date.now() });
+      return;
+    }
     const connection = sessionConnections.get(sessionId);
     if (connection === void 0)
       throw new RpcError(RpcErrorCode.INVALID_PARAMS, `No session ${sessionId} is attached`);
@@ -19991,28 +20080,52 @@ var deliverMessageMethod = {
 };
 
 // src/rpc/method.echo.ts
-var PARAMS3 = external_exports.object({ message: external_exports.string().describe("Text to send back") });
+var PARAMS4 = external_exports.object({ message: external_exports.string().describe("Text to send back") });
 var echoMethod = {
   name: "echo",
   description: "Sends a message to the atomic-workflow server, which returns it unchanged. Use it to test the connection.",
   agent: true,
-  params: PARAMS3,
+  params: PARAMS4,
   handle: async ({ message }) => ({ message })
 };
 
-// src/rpc/method.list-attached-sessions.ts
-var PARAMS4 = external_exports.object({});
-var listAttachedSessionsMethod = {
-  name: "listAttachedSessions",
-  description: "Returns the ids of the sessions of the repository that messages can be delivered to now.",
+// src/rpc/method.end-subagent.ts
+var PARAMS5 = external_exports.object({
+  sessionId: external_exports.string().describe("Session id of the subagent that has ended")
+});
+var endSubagentMethod = {
+  name: "endSubagent",
+  description: "Removes a subagent that has ended from the started subagents.",
   agent: false,
-  params: PARAMS4,
-  handle: async (_params, { sessionConnections }) => ({ sessionIds: sessionConnections.list() })
+  params: PARAMS5,
+  handle: async ({ sessionId }, { subagents }) => {
+    subagents.stop(sessionId);
+  }
 };
 
+// src/rpc/method.list-attached-sessions.ts
+var PARAMS6 = external_exports.object({});
+var listAttachedSessionsMethod = {
+  name: "listAttachedSessions",
+  description: "Returns the sessions and subagents of the repository that messages can be delivered to now.",
+  agent: false,
+  params: PARAMS6,
+  handle: async (_params, { sessionConnections, subagents }) => ({
+    sessions: [
+      ...sessionConnections.list().map((sessionId) => ({ sessionId, role: "orchestrator", parentId: null })),
+      ...subagents.list().map(({ sessionId, parentId }) => ({ sessionId, role: "subagent", parentId }))
+    ]
+  })
+};
+
+// src/storage/session-store.ts
+var AGENTS = ["claude", "codex"];
+var SESSION_ROLES = ["orchestrator", "subagent"];
+
 // src/rpc/method.list-messages.ts
-var PARAMS5 = external_exports.object({
+var PARAMS7 = external_exports.object({
   sessionId: external_exports.string().optional().describe("Identifier of the session whose messages to return, all when left out"),
+  role: external_exports.enum(SESSION_ROLES).optional().describe("Role of the sessions whose messages to return, all when left out"),
   after: external_exports.number().int().nonnegative().optional().describe("Identifier after which the list starts, 0 for the start, the latest messages when left out"),
   limit: external_exports.number().int().min(1).max(1e3).default(100).describe("Greatest number of messages to return")
 });
@@ -20020,9 +20133,9 @@ var listMessagesMethod = {
   name: "listMessages",
   description: "Returns the messages of the message log of the repository after an identifier, or the latest ones.",
   agent: false,
-  params: PARAMS5,
-  handle: async ({ sessionId, after, limit }, { messageLog }) => ({
-    messages: await messageLog.list({ sessionId, after, limit })
+  params: PARAMS7,
+  handle: async ({ sessionId, role, after, limit }, { messageLog }) => ({
+    messages: await messageLog.list({ sessionId, role, after, limit })
   })
 };
 
@@ -20030,7 +20143,7 @@ var listMessagesMethod = {
 var MESSAGE_SENDERS = ["user", "agent"];
 
 // src/rpc/method.log-message.ts
-var PARAMS6 = external_exports.object({
+var PARAMS8 = external_exports.object({
   sessionId: external_exports.string().describe("Identifier of the registered session that the message belongs to"),
   messageId: external_exports.string().optional().describe("Identifier that the agent gives the message, unique in its session"),
   sender: external_exports.enum(MESSAGE_SENDERS).describe("Who wrote the message: user or agent"),
@@ -20041,7 +20154,7 @@ var logMessageMethod = {
   name: "logMessage",
   description: "Adds a message to the message log of the repository, and returns it with its identifier.",
   agent: false,
-  params: PARAMS6,
+  params: PARAMS8,
   handle: async ({ sessionId, messageId, sender, content, timestamp = Date.now() }, { sessions, messageLog }) => {
     if (await sessions.get(sessionId) === void 0)
       throw new RpcError(RpcErrorCode.INVALID_PARAMS, `No session ${sessionId} is registered`);
@@ -20049,22 +20162,106 @@ var logMessageMethod = {
   }
 };
 
-// src/storage/session-store.ts
-var AGENTS = ["claude", "codex"];
-
 // src/rpc/method.register-session.ts
-var PARAMS7 = external_exports.object({
+var PARAMS9 = external_exports.object({
   sessionId: external_exports.string().min(1).describe("Identifier of the session, as the agent gives it"),
   agent: external_exports.enum(AGENTS).describe("Agent that the session runs in: claude or codex"),
   directory: external_exports.string().min(1).describe("Absolute path of the directory of the project of the session"),
-  startedAt: external_exports.number().int().nonnegative().optional().describe("Time when the session started in ms since the epoch")
+  startedAt: external_exports.number().int().nonnegative().optional().describe("Time when the session started in ms since the epoch"),
+  role: external_exports.enum(SESSION_ROLES).default("orchestrator").describe("Role of the session: orchestrator or subagent"),
+  parentId: external_exports.string().min(1).optional().describe("Identifier of the orchestrator session that a subagent runs inside")
 });
 var registerSessionMethod = {
   name: "registerSession",
   description: "Registers a session of an agent in the repository, so that its messages can be logged.",
   agent: false,
-  params: PARAMS7,
-  handle: ({ sessionId, agent, directory, startedAt = Date.now() }, { sessions }) => sessions.register({ id: sessionId, agent, directory, startedAt })
+  params: PARAMS9,
+  handle: ({ sessionId, agent, directory, startedAt = Date.now(), role, parentId = null }, { sessions }) => sessions.register({ id: sessionId, agent, directory, startedAt, role, parentId })
+};
+
+// src/rpc/method.start-subagent.ts
+import { randomUUID } from "node:crypto";
+
+// src/rpc/session-method.follow-subagent.ts
+var PARAMS10 = external_exports.object({
+  sessionId: external_exports.string().min(1).describe("Identifier of the session of the subagent"),
+  parentId: external_exports.string().min(1).describe("Identifier of the orchestrator session that the subagent runs inside")
+});
+var followSubagentMethod = {
+  name: "followSubagent",
+  description: "Logs the transcript of a subagent of the session.",
+  agent: false,
+  params: PARAMS10,
+  handle: async ({ sessionId, parentId }, { followSubagent }) => followSubagent(sessionId, parentId)
+};
+
+// src/rpc/method.start-subagent.ts
+var ATTACH_TIMEOUT = 6e4;
+var AGENT_TYPE = "atomic-workflow:worker";
+var PARAMS11 = external_exports.object({
+  prompt: external_exports.string().min(1).optional().describe("First command of the subagent, none when left out"),
+  parentId: external_exports.string().optional().describe("Session id of the orchestrator, the one that attached last when left out")
+});
+var startSubagentMethod = {
+  name: "startSubagent",
+  description: "Starts a subagent inside an orchestrator session, by default the one that attached last, and returns its session id.",
+  agent: false,
+  params: PARAMS11,
+  handle: async ({ prompt, parentId: pickedId }, context) => {
+    const { sessions, sessionConnections, subagents } = context;
+    const parentId = pickedId ?? sessionConnections.list().at(-1);
+    const connection = parentId === void 0 ? void 0 : sessionConnections.get(parentId);
+    const parent = parentId === void 0 ? void 0 : await sessions.get(parentId);
+    if (parentId === void 0 || connection === void 0 || parent === void 0)
+      throw new RpcError(RpcErrorCode.INVALID_REQUEST, "No orchestrator session is attached");
+    const sessionId = randomUUID();
+    const { agent, directory } = parent;
+    await sessions.register({ id: sessionId, agent, directory, startedAt: Date.now(), role: "subagent", parentId });
+    subagents.start(sessionId, parentId, connection);
+    if (prompt !== void 0) await deliverMessageMethod.handle({ sessionId, content: prompt }, context);
+    try {
+      await spawn(context, connection, sessionId);
+    } catch (error62) {
+      subagents.stop(sessionId);
+      const reason = error62 instanceof Error ? error62.message : String(error62);
+      throw new RpcError(RpcErrorCode.INTERNAL_ERROR, `The subagent ${sessionId} did not attach: ${reason}`);
+    }
+    const params = { sessionId, parentId };
+    await connection.request(followSubagentMethod.name, params);
+    return { sessionId };
+  }
+};
+var spawn = async ({ subagents }, connection, sessionId) => {
+  const attached = subagents.waitForAttach(sessionId, AbortSignal.timeout(ATTACH_TIMEOUT));
+  attached.catch(() => void 0);
+  const params = { content: spawnMessage(sessionId) };
+  await connection.request(deliverMethod.name, params);
+  await attached;
+};
+var spawnMessage = (sessionId) => {
+  return [
+    "Start a subagent for the atomic-workflow server now, and do nothing else for this message.",
+    `Call the Agent tool with run_in_background set to true, subagent_type "${AGENT_TYPE}", description "atomic-workflow subagent ${sessionId.slice(0, 8)}", and exactly this prompt:`,
+    "",
+    `Your session id is ${sessionId}.`,
+    "",
+    "When this subagent completes, do not act on its result and do not reply about it. The atomic-workflow server handles it."
+  ].join("\n");
+};
+
+// src/rpc/method.stop-subagent.ts
+var PARAMS12 = external_exports.object({
+  sessionId: external_exports.string().describe("Session id of the subagent to stop")
+});
+var stopSubagentMethod = {
+  name: "stopSubagent",
+  description: "Stops a subagent that startSubagent started.",
+  agent: false,
+  params: PARAMS12,
+  handle: async ({ sessionId }, { subagents }) => {
+    if (!subagents.stop(sessionId))
+      throw new RpcError(RpcErrorCode.INVALID_PARAMS, `No subagent ${sessionId} is started`);
+  }
 };
 
 // src/rpc/method.ts
@@ -20074,7 +20271,11 @@ var Methods = [
   logMessageMethod,
   listMessagesMethod,
   listAttachedSessionsMethod,
-  deliverMessageMethod
+  deliverMessageMethod,
+  startSubagentMethod,
+  stopSubagentMethod,
+  endSubagentMethod,
+  awaitCommandMethod
 ];
 
 // src/rpc/rpc-connection.ndjson.ts
@@ -20194,17 +20395,13 @@ var sqliteMessageLogStore = (database) => {
   const selectMessageId = database.prepare(
     `SELECT ${COLUMNS} FROM message_log WHERE session_id = :sessionId AND message_id = :messageId`
   );
-  const selectAfter = database.prepare(`SELECT ${COLUMNS} FROM message_log WHERE id > :after ORDER BY id LIMIT :limit`);
-  const selectSessionAfter = database.prepare(
-    `SELECT ${COLUMNS} FROM message_log WHERE session_id = :sessionId AND id > :after ORDER BY id LIMIT :limit`
+  const filter = `(:sessionId IS NULL OR session_id = :sessionId)
+    AND (:role IS NULL OR session_id IN (SELECT id FROM session WHERE role = :role))`;
+  const selectAfter = database.prepare(
+    `SELECT ${COLUMNS} FROM message_log WHERE ${filter} AND id > :after ORDER BY id LIMIT :limit`
   );
   const selectLatest = database.prepare(
-    `SELECT * FROM (SELECT ${COLUMNS} FROM message_log ORDER BY id DESC LIMIT :limit) ORDER BY id`
-  );
-  const selectSessionLatest = database.prepare(
-    `SELECT * FROM (
-      SELECT ${COLUMNS} FROM message_log WHERE session_id = :sessionId ORDER BY id DESC LIMIT :limit
-    ) ORDER BY id`
+    `SELECT * FROM (SELECT ${COLUMNS} FROM message_log WHERE ${filter} ORDER BY id DESC LIMIT :limit) ORDER BY id`
   );
   return {
     append: async (message) => {
@@ -20212,12 +20409,8 @@ var sqliteMessageLogStore = (database) => {
       const row = insert.get({ ...message }) ?? selectMessageId.get({ sessionId, messageId });
       return row;
     },
-    list: async ({ sessionId, after, limit }) => {
-      if (after === void 0) {
-        const rows2 = sessionId === void 0 ? selectLatest.all({ limit }) : selectSessionLatest.all({ sessionId, limit });
-        return rows2;
-      }
-      const rows = sessionId === void 0 ? selectAfter.all({ after, limit }) : selectSessionAfter.all({ sessionId, after, limit });
+    list: async ({ sessionId = null, role = null, after, limit }) => {
+      const rows = after === void 0 ? selectLatest.all({ sessionId, role, limit }) : selectAfter.all({ sessionId, role, after, limit });
       return rows;
     }
   };
@@ -20226,10 +20419,13 @@ var sqliteMessageLogStore = (database) => {
 // src/storage/session-store.sqlite.ts
 var sqliteSessionStore = (database) => {
   const insert = database.prepare(
-    `INSERT INTO session (id, agent, directory, started_at) VALUES (:id, :agent, :directory, :startedAt)
+    `INSERT INTO session (id, agent, directory, started_at, role, parent_id)
+    VALUES (:id, :agent, :directory, :startedAt, :role, :parentId)
     ON CONFLICT (id) DO NOTHING`
   );
-  const select = database.prepare("SELECT id, agent, directory, started_at AS startedAt FROM session WHERE id = :id");
+  const select = database.prepare(
+    `SELECT id, agent, directory, started_at AS startedAt, role, parent_id AS parentId FROM session WHERE id = :id`
+  );
   const get = (id) => select.get({ id });
   return {
     register: async (session) => {
@@ -20259,7 +20455,10 @@ var MIGRATIONS = [
     timestamp INTEGER NOT NULL,
     UNIQUE (session_id, message_id)
   ) STRICT;
-  CREATE INDEX message_log_session ON message_log (session_id, id);`
+  CREATE INDEX message_log_session ON message_log (session_id, id);`,
+  `ALTER TABLE session ADD COLUMN role TEXT NOT NULL DEFAULT 'orchestrator'
+    CHECK (role IN ('orchestrator', 'subagent'));
+  ALTER TABLE session ADD COLUMN parent_id TEXT REFERENCES session (id);`
 ];
 var sqliteOpenStorage = async (path) => {
   const directory = dirname(path);
@@ -20342,6 +20541,7 @@ var PAGE = `<!doctype html>
   <div class="row">
     <select id="target" title="Attached session" disabled></select>
     <button id="submit" type="submit" disabled>Send</button>
+    <button id="spawn" type="button" title="Starts a subagent inside the session, with the message as its first command" disabled>Start subagent</button>
     <span id="delivery"></span>
   </div>
 </form>
@@ -20355,9 +20555,19 @@ const form = document.getElementById('send');
 const content = document.getElementById('content');
 const target = document.getElementById('target');
 const submit = document.getElementById('submit');
+const spawn = document.getElementById('spawn');
 const delivery = document.getElementById('delivery');
+let sessions = [];
+let view;
 let last;
-let sending = false;
+let busy = false;
+
+const picked = () => sessions.find((session) => session.sessionId === target.value);
+
+const enableButtons = () => {
+  submit.disabled = target.disabled || busy;
+  spawn.disabled = target.disabled || busy || picked()?.role !== 'orchestrator';
+};
 
 const call = async (method, params) => {
   const request = { jsonrpc: '2.0', id: 1, method, params };
@@ -20392,27 +20602,42 @@ const render = (message) => {
   return article;
 };
 
-const option = (sessionId) => {
-  const node = element('option', '', sessionId.slice(0, 8));
-  node.value = sessionId;
-  node.title = sessionId;
+const option = (session) => {
+  const label = session.sessionId.slice(0, 8);
+  const node = element('option', '', session.role === 'subagent' ? '\xA0\xA0\u21B3 subagent ' + label : label);
+  node.value = session.sessionId;
+  node.title = session.sessionId;
   return node;
 };
 
-const showTargets = (sessionIds) => {
-  const picked = target.value;
-  const latest = sessionIds[sessionIds.length - 1];
-  target.replaceChildren(...sessionIds.slice().reverse().map(option));
-  target.value = sessionIds.includes(picked) ? picked : (latest ?? '');
-  target.disabled = sessionIds.length === 0;
-  submit.disabled = sessionIds.length === 0 || sending;
-  if (sessionIds.length === 0) target.replaceChildren(element('option', '', 'No attached session'));
+const options = (attached) => {
+  const orchestrators = attached.filter((session) => session.role === 'orchestrator');
+  const subagents = attached.filter((session) => session.role === 'subagent');
+  const orphans = subagents.filter((subagent) => !orchestrators.some((session) => session.sessionId === subagent.parentId));
+  return [
+    ...orchestrators.slice().reverse().flatMap((orchestrator) => [
+      option(orchestrator),
+      ...subagents.filter((subagent) => subagent.parentId === orchestrator.sessionId).map(option),
+    ]),
+    ...orphans.map(option),
+  ];
+};
+
+const showTargets = (attached) => {
+  const previous = target.value;
+  const latest = attached.filter((session) => session.role === 'orchestrator').at(-1) ?? attached.at(-1);
+  sessions = attached;
+  target.replaceChildren(...options(attached));
+  target.value = attached.some((session) => session.sessionId === previous) ? previous : (latest?.sessionId ?? '');
+  target.disabled = attached.length === 0;
+  enableButtons();
+  if (attached.length === 0) target.replaceChildren(element('option', '', 'No attached session'));
 };
 
 const refreshTargets = async () => {
   try {
-    const { sessionIds } = await call('listAttachedSessions', {});
-    showTargets(sessionIds);
+    const { sessions } = await call('listAttachedSessions', {});
+    showTargets(sessions);
   } catch (error) {
     showTargets([]);
     delivery.textContent = 'Could not load the attached sessions: ' + error.message;
@@ -20420,9 +20645,9 @@ const refreshTargets = async () => {
 };
 
 const send = async () => {
-  if (sending || target.disabled || content.value.trim() === '') return;
-  sending = true;
-  submit.disabled = true;
+  if (busy || target.disabled || content.value.trim() === '') return;
+  busy = true;
+  enableButtons();
   delivery.textContent = 'Sending\u2026';
   try {
     await call('deliverMessage', { sessionId: target.value, content: content.value });
@@ -20431,10 +20656,35 @@ const send = async () => {
   } catch (error) {
     delivery.textContent = 'Could not deliver the message: ' + error.message;
   } finally {
-    sending = false;
-    submit.disabled = target.disabled;
+    busy = false;
+    enableButtons();
   }
 };
+
+const startSubagent = async () => {
+  if (busy || target.disabled) return;
+  busy = true;
+  enableButtons();
+  delivery.textContent = 'Starting a subagent\u2026';
+  try {
+    const prompt = content.value.trim() === '' ? undefined : content.value;
+    const { sessionId } = await call('startSubagent', { parentId: target.value, prompt });
+    content.value = '';
+    await refreshTargets();
+    target.value = sessionId;
+    enableButtons();
+    delivery.textContent = 'Started the subagent ' + sessionId.slice(0, 8) + ' at ' + new Date().toLocaleTimeString() + '.';
+  } catch (error) {
+    delivery.textContent = 'Could not start a subagent: ' + error.message;
+  } finally {
+    busy = false;
+    enableButtons();
+  }
+};
+
+spawn.addEventListener('click', startSubagent);
+
+target.addEventListener('change', enableButtons);
 
 form.addEventListener('submit', (event) => {
   event.preventDefault();
@@ -20447,10 +20697,21 @@ content.addEventListener('keydown', (event) => {
   send();
 });
 
+const viewOf = (session) => {
+  return session?.role === 'subagent' ? { sessionId: session.sessionId } : { role: 'orchestrator' };
+};
+
 const refresh = async () => {
   await refreshTargets();
   try {
-    const params = last === undefined ? { limit: ${LATEST_LIMIT} } : { after: last, limit: 1000 };
+    const shown = viewOf(picked());
+    const key = JSON.stringify(shown);
+    if (key !== view) {
+      view = key;
+      last = undefined;
+      list.replaceChildren();
+    }
+    const params = last === undefined ? { ...shown, limit: ${LATEST_LIMIT} } : { ...shown, after: last, limit: 1000 };
     const { messages } = await call('listMessages', params);
     for (const message of messages) list.prepend(render(message));
     last = messages.length > 0 ? messages[messages.length - 1].id : (last ?? 0);
@@ -20533,7 +20794,8 @@ var serve2 = async (address, storage) => {
   const context = {
     sessions: storage.sessions,
     messageLog: storage.messageLog,
-    sessionConnections: CreateSessionConnections()
+    sessionConnections: CreateSessionConnections(),
+    subagents: CreateSubagents()
   };
   const webServer = await StartWebServer((message) => Dispatch(Methods, context, message));
   try {

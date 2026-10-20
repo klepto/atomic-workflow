@@ -32,10 +32,13 @@ const LATEST_LIMIT = 100;
 const REFRESH_INTERVAL = 2_000;
 
 /**
- * Page that the web server serves at its root. It shows the latest messages of the message log, newest first, and
- * adds the messages that are logged later every `REFRESH_INTERVAL` ms. Above the log, a form delivers a message to an
- * attached session, the latest attached one unless another is picked. The list of attached sessions is refreshed with
- * the log. Content is set as text, never as HTML.
+ * Page that the web server serves at its root. Above the log, a form delivers a message to an attached session, the
+ * latest attached orchestrator session unless another session is picked. The list of sessions shows each subagent
+ * below its orchestrator session. A second button of the form starts a subagent inside a picked orchestrator session
+ * instead, with the message as its first command if one is typed, and picks the new subagent. The log shows the
+ * latest messages of the orchestrator sessions, or of the picked subagent only, newest first, and adds the messages
+ * that are logged later every `REFRESH_INTERVAL` ms. The list of sessions is refreshed with the log. Content is set as
+ * text, never as HTML.
  */
 const PAGE = `<!doctype html>
 <html lang="en">
@@ -70,6 +73,7 @@ const PAGE = `<!doctype html>
   <div class="row">
     <select id="target" title="Attached session" disabled></select>
     <button id="submit" type="submit" disabled>Send</button>
+    <button id="spawn" type="button" title="Starts a subagent inside the session, with the message as its first command" disabled>Start subagent</button>
     <span id="delivery"></span>
   </div>
 </form>
@@ -83,9 +87,19 @@ const form = document.getElementById('send');
 const content = document.getElementById('content');
 const target = document.getElementById('target');
 const submit = document.getElementById('submit');
+const spawn = document.getElementById('spawn');
 const delivery = document.getElementById('delivery');
+let sessions = [];
+let view;
 let last;
-let sending = false;
+let busy = false;
+
+const picked = () => sessions.find((session) => session.sessionId === target.value);
+
+const enableButtons = () => {
+  submit.disabled = target.disabled || busy;
+  spawn.disabled = target.disabled || busy || picked()?.role !== 'orchestrator';
+};
 
 const call = async (method, params) => {
   const request = { jsonrpc: '2.0', id: 1, method, params };
@@ -120,27 +134,42 @@ const render = (message) => {
   return article;
 };
 
-const option = (sessionId) => {
-  const node = element('option', '', sessionId.slice(0, 8));
-  node.value = sessionId;
-  node.title = sessionId;
+const option = (session) => {
+  const label = session.sessionId.slice(0, 8);
+  const node = element('option', '', session.role === 'subagent' ? '  ↳ subagent ' + label : label);
+  node.value = session.sessionId;
+  node.title = session.sessionId;
   return node;
 };
 
-const showTargets = (sessionIds) => {
-  const picked = target.value;
-  const latest = sessionIds[sessionIds.length - 1];
-  target.replaceChildren(...sessionIds.slice().reverse().map(option));
-  target.value = sessionIds.includes(picked) ? picked : (latest ?? '');
-  target.disabled = sessionIds.length === 0;
-  submit.disabled = sessionIds.length === 0 || sending;
-  if (sessionIds.length === 0) target.replaceChildren(element('option', '', 'No attached session'));
+const options = (attached) => {
+  const orchestrators = attached.filter((session) => session.role === 'orchestrator');
+  const subagents = attached.filter((session) => session.role === 'subagent');
+  const orphans = subagents.filter((subagent) => !orchestrators.some((session) => session.sessionId === subagent.parentId));
+  return [
+    ...orchestrators.slice().reverse().flatMap((orchestrator) => [
+      option(orchestrator),
+      ...subagents.filter((subagent) => subagent.parentId === orchestrator.sessionId).map(option),
+    ]),
+    ...orphans.map(option),
+  ];
+};
+
+const showTargets = (attached) => {
+  const previous = target.value;
+  const latest = attached.filter((session) => session.role === 'orchestrator').at(-1) ?? attached.at(-1);
+  sessions = attached;
+  target.replaceChildren(...options(attached));
+  target.value = attached.some((session) => session.sessionId === previous) ? previous : (latest?.sessionId ?? '');
+  target.disabled = attached.length === 0;
+  enableButtons();
+  if (attached.length === 0) target.replaceChildren(element('option', '', 'No attached session'));
 };
 
 const refreshTargets = async () => {
   try {
-    const { sessionIds } = await call('listAttachedSessions', {});
-    showTargets(sessionIds);
+    const { sessions } = await call('listAttachedSessions', {});
+    showTargets(sessions);
   } catch (error) {
     showTargets([]);
     delivery.textContent = 'Could not load the attached sessions: ' + error.message;
@@ -148,9 +177,9 @@ const refreshTargets = async () => {
 };
 
 const send = async () => {
-  if (sending || target.disabled || content.value.trim() === '') return;
-  sending = true;
-  submit.disabled = true;
+  if (busy || target.disabled || content.value.trim() === '') return;
+  busy = true;
+  enableButtons();
   delivery.textContent = 'Sending…';
   try {
     await call('deliverMessage', { sessionId: target.value, content: content.value });
@@ -159,10 +188,35 @@ const send = async () => {
   } catch (error) {
     delivery.textContent = 'Could not deliver the message: ' + error.message;
   } finally {
-    sending = false;
-    submit.disabled = target.disabled;
+    busy = false;
+    enableButtons();
   }
 };
+
+const startSubagent = async () => {
+  if (busy || target.disabled) return;
+  busy = true;
+  enableButtons();
+  delivery.textContent = 'Starting a subagent…';
+  try {
+    const prompt = content.value.trim() === '' ? undefined : content.value;
+    const { sessionId } = await call('startSubagent', { parentId: target.value, prompt });
+    content.value = '';
+    await refreshTargets();
+    target.value = sessionId;
+    enableButtons();
+    delivery.textContent = 'Started the subagent ' + sessionId.slice(0, 8) + ' at ' + new Date().toLocaleTimeString() + '.';
+  } catch (error) {
+    delivery.textContent = 'Could not start a subagent: ' + error.message;
+  } finally {
+    busy = false;
+    enableButtons();
+  }
+};
+
+spawn.addEventListener('click', startSubagent);
+
+target.addEventListener('change', enableButtons);
 
 form.addEventListener('submit', (event) => {
   event.preventDefault();
@@ -175,10 +229,21 @@ content.addEventListener('keydown', (event) => {
   send();
 });
 
+const viewOf = (session) => {
+  return session?.role === 'subagent' ? { sessionId: session.sessionId } : { role: 'orchestrator' };
+};
+
 const refresh = async () => {
   await refreshTargets();
   try {
-    const params = last === undefined ? { limit: ${LATEST_LIMIT} } : { after: last, limit: 1000 };
+    const shown = viewOf(picked());
+    const key = JSON.stringify(shown);
+    if (key !== view) {
+      view = key;
+      last = undefined;
+      list.replaceChildren();
+    }
+    const params = last === undefined ? { ...shown, limit: ${LATEST_LIMIT} } : { ...shown, after: last, limit: 1000 };
     const { messages } = await call('listMessages', params);
     for (const message of messages) list.prepend(render(message));
     last = messages.length > 0 ? messages[messages.length - 1].id : (last ?? 0);

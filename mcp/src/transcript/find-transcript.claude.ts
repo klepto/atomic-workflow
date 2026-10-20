@@ -1,10 +1,10 @@
-import { access, readdir, readFile } from 'node:fs/promises';
+import { access, open, readdir, readFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { z } from 'zod';
 import type { MessageSender } from '../storage/message-log-store.ts';
-import type { FindTranscriptFunction, TranscriptMessage } from './find-transcript.ts';
+import type { FindSubagentTranscriptFunction, FindTranscriptFunction, TranscriptMessage } from './find-transcript.ts';
 
 /**
  * Schema of the fields of an entry of a Claude Code transcript that a message needs. The format is internal to Claude
@@ -46,9 +46,29 @@ const SESSION_FILE = z.object({
 });
 
 /**
- * Time in ms between two reads of the session file of a Claude Code process.
+ * Schema of the fields of the metadata file of a Claude Code subagent that its end needs. The format is internal to
+ * Claude Code, so every other field may be missing or change.
+ */
+const SUBAGENT_META = z.object({
+  finished: z.boolean().optional(),
+});
+
+/**
+ * Time in ms between two reads of the session file of a Claude Code process, of the metadata file of a subagent, or
+ * of the directory of the transcripts of subagents.
  */
 const POLL_INTERVAL = 500;
+
+/**
+ * Time in ms that the search for the transcript of a subagent goes on before it gives up.
+ */
+const SUBAGENT_SEARCH_TIMEOUT = 10_000;
+
+/**
+ * Number of bytes at the start of the transcript of a subagent that are searched for its session id. The first entry
+ * holds the prompt, which names the session id in its first line.
+ */
+const PROMPT_BYTES = 16 * 1024;
 
 /**
  * Returns the value of the JSON text `text`. If `text` is not valid JSON, returns `undefined` instead.
@@ -59,6 +79,16 @@ const parseJson = (text: string): unknown => {
   } catch {
     return undefined;
   }
+};
+
+/**
+ * Returns the text of the file at `path`. If the file does not exist, returns `undefined` instead.
+ */
+const readFileIfExists = (path: string): Promise<string | undefined> => {
+  return readFile(path, 'utf8').catch((error: NodeJS.ErrnoException) => {
+    if (error.code === 'ENOENT') return undefined;
+    throw error;
+  });
 };
 
 /**
@@ -82,7 +112,7 @@ export const claudeFindTranscript: FindTranscriptFunction = async (environment, 
     agent: 'claude',
     sessionId,
     path,
-    parse: parseEntry,
+    parse: entryParser(false),
     waitForEnd: (signal) => waitForEnd(sessionFile, sessionId, signal),
   };
 };
@@ -92,10 +122,7 @@ export const claudeFindTranscript: FindTranscriptFunction = async (environment, 
  * returns `undefined` instead.
  */
 const readSessionId = async (path: string): Promise<string | undefined> => {
-  const text = await readFile(path, 'utf8').catch((error: NodeJS.ErrnoException) => {
-    if (error.code === 'ENOENT') return undefined;
-    throw error;
-  });
+  const text = await readFileIfExists(path);
   if (text === undefined) return undefined;
   const sessionFile = SESSION_FILE.safeParse(parseJson(text));
   return sessionFile.success ? sessionFile.data.sessionId : undefined;
@@ -147,24 +174,112 @@ const expectedTranscriptFile = (projects: string, name: string, environment: Nod
 };
 
 /**
+ * `FindSubagentTranscriptFunction` that finds the transcript of a subagent of a Claude Code session. Claude Code writes
+ * it to `subagents/agent-<agent id>.jsonl` in a directory beside the transcript of the parent, named after the session
+ * of the parent, and starts it with the prompt of the subagent. Beside it, `agent-<agent id>.meta.json` sets
+ * `finished` once the subagent has finished. The directory is searched every `POLL_INTERVAL` ms, until
+ * `SUBAGENT_SEARCH_TIMEOUT` ms have passed.
+ */
+export const claudeFindSubagentTranscript: FindSubagentTranscriptFunction = async (parent, sessionId, signal) => {
+  if (parent.agent !== 'claude') return undefined;
+  const directory = join(parent.path.replace(/\.jsonl$/, ''), 'subagents');
+  const deadline = Date.now() + SUBAGENT_SEARCH_TIMEOUT;
+  for (;;) {
+    const path = await findSubagentFile(directory, sessionId);
+    if (path !== undefined)
+      return {
+        agent: 'claude',
+        sessionId,
+        path,
+        parse: entryParser(true),
+        waitForEnd: (signal) => waitForFinish(path.replace(/\.jsonl$/, '.meta.json'), signal),
+      };
+    if (signal.aborted || Date.now() >= deadline) return undefined;
+    // The only failure of the sleep is the abort, which the next round of the loop handles.
+    await sleep(POLL_INTERVAL, undefined, { signal }).catch(() => undefined);
+  }
+};
+
+/**
+ * Returns the path of the transcript of a subagent in `directory` whose start names `sessionId`. If no transcript
+ * there names it, returns `undefined` instead.
+ */
+const findSubagentFile = async (directory: string, sessionId: string): Promise<string | undefined> => {
+  const names = await readdir(directory).catch((error: NodeJS.ErrnoException) => {
+    if (error.code === 'ENOENT') return [];
+    throw error;
+  });
+  const candidates = names
+    .filter((name) => name.startsWith('agent-') && name.endsWith('.jsonl'))
+    .map((name) => join(directory, name));
+  const starts = await Promise.all(candidates.map(readStart));
+  return candidates.find((_, index) => starts[index]?.includes(sessionId));
+};
+
+/**
+ * Returns the text of the first `PROMPT_BYTES` bytes of the file at `path`.
+ */
+const readStart = async (path: string): Promise<string> => {
+  const file = await open(path, 'r');
+  try {
+    const buffer = Buffer.alloc(PROMPT_BYTES);
+    const { bytesRead } = await file.read(buffer, 0, PROMPT_BYTES, 0);
+    return buffer.toString('utf8', 0, bytesRead);
+  } finally {
+    await file.close();
+  }
+};
+
+/**
+ * Reads the metadata file of a subagent at `path` every `POLL_INTERVAL` ms, and resolves once it sets `finished`, or
+ * when `signal` aborts.
+ */
+const waitForFinish = async (path: string, signal: AbortSignal): Promise<void> => {
+  while (!signal.aborted) {
+    if (await isFinished(path)) return;
+    // The only failure of the sleep is the abort, which ends the loop.
+    await sleep(POLL_INTERVAL, undefined, { signal }).catch(() => undefined);
+  }
+};
+
+/**
+ * Returns whether the metadata file of a subagent at `path` sets `finished`. A file that does not exist does not.
+ */
+const isFinished = async (path: string): Promise<boolean> => {
+  const text = await readFileIfExists(path);
+  if (text === undefined) return false;
+  const meta = SUBAGENT_META.safeParse(parseJson(text));
+  return meta.success && meta.data.finished === true;
+};
+
+/**
  * Pattern of the text of a message that a channel delivered, which Claude Code wraps in a `channel` tag. The first
  * group is the message.
  */
 const CHANNEL_TAG = /^<channel\b[^>]*>\n?([\s\S]*?)\n?<\/channel>$/;
 
 /**
- * Returns the message of a user or an agent that the line `line` of a Claude Code transcript holds. Entries that only
- * Claude Code wrote, such as the text of a skill, and entries of subagents are no messages, and neither are tool
+ * Returns the function that returns the message of a user or an agent that a line of a Claude Code transcript holds.
+ * With `sidechain`, only the entries of a subagent are messages, and without it, only the entries of the session
+ * itself. Entries that only Claude Code wrote, such as the text of a skill, are no messages, and neither are tool
  * calls, tool results and thinking. A message that a channel delivered is a message of the user, without the
- * `channel` tag around it. If the line holds no message, returns `undefined` instead.
+ * `channel` tag around it. If the line holds no message, the function returns `undefined` instead.
  */
-const parseEntry = (line: string): TranscriptMessage | undefined => {
+const entryParser = (sidechain: boolean): ((line: string) => TranscriptMessage | undefined) => {
+  return (line) => parseEntry(line, sidechain);
+};
+
+/**
+ * Returns the message of a user or an agent that the line `line` of a Claude Code transcript holds, as
+ * `entryParser` describes it for `sidechain`.
+ */
+const parseEntry = (line: string, sidechain: boolean): TranscriptMessage | undefined => {
   const entry = ENTRY.safeParse(parseJson(line));
   if (!entry.success) return undefined;
-  const { type, uuid, timestamp, isMeta, isSidechain, isCompactSummary, origin, message } = entry.data;
+  const { type, uuid, timestamp, isMeta, isSidechain = false, isCompactSummary, origin, message } = entry.data;
   const sender = SENDERS.get(type);
   const channel = origin?.kind === 'channel';
-  if (sender === undefined || (isMeta && !channel) || isSidechain || isCompactSummary) return undefined;
+  if (sender === undefined || (isMeta && !channel) || isSidechain !== sidechain || isCompactSummary) return undefined;
   const text = textOf(message.content);
   const content = channel ? (CHANNEL_TAG.exec(text)?.[1] ?? text) : text;
   return content === '' ? undefined : { messageId: uuid, sender, content, timestamp: Date.parse(timestamp) };

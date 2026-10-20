@@ -36596,7 +36596,7 @@ import { createConnection } from "node:net";
 import { setTimeout as sleep } from "node:timers/promises";
 
 // src/attachment/hello.ts
-var PROTOCOL_VERSION = 2;
+var PROTOCOL_VERSION = 4;
 var HELLO_METHOD = "hello";
 var HELLO_PARAMS = external_exports.object({
   protocol: external_exports.number().int(),
@@ -36808,27 +36808,58 @@ var errorObject = (error62) => {
 // src/rpc/dispatch.ts
 var Dispatch = zodDispatch;
 
+// src/rpc/method.end-subagent.ts
+var PARAMS = external_exports.object({
+  sessionId: external_exports.string().describe("Session id of the subagent that has ended")
+});
+var endSubagentMethod = {
+  name: "endSubagent",
+  description: "Removes a subagent that has ended from the started subagents.",
+  agent: false,
+  params: PARAMS,
+  handle: async ({ sessionId }, { subagents }) => {
+    subagents.stop(sessionId);
+  }
+};
+
+// src/rpc/method.await-command.ts
+var WAIT_TIMEOUT = 23 * 60 * 6e4;
+var PARAMS2 = external_exports.object({
+  sessionId: external_exports.string().min(1).describe("Session id of the subagent, as its prompt gives it")
+});
+var awaitCommandMethod = {
+  name: "awaitCommand",
+  description: 'Waits for the next command of an atomic-workflow subagent. Call it only as a subagent whose prompt tells you to, with the session id from that prompt. Returns status "command" with the content to carry out, "idle" when no command came in time, or "stop" when the subagent ends.',
+  agent: true,
+  params: PARAMS2,
+  handle: ({ sessionId }, { subagents }) => subagents.awaitCommand(sessionId, AbortSignal.timeout(WAIT_TIMEOUT))
+};
+
 // src/rpc/session-method.deliver.ts
-var PARAMS = external_exports.object({ content: external_exports.string().min(1).describe("Text of the message") });
+var PARAMS3 = external_exports.object({ content: external_exports.string().min(1).describe("Text of the message") });
 var deliverMethod = {
   name: "deliver",
   description: "Puts a message into the chat of the session.",
   agent: false,
-  params: PARAMS,
+  params: PARAMS3,
   handle: ({ content }, { pushMessage: pushMessage2 }) => pushMessage2(content)
 };
 
 // src/rpc/method.deliver-message.ts
-var PARAMS2 = external_exports.object({
-  sessionId: external_exports.string().describe("Identifier of the attached session to deliver the message to"),
+var PARAMS4 = external_exports.object({
+  sessionId: external_exports.string().describe("Identifier of the attached session or subagent to deliver the message to"),
   content: external_exports.string().min(1).describe("Text of the message")
 });
 var deliverMessageMethod = {
   name: "deliverMessage",
-  description: "Puts a message into the chat of an attached session of the repository.",
+  description: "Puts a message into the chat of an attached session of the repository, or of a subagent.",
   agent: false,
-  params: PARAMS2,
-  handle: async ({ sessionId, content }, { sessionConnections }) => {
+  params: PARAMS4,
+  handle: async ({ sessionId, content }, { sessionConnections, subagents, messageLog }) => {
+    if (subagents.deliver(sessionId, content)) {
+      await messageLog.append({ sessionId, messageId: null, sender: "user", content, timestamp: Date.now() });
+      return;
+    }
     const connection = sessionConnections.get(sessionId);
     if (connection === void 0)
       throw new RpcError(RpcErrorCode.INVALID_PARAMS, `No session ${sessionId} is attached`);
@@ -36838,28 +36869,38 @@ var deliverMessageMethod = {
 };
 
 // src/rpc/method.echo.ts
-var PARAMS3 = external_exports.object({ message: external_exports.string().describe("Text to send back") });
+var PARAMS5 = external_exports.object({ message: external_exports.string().describe("Text to send back") });
 var echoMethod = {
   name: "echo",
   description: "Sends a message to the atomic-workflow server, which returns it unchanged. Use it to test the connection.",
   agent: true,
-  params: PARAMS3,
+  params: PARAMS5,
   handle: async ({ message }) => ({ message })
 };
 
 // src/rpc/method.list-attached-sessions.ts
-var PARAMS4 = external_exports.object({});
+var PARAMS6 = external_exports.object({});
 var listAttachedSessionsMethod = {
   name: "listAttachedSessions",
-  description: "Returns the ids of the sessions of the repository that messages can be delivered to now.",
+  description: "Returns the sessions and subagents of the repository that messages can be delivered to now.",
   agent: false,
-  params: PARAMS4,
-  handle: async (_params, { sessionConnections }) => ({ sessionIds: sessionConnections.list() })
+  params: PARAMS6,
+  handle: async (_params, { sessionConnections, subagents }) => ({
+    sessions: [
+      ...sessionConnections.list().map((sessionId) => ({ sessionId, role: "orchestrator", parentId: null })),
+      ...subagents.list().map(({ sessionId, parentId }) => ({ sessionId, role: "subagent", parentId }))
+    ]
+  })
 };
 
+// src/storage/session-store.ts
+var AGENTS = ["claude", "codex"];
+var SESSION_ROLES = ["orchestrator", "subagent"];
+
 // src/rpc/method.list-messages.ts
-var PARAMS5 = external_exports.object({
+var PARAMS7 = external_exports.object({
   sessionId: external_exports.string().optional().describe("Identifier of the session whose messages to return, all when left out"),
+  role: external_exports.enum(SESSION_ROLES).optional().describe("Role of the sessions whose messages to return, all when left out"),
   after: external_exports.number().int().nonnegative().optional().describe("Identifier after which the list starts, 0 for the start, the latest messages when left out"),
   limit: external_exports.number().int().min(1).max(1e3).default(100).describe("Greatest number of messages to return")
 });
@@ -36867,9 +36908,9 @@ var listMessagesMethod = {
   name: "listMessages",
   description: "Returns the messages of the message log of the repository after an identifier, or the latest ones.",
   agent: false,
-  params: PARAMS5,
-  handle: async ({ sessionId, after, limit }, { messageLog }) => ({
-    messages: await messageLog.list({ sessionId, after, limit })
+  params: PARAMS7,
+  handle: async ({ sessionId, role, after, limit }, { messageLog }) => ({
+    messages: await messageLog.list({ sessionId, role, after, limit })
   })
 };
 
@@ -36877,7 +36918,7 @@ var listMessagesMethod = {
 var MESSAGE_SENDERS = ["user", "agent"];
 
 // src/rpc/method.log-message.ts
-var PARAMS6 = external_exports.object({
+var PARAMS8 = external_exports.object({
   sessionId: external_exports.string().describe("Identifier of the registered session that the message belongs to"),
   messageId: external_exports.string().optional().describe("Identifier that the agent gives the message, unique in its session"),
   sender: external_exports.enum(MESSAGE_SENDERS).describe("Who wrote the message: user or agent"),
@@ -36888,7 +36929,7 @@ var logMessageMethod = {
   name: "logMessage",
   description: "Adds a message to the message log of the repository, and returns it with its identifier.",
   agent: false,
-  params: PARAMS6,
+  params: PARAMS8,
   handle: async ({ sessionId, messageId, sender, content, timestamp = Date.now() }, { sessions, messageLog }) => {
     if (await sessions.get(sessionId) === void 0)
       throw new RpcError(RpcErrorCode.INVALID_PARAMS, `No session ${sessionId} is registered`);
@@ -36896,22 +36937,106 @@ var logMessageMethod = {
   }
 };
 
-// src/storage/session-store.ts
-var AGENTS = ["claude", "codex"];
-
 // src/rpc/method.register-session.ts
-var PARAMS7 = external_exports.object({
+var PARAMS9 = external_exports.object({
   sessionId: external_exports.string().min(1).describe("Identifier of the session, as the agent gives it"),
   agent: external_exports.enum(AGENTS).describe("Agent that the session runs in: claude or codex"),
   directory: external_exports.string().min(1).describe("Absolute path of the directory of the project of the session"),
-  startedAt: external_exports.number().int().nonnegative().optional().describe("Time when the session started in ms since the epoch")
+  startedAt: external_exports.number().int().nonnegative().optional().describe("Time when the session started in ms since the epoch"),
+  role: external_exports.enum(SESSION_ROLES).default("orchestrator").describe("Role of the session: orchestrator or subagent"),
+  parentId: external_exports.string().min(1).optional().describe("Identifier of the orchestrator session that a subagent runs inside")
 });
 var registerSessionMethod = {
   name: "registerSession",
   description: "Registers a session of an agent in the repository, so that its messages can be logged.",
   agent: false,
-  params: PARAMS7,
-  handle: ({ sessionId, agent, directory, startedAt = Date.now() }, { sessions }) => sessions.register({ id: sessionId, agent, directory, startedAt })
+  params: PARAMS9,
+  handle: ({ sessionId, agent, directory, startedAt = Date.now(), role, parentId = null }, { sessions }) => sessions.register({ id: sessionId, agent, directory, startedAt, role, parentId })
+};
+
+// src/rpc/method.start-subagent.ts
+import { randomUUID } from "node:crypto";
+
+// src/rpc/session-method.follow-subagent.ts
+var PARAMS10 = external_exports.object({
+  sessionId: external_exports.string().min(1).describe("Identifier of the session of the subagent"),
+  parentId: external_exports.string().min(1).describe("Identifier of the orchestrator session that the subagent runs inside")
+});
+var followSubagentMethod = {
+  name: "followSubagent",
+  description: "Logs the transcript of a subagent of the session.",
+  agent: false,
+  params: PARAMS10,
+  handle: async ({ sessionId, parentId }, { followSubagent: followSubagent2 }) => followSubagent2(sessionId, parentId)
+};
+
+// src/rpc/method.start-subagent.ts
+var ATTACH_TIMEOUT = 6e4;
+var AGENT_TYPE = "atomic-workflow:worker";
+var PARAMS11 = external_exports.object({
+  prompt: external_exports.string().min(1).optional().describe("First command of the subagent, none when left out"),
+  parentId: external_exports.string().optional().describe("Session id of the orchestrator, the one that attached last when left out")
+});
+var startSubagentMethod = {
+  name: "startSubagent",
+  description: "Starts a subagent inside an orchestrator session, by default the one that attached last, and returns its session id.",
+  agent: false,
+  params: PARAMS11,
+  handle: async ({ prompt, parentId: pickedId }, context) => {
+    const { sessions, sessionConnections, subagents } = context;
+    const parentId = pickedId ?? sessionConnections.list().at(-1);
+    const connection = parentId === void 0 ? void 0 : sessionConnections.get(parentId);
+    const parent = parentId === void 0 ? void 0 : await sessions.get(parentId);
+    if (parentId === void 0 || connection === void 0 || parent === void 0)
+      throw new RpcError(RpcErrorCode.INVALID_REQUEST, "No orchestrator session is attached");
+    const sessionId = randomUUID();
+    const { agent, directory } = parent;
+    await sessions.register({ id: sessionId, agent, directory, startedAt: Date.now(), role: "subagent", parentId });
+    subagents.start(sessionId, parentId, connection);
+    if (prompt !== void 0) await deliverMessageMethod.handle({ sessionId, content: prompt }, context);
+    try {
+      await spawn2(context, connection, sessionId);
+    } catch (error62) {
+      subagents.stop(sessionId);
+      const reason = error62 instanceof Error ? error62.message : String(error62);
+      throw new RpcError(RpcErrorCode.INTERNAL_ERROR, `The subagent ${sessionId} did not attach: ${reason}`);
+    }
+    const params = { sessionId, parentId };
+    await connection.request(followSubagentMethod.name, params);
+    return { sessionId };
+  }
+};
+var spawn2 = async ({ subagents }, connection, sessionId) => {
+  const attached = subagents.waitForAttach(sessionId, AbortSignal.timeout(ATTACH_TIMEOUT));
+  attached.catch(() => void 0);
+  const params = { content: spawnMessage(sessionId) };
+  await connection.request(deliverMethod.name, params);
+  await attached;
+};
+var spawnMessage = (sessionId) => {
+  return [
+    "Start a subagent for the atomic-workflow server now, and do nothing else for this message.",
+    `Call the Agent tool with run_in_background set to true, subagent_type "${AGENT_TYPE}", description "atomic-workflow subagent ${sessionId.slice(0, 8)}", and exactly this prompt:`,
+    "",
+    `Your session id is ${sessionId}.`,
+    "",
+    "When this subagent completes, do not act on its result and do not reply about it. The atomic-workflow server handles it."
+  ].join("\n");
+};
+
+// src/rpc/method.stop-subagent.ts
+var PARAMS12 = external_exports.object({
+  sessionId: external_exports.string().describe("Session id of the subagent to stop")
+});
+var stopSubagentMethod = {
+  name: "stopSubagent",
+  description: "Stops a subagent that startSubagent started.",
+  agent: false,
+  params: PARAMS12,
+  handle: async ({ sessionId }, { subagents }) => {
+    if (!subagents.stop(sessionId))
+      throw new RpcError(RpcErrorCode.INVALID_PARAMS, `No subagent ${sessionId} is started`);
+  }
 };
 
 // src/rpc/method.ts
@@ -36921,7 +37046,11 @@ var Methods = [
   logMessageMethod,
   listMessagesMethod,
   listAttachedSessionsMethod,
-  deliverMessageMethod
+  deliverMessageMethod,
+  startSubagentMethod,
+  stopSubagentMethod,
+  endSubagentMethod,
+  awaitCommandMethod
 ];
 
 // src/rpc/rpc-connection.ndjson.ts
@@ -37007,10 +37136,13 @@ var send = (connection, message) => {
 var OpenRpcConnection = ndjsonOpenRpcConnection;
 
 // src/rpc/session-method.ts
-var SessionMethods = [deliverMethod];
+var SessionMethods = [
+  deliverMethod,
+  followSubagentMethod
+];
 
 // src/transcript/find-transcript.claude.ts
-import { access, readdir, readFile } from "node:fs/promises";
+import { access, open as open2, readdir, readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join as join2 } from "node:path";
 import { setTimeout as sleep2 } from "node:timers/promises";
@@ -37033,13 +37165,24 @@ var SENDERS = /* @__PURE__ */ new Map([
 var SESSION_FILE = external_exports.object({
   sessionId: external_exports.string()
 });
+var SUBAGENT_META = external_exports.object({
+  finished: external_exports.boolean().optional()
+});
 var POLL_INTERVAL = 500;
+var SUBAGENT_SEARCH_TIMEOUT = 1e4;
+var PROMPT_BYTES = 16 * 1024;
 var parseJson = (text2) => {
   try {
     return JSON.parse(text2);
   } catch {
     return void 0;
   }
+};
+var readFileIfExists = (path) => {
+  return readFile(path, "utf8").catch((error62) => {
+    if (error62.code === "ENOENT") return void 0;
+    throw error62;
+  });
 };
 var claudeFindTranscript = async (environment, parentProcessId) => {
   const configuration = environment.CLAUDE_CONFIG_DIR ?? join2(homedir(), ".claude");
@@ -37054,15 +37197,12 @@ var claudeFindTranscript = async (environment, parentProcessId) => {
     agent: "claude",
     sessionId,
     path,
-    parse: parseEntry,
+    parse: entryParser(false),
     waitForEnd: (signal) => waitForEnd(sessionFile, sessionId, signal)
   };
 };
 var readSessionId = async (path) => {
-  const text2 = await readFile(path, "utf8").catch((error62) => {
-    if (error62.code === "ENOENT") return void 0;
-    throw error62;
-  });
+  const text2 = await readFileIfExists(path);
   if (text2 === void 0) return void 0;
   const sessionFile = SESSION_FILE.safeParse(parseJson(text2));
   return sessionFile.success ? sessionFile.data.sessionId : void 0;
@@ -37094,14 +37234,66 @@ var expectedTranscriptFile = (projects, name, environment) => {
   const directory = environment.CLAUDE_PROJECT_DIR;
   return directory === void 0 ? void 0 : join2(projects, directory.replace(/[^a-zA-Z0-9]/g, "-"), name);
 };
+var claudeFindSubagentTranscript = async (parent, sessionId, signal) => {
+  if (parent.agent !== "claude") return void 0;
+  const directory = join2(parent.path.replace(/\.jsonl$/, ""), "subagents");
+  const deadline = Date.now() + SUBAGENT_SEARCH_TIMEOUT;
+  for (; ; ) {
+    const path = await findSubagentFile(directory, sessionId);
+    if (path !== void 0)
+      return {
+        agent: "claude",
+        sessionId,
+        path,
+        parse: entryParser(true),
+        waitForEnd: (signal2) => waitForFinish(path.replace(/\.jsonl$/, ".meta.json"), signal2)
+      };
+    if (signal.aborted || Date.now() >= deadline) return void 0;
+    await sleep2(POLL_INTERVAL, void 0, { signal }).catch(() => void 0);
+  }
+};
+var findSubagentFile = async (directory, sessionId) => {
+  const names = await readdir(directory).catch((error62) => {
+    if (error62.code === "ENOENT") return [];
+    throw error62;
+  });
+  const candidates = names.filter((name) => name.startsWith("agent-") && name.endsWith(".jsonl")).map((name) => join2(directory, name));
+  const starts = await Promise.all(candidates.map(readStart));
+  return candidates.find((_, index) => starts[index]?.includes(sessionId));
+};
+var readStart = async (path) => {
+  const file2 = await open2(path, "r");
+  try {
+    const buffer = Buffer.alloc(PROMPT_BYTES);
+    const { bytesRead } = await file2.read(buffer, 0, PROMPT_BYTES, 0);
+    return buffer.toString("utf8", 0, bytesRead);
+  } finally {
+    await file2.close();
+  }
+};
+var waitForFinish = async (path, signal) => {
+  while (!signal.aborted) {
+    if (await isFinished(path)) return;
+    await sleep2(POLL_INTERVAL, void 0, { signal }).catch(() => void 0);
+  }
+};
+var isFinished = async (path) => {
+  const text2 = await readFileIfExists(path);
+  if (text2 === void 0) return false;
+  const meta3 = SUBAGENT_META.safeParse(parseJson(text2));
+  return meta3.success && meta3.data.finished === true;
+};
 var CHANNEL_TAG = /^<channel\b[^>]*>\n?([\s\S]*?)\n?<\/channel>$/;
-var parseEntry = (line) => {
+var entryParser = (sidechain) => {
+  return (line) => parseEntry(line, sidechain);
+};
+var parseEntry = (line, sidechain) => {
   const entry = ENTRY.safeParse(parseJson(line));
   if (!entry.success) return void 0;
-  const { type, uuid: uuid3, timestamp, isMeta, isSidechain, isCompactSummary, origin, message } = entry.data;
+  const { type, uuid: uuid3, timestamp, isMeta, isSidechain = false, isCompactSummary, origin, message } = entry.data;
   const sender = SENDERS.get(type);
   const channel = origin?.kind === "channel";
-  if (sender === void 0 || isMeta && !channel || isSidechain || isCompactSummary) return void 0;
+  if (sender === void 0 || isMeta && !channel || isSidechain !== sidechain || isCompactSummary) return void 0;
   const text2 = textOf(message.content);
   const content = channel ? CHANNEL_TAG.exec(text2)?.[1] ?? text2 : text2;
   return content === "" ? void 0 : { messageId: uuid3, sender, content, timestamp: Date.parse(timestamp) };
@@ -37113,6 +37305,7 @@ var textOf = (content) => {
 
 // src/transcript/find-transcript.ts
 var FindTranscript = claudeFindTranscript;
+var FindSubagentTranscript = claudeFindSubagentTranscript;
 
 // src/transcript/log-transcript.rpc.ts
 var rpcLogTranscript = async (transcript, directory, connection, signal, dependencies) => {
@@ -37143,7 +37336,7 @@ var logLines = async (transcript, connection, lines, signal) => {
 var LogTranscript = rpcLogTranscript;
 
 // src/transcript/tail-file.poll.ts
-import { open as open2, stat } from "node:fs/promises";
+import { open as open3, stat } from "node:fs/promises";
 import { StringDecoder } from "node:string_decoder";
 import { setTimeout as sleep3 } from "node:timers/promises";
 var POLL_INTERVAL2 = 500;
@@ -37161,7 +37354,7 @@ var readAppended = async (tail, handle) => {
   const size = await sizeOf(tail.path);
   if (size < tail.offset) restart(tail);
   if (size === tail.offset) return;
-  const file2 = await open2(tail.path, "r");
+  const file2 = await open3(tail.path, "r");
   try {
     while (tail.offset < size && await readChunk(tail, file2, size, handle) > 0) ;
   } finally {
@@ -37218,12 +37411,17 @@ var main = async () => {
       openConnection: OpenRpcConnection,
       dispatch: Dispatch,
       findTranscript: FindTranscript,
+      findSubagentTranscript: FindSubagentTranscript,
       logTranscript: LogTranscript,
       tailFile: TailFile
     },
     server,
-    context: { pushMessage: (content) => pushMessage(server, content) },
-    attachment: void 0
+    context: {
+      pushMessage: (content) => pushMessage(server, content),
+      followSubagent: (sessionId, parentId) => followSubagent(session, sessionId, parentId)
+    },
+    attachment: void 0,
+    transcript: void 0
   };
   server.registerTool(
     "activate",
@@ -37268,6 +37466,7 @@ var attach = async (session) => {
   const logging = new AbortController();
   void attachment2.connection.closed.then(() => {
     session.attachment = void 0;
+    session.transcript = void 0;
     logging.abort();
     for (const tool of tools) tool.remove();
   });
@@ -37287,10 +37486,34 @@ var followCurrentSession = async (session, connection, signal) => {
   const { findTranscript, logTranscript, tailFile } = session.dependencies;
   const transcript = await findTranscript(session.environment, session.parentProcessId);
   if (transcript === void 0) return false;
+  session.transcript = transcript;
   const params = { sessionId: transcript.sessionId };
   await connection.request(BIND_SESSION_METHOD, params, signal);
   await logTranscript(transcript, session.directory, connection, signal, { tailFile });
   return true;
+};
+var followSubagent = (session, sessionId, parentId) => {
+  const parent = session.transcript;
+  if (session.attachment === void 0 || parent?.sessionId !== parentId)
+    throw new Error(`The session ${parentId} is not the current session`);
+  void logSubagent(session, session.attachment, parent, sessionId);
+};
+var logSubagent = async (session, attachment2, parent, sessionId) => {
+  const { findSubagentTranscript, logTranscript, tailFile } = session.dependencies;
+  const logging = new AbortController();
+  try {
+    const { connection } = await attachment2;
+    void connection.closed.then(() => logging.abort());
+    const transcript = await findSubagentTranscript(parent, sessionId, logging.signal);
+    if (transcript === void 0) throw new Error("Found no transcript");
+    await logTranscript(transcript, session.directory, connection, logging.signal, { tailFile });
+    if (logging.signal.aborted) return;
+    const params = { sessionId };
+    await connection.request(endSubagentMethod.name, params, logging.signal);
+  } catch (error62) {
+    if (!logging.signal.aborted) process.stderr.write(`Could not log the subagent ${sessionId}: ${messageOf(error62)}
+`);
+  }
 };
 var registerTool = (server, connection, method) => {
   return server.registerTool(

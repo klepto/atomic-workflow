@@ -1,13 +1,18 @@
 import type { z } from 'zod';
 import type { SessionConnections } from '../attachment/session-connections.ts';
+import type { Subagents } from '../attachment/subagents.ts';
 import type { MessageLogStore } from '../storage/message-log-store.ts';
 import type { SessionStore } from '../storage/session-store.ts';
+import { awaitCommandMethod } from './method.await-command.ts';
 import { deliverMessageMethod } from './method.deliver-message.ts';
 import { echoMethod } from './method.echo.ts';
+import { endSubagentMethod } from './method.end-subagent.ts';
 import { listAttachedSessionsMethod } from './method.list-attached-sessions.ts';
 import { listMessagesMethod } from './method.list-messages.ts';
 import { logMessageMethod } from './method.log-message.ts';
 import { registerSessionMethod } from './method.register-session.ts';
+import { startSubagentMethod } from './method.start-subagent.ts';
+import { stopSubagentMethod } from './method.stop-subagent.ts';
 
 /**
  * Services of the repository server that a method uses to do its work.
@@ -27,6 +32,11 @@ export interface MethodContext {
    * Connections of the attached session servers, by session.
    */
   readonly sessionConnections: SessionConnections;
+
+  /**
+   * Subagents that run inside the attached orchestrator sessions.
+   */
+  readonly subagents: Subagents;
 }
 
 /**
@@ -71,4 +81,8 @@ export const Methods: readonly Method[] = [
   listMessagesMethod,
   listAttachedSessionsMethod,
   deliverMessageMethod,
+  startSubagentMethod,
+  stopSubagentMethod,
+  endSubagentMethod,
+  awaitCommandMethod,
 ];

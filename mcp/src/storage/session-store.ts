@@ -9,6 +9,17 @@ export const AGENTS = ['claude', 'codex'] as const;
 export type Agent = (typeof AGENTS)[number];
 
 /**
+ * Roles of a session: `orchestrator` for a session that a user runs, and `subagent` for a subagent that runs inside an
+ * orchestrator session.
+ */
+export const SESSION_ROLES = ['orchestrator', 'subagent'] as const;
+
+/**
+ * Role of a session, one of `SESSION_ROLES`.
+ */
+export type SessionRole = (typeof SESSION_ROLES)[number];
+
+/**
  * Session of an agent that the storage knows.
  */
 export interface RegisteredSession {
@@ -31,6 +42,16 @@ export interface RegisteredSession {
    * Time when the session was registered first, in ms since the epoch.
    */
   readonly startedAt: number;
+
+  /**
+   * Role of the session.
+   */
+  readonly role: SessionRole;
+
+  /**
+   * Identifier of the orchestrator session that a subagent runs inside, or `null` for an orchestrator session.
+   */
+  readonly parentId: string | null;
 }
 
 /**
