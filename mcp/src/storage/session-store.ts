@@ -68,4 +68,9 @@ export interface SessionStore {
    * Returns the session with the identifier `id`. If no such session is registered, returns `undefined` instead.
    */
   get(id: string): Promise<RegisteredSession | undefined>;
+
+  /**
+   * Returns every registered session, in the order of its start.
+   */
+  list(): Promise<RegisteredSession[]>;
 }

@@ -1,6 +1,7 @@
 import type { MessageLogStore } from './message-log-store.ts';
 import { sqliteOpenStorage } from './open-storage.sqlite.ts';
 import type { SessionStore } from './session-store.ts';
+import type { TaskStore } from './task-store.ts';
 
 /**
  * Open persistent storage of a repository, with one store per kind of data.
@@ -15,6 +16,11 @@ export interface Storage {
    * Store of the message log.
    */
   readonly messageLog: MessageLogStore;
+
+  /**
+   * Store of the tasks.
+   */
+  readonly tasks: TaskStore;
 
   /**
    * Closes the storage. No store works after.

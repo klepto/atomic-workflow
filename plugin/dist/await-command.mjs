@@ -19729,7 +19729,7 @@ function date4(params) {
 }
 
 // src/attachment/hello.ts
-var PROTOCOL_VERSION = 7;
+var PROTOCOL_VERSION = 11;
 var HELLO_METHOD = "hello";
 var HELLO_PARAMS = external_exports.object({
   protocol: external_exports.number().int(),
@@ -19915,13 +19915,13 @@ var errorObject = (error62) => {
 // src/rpc/dispatch.ts
 var Dispatch = zodDispatch;
 
-// src/rpc/method.await-command.ts
+// src/rpc/method.inbox-await-command.ts
 var PARAMS = external_exports.object({
   sessionId: external_exports.string().min(1).describe("Session id of the session or subagent that waits, or its beginning"),
   after: external_exports.number().int().min(0).default(0).describe("Number of the last message that the session has received")
 });
-var awaitCommandMethod = {
-  name: "awaitCommand",
+var inboxAwaitCommandMethod = {
+  name: "inboxAwaitCommand",
   description: "Waits for the next messages of a session or a subagent, and acknowledges the ones before.",
   agent: false,
   params: PARAMS,
@@ -20032,7 +20032,7 @@ var main = async () => {
   });
   try {
     const params = { sessionId, after };
-    const result = await connection.request(awaitCommandMethod.name, params);
+    const result = await connection.request(inboxAwaitCommandMethod.name, params);
     process.stdout.write(`${report(result)}
 `);
   } finally {

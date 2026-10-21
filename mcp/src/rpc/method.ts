@@ -4,17 +4,25 @@ import type { SessionConnections } from '../attachment/session-connections.ts';
 import type { Subagents } from '../attachment/subagents.ts';
 import type { MessageLogStore } from '../storage/message-log-store.ts';
 import type { SessionStore } from '../storage/session-store.ts';
-import { awaitCommandMethod } from './method.await-command.ts';
-import { awaitInboxMethod } from './method.await-inbox.ts';
-import { deliverMessageMethod } from './method.deliver-message.ts';
+import type { TaskStore } from '../storage/task-store.ts';
+import { inboxAwaitCommandMethod } from './method.inbox-await-command.ts';
+import { inboxAwaitMethod } from './method.inbox-await.ts';
+import { taskCreateMethod } from './method.task-create.ts';
+import { goalDeleteMethod } from './method.goal-delete.ts';
+import { messageDeliverMethod } from './method.message-deliver.ts';
 import { echoMethod } from './method.echo.ts';
-import { endSubagentMethod } from './method.end-subagent.ts';
-import { listAttachedSessionsMethod } from './method.list-attached-sessions.ts';
-import { listMessagesMethod } from './method.list-messages.ts';
-import { logMessageMethod } from './method.log-message.ts';
-import { registerSessionMethod } from './method.register-session.ts';
-import { startSubagentMethod } from './method.start-subagent.ts';
-import { stopSubagentMethod } from './method.stop-subagent.ts';
+import { subagentEndMethod } from './method.subagent-end.ts';
+import { taskGetMethod } from './method.task-get.ts';
+import { sessionListMethod } from './method.session-list.ts';
+import { messageListMethod } from './method.message-list.ts';
+import { messageLogMethod } from './method.message-log.ts';
+import { sessionRegisterMethod } from './method.session-register.ts';
+import { designSaveMethod } from './method.design-save.ts';
+import { goalSaveMethod } from './method.goal-save.ts';
+import { ticketsSaveMethod } from './method.tickets-save.ts';
+import { taskSetStatusMethod } from './method.task-set-status.ts';
+import { subagentStartMethod } from './method.subagent-start.ts';
+import { subagentStopMethod } from './method.subagent-stop.ts';
 
 /**
  * Services of the repository server that a method uses to do its work.
@@ -29,6 +37,11 @@ export interface MethodContext {
    * Store of the message log.
    */
   readonly messageLog: MessageLogStore;
+
+  /**
+   * Store of the tasks.
+   */
+  readonly tasks: TaskStore;
 
   /**
    * Connections of the attached session servers, by session.
@@ -89,14 +102,21 @@ export interface Method<Params extends z.ZodObject = z.ZodObject, Result = unkno
  */
 export const Methods: readonly Method[] = [
   echoMethod,
-  registerSessionMethod,
-  logMessageMethod,
-  listMessagesMethod,
-  listAttachedSessionsMethod,
-  deliverMessageMethod,
-  startSubagentMethod,
-  stopSubagentMethod,
-  endSubagentMethod,
-  awaitCommandMethod,
-  awaitInboxMethod,
+  sessionRegisterMethod,
+  messageLogMethod,
+  messageListMethod,
+  sessionListMethod,
+  messageDeliverMethod,
+  subagentStartMethod,
+  subagentStopMethod,
+  subagentEndMethod,
+  inboxAwaitCommandMethod,
+  inboxAwaitMethod,
+  taskGetMethod,
+  taskCreateMethod,
+  goalSaveMethod,
+  goalDeleteMethod,
+  designSaveMethod,
+  ticketsSaveMethod,
+  taskSetStatusMethod,
 ];

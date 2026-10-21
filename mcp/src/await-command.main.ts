@@ -5,7 +5,7 @@ import { AwaitCommandLine } from './attachment/await-command-line.ts';
 import type { InboxMessage } from './attachment/inboxes.ts';
 import { RepositoryAddress } from './attachment/repository-address.ts';
 import { Dispatch } from './rpc/dispatch.ts';
-import { type AwaitCommandResult, awaitCommandMethod } from './rpc/method.await-command.ts';
+import { type AwaitCommandResult, inboxAwaitCommandMethod } from './rpc/method.inbox-await-command.ts';
 import { OpenRpcConnection } from './rpc/rpc-connection.ts';
 
 /**
@@ -38,8 +38,8 @@ const main = async (): Promise<void> => {
     handle: (message) => Dispatch([], undefined, message),
   });
   try {
-    const params: z.input<typeof awaitCommandMethod.params> = { sessionId, after };
-    const result = (await connection.request(awaitCommandMethod.name, params)) as AwaitCommandResult;
+    const params: z.input<typeof inboxAwaitCommandMethod.params> = { sessionId, after };
+    const result = (await connection.request(inboxAwaitCommandMethod.name, params)) as AwaitCommandResult;
     process.stdout.write(`${report(result)}\n`);
   } finally {
     connection.close();

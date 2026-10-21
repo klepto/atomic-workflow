@@ -168,7 +168,7 @@ const showTargets = (attached) => {
 
 const refreshTargets = async () => {
   try {
-    const { sessions } = await call('listAttachedSessions', {});
+    const { sessions } = await call('sessionList', { attached: true });
     showTargets(sessions);
   } catch (error) {
     showTargets([]);
@@ -182,7 +182,7 @@ const send = async () => {
   enableButtons();
   delivery.textContent = 'Sending…';
   try {
-    await call('deliverMessage', { sessionId: target.value, content: content.value });
+    await call('messageDeliver', { sessionId: target.value, content: content.value });
     content.value = '';
     delivery.textContent = 'Delivered at ' + new Date().toLocaleTimeString() + '.';
   } catch (error) {
@@ -200,7 +200,7 @@ const startSubagent = async () => {
   delivery.textContent = 'Starting a subagent…';
   try {
     const prompt = content.value.trim() === '' ? undefined : content.value;
-    const { sessionId } = await call('startSubagent', { parentId: target.value, prompt });
+    const { sessionId } = await call('subagentStart', { parentId: target.value, prompt });
     content.value = '';
     await refreshTargets();
     target.value = sessionId;
@@ -244,7 +244,7 @@ const refresh = async () => {
       list.replaceChildren();
     }
     const params = last === undefined ? { ...shown, limit: ${LATEST_LIMIT} } : { ...shown, after: last, limit: 1000 };
-    const { messages } = await call('listMessages', params);
+    const { messages } = await call('messageList', params);
     for (const message of messages) list.prepend(render(message));
     last = messages.length > 0 ? messages[messages.length - 1].id : (last ?? 0);
     status.textContent = list.childElementCount === 0 ? 'No messages yet.' : '';

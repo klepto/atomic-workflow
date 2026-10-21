@@ -3,7 +3,7 @@ import type { Method } from './method.ts';
 import { RpcError, RpcErrorCode } from './rpc-error.ts';
 
 /**
- * Schema of the parameters of `deliverMessage`.
+ * Schema of the parameters of `messageDeliver`.
  */
 const PARAMS = z.object({
   sessionId: z.string().describe('Identifier of the attached session or subagent to deliver the message to'),
@@ -11,12 +11,12 @@ const PARAMS = z.object({
 });
 
 /**
- * `Method` named `deliverMessage`, which puts a message into the inbox of a bound session or of a started subagent,
+ * `Method` named `messageDeliver`, which puts a message into the inbox of a bound session or of a started subagent,
  * and logs it as a message of the user, since the agent receives it as the output of a command, which is no message
  * of its transcript. A session without an inbox fails with invalid parameters.
  */
-export const deliverMessageMethod: Method<typeof PARAMS, void> = {
-  name: 'deliverMessage',
+export const messageDeliverMethod: Method<typeof PARAMS, void> = {
+  name: 'messageDeliver',
   description: 'Puts a message into the inbox of an attached session of the repository, or of a subagent.',
   agent: false,
   params: PARAMS,

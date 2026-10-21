@@ -19729,7 +19729,7 @@ import { createConnection } from "node:net";
 import { setTimeout as sleep } from "node:timers/promises";
 
 // src/attachment/hello.ts
-var PROTOCOL_VERSION = 7;
+var PROTOCOL_VERSION = 11;
 var HELLO_METHOD = "hello";
 var HELLO_PARAMS = external_exports.object({
   protocol: external_exports.number().int(),
@@ -19905,13 +19905,13 @@ var errorObject = (error62) => {
 // src/rpc/dispatch.ts
 var Dispatch = zodDispatch;
 
-// src/rpc/method.await-inbox.ts
+// src/rpc/method.inbox-await.ts
 var BIND_TIMEOUT = 5e3;
 var PARAMS = external_exports.object({
   sessionId: external_exports.string().min(1).describe("Session id of the session whose inbox to wait for")
 });
-var awaitInboxMethod = {
-  name: "awaitInbox",
+var inboxAwaitMethod = {
+  name: "inboxAwait",
   description: "Waits a few seconds for a session to have an inbox, and returns the command that waits for its messages.",
   agent: false,
   params: PARAMS,
@@ -20017,7 +20017,7 @@ var main = async () => {
   const { connection } = attachment2;
   try {
     const params = { sessionId: input2.session_id };
-    const result = await connection.request(awaitInboxMethod.name, params);
+    const result = await connection.request(inboxAwaitMethod.name, params);
     if (result.commandLine !== null) process.stdout.write(`${JSON.stringify(hookOutput(result.commandLine))}
 `);
   } finally {

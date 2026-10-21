@@ -1,9 +1,9 @@
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
-import { deliverMessageMethod } from './method.deliver-message.ts';
+import { messageDeliverMethod } from './method.message-deliver.ts';
 import type { Method, MethodContext } from './method.ts';
 import { RpcError, RpcErrorCode } from './rpc-error.ts';
-import { followSubagentMethod } from './session-method.follow-subagent.ts';
+import { subagentFollowMethod } from './session-method.subagent-follow.ts';
 
 /**
  * Time in ms that a new subagent has to attach.
@@ -16,7 +16,7 @@ const ATTACH_TIMEOUT = 60_000;
 const AGENT_TYPE = 'atomic-workflow:worker';
 
 /**
- * Schema of the parameters of `startSubagent`.
+ * Schema of the parameters of `subagentStart`.
  */
 const PARAMS = z.object({
   prompt: z.string().min(1).optional().describe('First command of the subagent, none when left out'),
@@ -24,15 +24,15 @@ const PARAMS = z.object({
 });
 
 /**
- * `Method` named `startSubagent`, which starts a subagent inside the orchestrator session `parentId`, or inside the
+ * `Method` named `subagentStart`, which starts a subagent inside the orchestrator session `parentId`, or inside the
  * one that was bound last if no `parentId` is given, and returns the session id of the subagent once it has attached.
  * The orchestrator spawns the subagent on a message in its inbox, and the subagent then waits for its messages with
  * the command line of `awaitCommandLine`, in the background. The prompt is the first message of the subagent. Without
  * that attached orchestrator session, fails with an invalid request. A subagent that does not attach within
  * `ATTACH_TIMEOUT` ms is stopped, and fails the method.
  */
-export const startSubagentMethod: Method<typeof PARAMS, { readonly sessionId: string }> = {
-  name: 'startSubagent',
+export const subagentStartMethod: Method<typeof PARAMS, { readonly sessionId: string }> = {
+  name: 'subagentStart',
   description:
     'Starts a subagent inside an orchestrator session, by default the one that attached last, and returns its session id.',
   agent: false,
@@ -49,7 +49,7 @@ export const startSubagentMethod: Method<typeof PARAMS, { readonly sessionId: st
     await sessions.register({ id: sessionId, agent, directory, startedAt: Date.now(), role: 'subagent', parentId });
     subagents.start(sessionId, parentId, connection);
     inboxes.open(sessionId, connection.closed);
-    if (prompt !== undefined) await deliverMessageMethod.handle({ sessionId, content: prompt }, context);
+    if (prompt !== undefined) await messageDeliverMethod.handle({ sessionId, content: prompt }, context);
     try {
       await spawn(context, parentId, sessionId);
     } catch (error) {
@@ -58,8 +58,8 @@ export const startSubagentMethod: Method<typeof PARAMS, { readonly sessionId: st
       const reason = error instanceof Error ? error.message : String(error);
       throw new RpcError(RpcErrorCode.INTERNAL_ERROR, `The subagent ${sessionId} did not attach: ${reason}`);
     }
-    const params: z.input<typeof followSubagentMethod.params> = { sessionId, parentId };
-    await connection.request(followSubagentMethod.name, params);
+    const params: z.input<typeof subagentFollowMethod.params> = { sessionId, parentId };
+    await connection.request(subagentFollowMethod.name, params);
     return { sessionId };
   },
 };
@@ -73,7 +73,7 @@ const spawn = async (context: MethodContext, parentId: string, sessionId: string
   // The delivery below can fail before the wait is awaited, which must not leave its rejection unhandled.
   attached.catch(() => undefined);
   const content = spawnMessage(sessionId, context.awaitCommandLine(sessionId));
-  await deliverMessageMethod.handle({ sessionId: parentId, content }, context);
+  await messageDeliverMethod.handle({ sessionId: parentId, content }, context);
   await attached;
 };
 

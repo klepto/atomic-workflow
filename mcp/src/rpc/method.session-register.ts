@@ -3,7 +3,7 @@ import { AGENTS, type RegisteredSession, SESSION_ROLES } from '../storage/sessio
 import type { Method } from './method.ts';
 
 /**
- * Schema of the parameters of `registerSession`.
+ * Schema of the parameters of `sessionRegister`.
  */
 const PARAMS = z.object({
   sessionId: z.string().min(1).describe('Identifier of the session, as the agent gives it'),
@@ -15,12 +15,12 @@ const PARAMS = z.object({
 });
 
 /**
- * `Method` named `registerSession`, which registers a session and returns it as registered. A session without a start
+ * `Method` named `sessionRegister`, which registers a session and returns it as registered. A session without a start
  * time gets the time of the call, and a session without a role is an orchestrator. A session that is registered
  * already stays as it is.
  */
-export const registerSessionMethod: Method<typeof PARAMS, RegisteredSession> = {
-  name: 'registerSession',
+export const sessionRegisterMethod: Method<typeof PARAMS, RegisteredSession> = {
+  name: 'sessionRegister',
   description: 'Registers a session of an agent in the repository, so that its messages can be logged.',
   agent: false,
   params: PARAMS,

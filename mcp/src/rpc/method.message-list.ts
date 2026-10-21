@@ -4,7 +4,7 @@ import { SESSION_ROLES } from '../storage/session-store.ts';
 import type { Method } from './method.ts';
 
 /**
- * Schema of the parameters of `listMessages`.
+ * Schema of the parameters of `messageList`.
  */
 const PARAMS = z.object({
   sessionId: z.string().optional().describe('Identifier of the session whose messages to return, all when left out'),
@@ -19,12 +19,12 @@ const PARAMS = z.object({
 });
 
 /**
- * `Method` named `listMessages`, which returns the messages of the message log after an identifier, or the latest
+ * `Method` named `messageList`, which returns the messages of the message log after an identifier, or the latest
  * messages without one, in the order of the log. With a session, returns only the messages of that session, and with
  * a role, only the messages of the sessions of that role.
  */
-export const listMessagesMethod: Method<typeof PARAMS, { readonly messages: readonly LoggedMessage[] }> = {
-  name: 'listMessages',
+export const messageListMethod: Method<typeof PARAMS, { readonly messages: readonly LoggedMessage[] }> = {
+  name: 'messageList',
   description: 'Returns the messages of the message log of the repository after an identifier, or the latest ones.',
   agent: false,
   params: PARAMS,

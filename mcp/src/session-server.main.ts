@@ -9,7 +9,7 @@ import { BIND_SESSION_METHOD, type BindSessionParams } from './attachment/bind-s
 import { RepositoryAddress, type RepositoryAddressFunction } from './attachment/repository-address.ts';
 import { Launch, type LaunchFunction } from './launch/launch.ts';
 import { Dispatch, type DispatchFunction } from './rpc/dispatch.ts';
-import { endSubagentMethod } from './rpc/method.end-subagent.ts';
+import { subagentEndMethod } from './rpc/method.subagent-end.ts';
 import { type Method, Methods } from './rpc/method.ts';
 import { OpenRpcConnection, type OpenRpcConnectionFunction, type RpcConnection } from './rpc/rpc-connection.ts';
 import { type SessionMethodContext, SessionMethods } from './rpc/session-method.ts';
@@ -334,8 +334,8 @@ const logSubagent = async (
     if (transcript === undefined) throw new Error('Found no transcript');
     await logTranscript(transcript, session.directory, connection, logging.signal, { tailFile });
     if (logging.signal.aborted) return;
-    const params: z.input<typeof endSubagentMethod.params> = { sessionId };
-    await connection.request(endSubagentMethod.name, params, logging.signal);
+    const params: z.input<typeof subagentEndMethod.params> = { sessionId };
+    await connection.request(subagentEndMethod.name, params, logging.signal);
   } catch (error) {
     // A request that the close of the connection cuts short is no failure of the log.
     if (!logging.signal.aborted) process.stderr.write(`Could not log the subagent ${sessionId}: ${messageOf(error)}\n`);

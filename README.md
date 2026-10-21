@@ -340,6 +340,136 @@ Rejected:
   output when the agent reads it with the tool that the hook watches, and must tell the output of a wait apart from
   any other.
 
+## Phase 10
+
+The first phase of planning: `/atomic-workflow:plan-goals` settles the goals of a task with the user. Later phases
+settle its design and its tickets, and `/atomic-workflow:plan` runs all three in order.
+
+- A task has a sequential id from 1, a slug in kebab case, a phase, `goals`, `design`, `tickets` or `done`, and the
+  time it was created. Step 3 of the schema adds the tables `task` and `goal`.
+- A goal belongs to a task, and has a summary of one line, optional details, and a source: `user` for a goal that the
+  user gave, `agent` for a suggestion of the agent that the user accepted. An edit of its text keeps its source. Goal
+  ids are unique across every task, and the agent numbers the goals of a task 1 to n for the user.
+- `createTask` creates a task with its first goal, so no task is left without goals. `saveGoal` adds a goal, or with a
+  `goalId` replaces the summary and details of one. `deleteGoal` deletes a goal. `completeGoals` moves a task with at
+  least one goal from `goals` to `design`. `getTask` returns a task with its goals. Each method returns the whole
+  task, which the agent shows the user after each change, so the list it shows always comes from the database.
+- The goals of a task only change in the phase `goals`. In another phase, `saveGoal`, `deleteGoal` and `completeGoals`
+  fail.
+- Agents see all five methods as tools.
+- `/atomic-workflow:plan-goals [task id] [prompt]` activates the atomic workflow first. Without a task id, it asks for
+  the goals, and suggests goals from the prompt. With a task id, it resumes the goals of that task. The agent stores a
+  goal once the user approves it. Before that, it pushes back on a goal that contradicts another one, has drawbacks, is
+  vague, is too big, or overlaps another one. A goal that the user keeps over an objection records the objection in its
+  details.
+- `PROTOCOL_VERSION` is 8, since the session server offers tools that an older repository server lacks.
+
+```
+node src/cli.main.ts createTask '{"slug":"cache-layer","summary":"Cut API latency","source":"user"}'
+node src/cli.main.ts saveGoal '{"taskId":1,"summary":"Use Redis","details":"The team knows it","source":"agent"}'
+node src/cli.main.ts getTask '{"taskId":1}'
+```
+
+Rejected:
+
+- The goals as a JSON column of the task. A table of goals lets a goal be edited and deleted alone, and gives it
+  fields of its own.
+- The first goal through `saveGoal` without a task id. `saveGoal` would then have three modes.
+
+## Phase 11
+
+The second phase of planning: `/atomic-workflow:plan-design <task id>` drafts the design of a task, the decisions
+that implement all of its goals, and revises it with the user until they are satisfied.
+
+- A task has a design: one Markdown text, or `null` before the first draft. The phase `decisions` is renamed `design`.
+  Step 4 of the schema rebuilds the table `task` with the new phase and the column `design`, since SQLite cannot
+  change a `CHECK` in place. The steps of the schema run with foreign keys off, and fail if they leave a foreign key
+  broken.
+- `saveDesign` replaces the whole design of a task. `completeDesign` moves a task with a design from `design` to
+  `tickets`. Both fail in another phase. `getTask` returns the design too. Agents see both methods as tools.
+- The skill researches in the session that calls it, with no subagent, since it may run inside a subagent itself. It
+  reads the repository and searches the web until every goal has a decision that covers it.
+- The agent picks each decision itself, and shows the whole design. The user changes it only by asking for a change
+  after reading it. The agent pushes back on a change that contradicts a goal, is sub-optimal, or has pitfalls. A
+  change that the user keeps over an objection records the objection in its decision.
+- Each change rewrites and stores the whole design, and each reply shows it. Revisions are not kept.
+- A goal that comes up in this phase joins the design, not the goals of the task, which stay as they were.
+- `PROTOCOL_VERSION` is 9, since the session server offers tools that an older repository server lacks.
+
+Rejected:
+
+- A table of decisions. The user reads and revises the design as one text, and the next phase reads it the same way.
+- A field named `plan`. `/atomic-workflow:plan` names all three phases.
+- Research in Explore subagents. A subagent cannot start subagents.
+
+## Phase 12
+
+The last stage of planning: `/atomic-workflow:plan-tickets <task id>` splits the design of a task into tickets, and
+revises the split with the user until they accept it. Every part of the plan stays open until the plan is complete.
+
+- A ticket has an id from 1 within its task, a complexity, `simple`, `moderate` or `complex`, a slug, a summary of
+  one sentence, a description in Markdown, and the ids of the earlier tickets of the task that it depends on. The
+  complexity will select the model that does the ticket.
+- A ticket is the work of one agent in one session, which ends in one commit that passes the checks. Its description
+  holds everything that an agent needs to do it in a fresh context, with the decisions of the design that it
+  implements quoted in full.
+- `saveTickets` replaces the whole list of tickets of a task, and numbers them from 1 in their order. A ticket depends
+  only on earlier tickets, so the list has no cycles. `getTask` returns the tickets too.
+- The phase of a task becomes its status: `plan-goals`, `plan-design`, `plan-tickets` or `complete`. Step 5 of the
+  schema rebuilds the table `task` with it, and adds the tables `ticket` and `ticket_dependency`.
+- `setStatus` replaces `completeGoals` and `completeDesign`. Each skill sets the status to its stage when it starts,
+  so the status names the stage the user works on, and can move back. `plan-design` needs goals, `plan-tickets` a
+  design too, and `complete` tickets too.
+- `saveGoal`, `deleteGoal`, `saveDesign` and `saveTickets` work in every status but `complete`, which freezes the plan.
+  A change to one part rewrites the later parts that it affects: goals, then design, then tickets. A goal that comes
+  up in a later stage is stored as a goal.
+- The slug of a task and of a ticket is exactly three words.
+- A goal has an id from 1 within its task too, which is the number the user sees. Deleting a goal moves each later
+  goal down by one, so the ids stay 1 to n. Step 5 rebuilds the table `goal` with them.
+- The rules that every stage shares sit in `plugin/references/planning.md`, which each skill reads first.
+- `PROTOCOL_VERSION` is 10, since the session server offers tools that an older repository server lacks.
+
+Rejected:
+
+- Methods to add, edit and delete one ticket. A new split rewrites the list anyway, and no ticket has run yet, so
+  stable ids buy nothing.
+- The dependencies as a JSON column of the ticket. A table lets foreign keys check them.
+
+## Phase 13
+
+Each method leads with its domain, so the methods of one domain sort together in lists of tools and of files. The
+phases above keep the names they shipped with.
+
+- `sessionRegister`, `sessionList`, `messageLog`, `messageList`, `messageDeliver`, `subagentStart`, `subagentStop`,
+  `subagentEnd`, `subagentFollow`, `inboxAwait`, `inboxAwaitCommand`, `taskGet`, `taskCreate`, `taskSetStatus`,
+  `goalSave`, `goalDelete`, `designSave` and `ticketsSave`. `echo` has no domain and keeps its name.
+- `ticketsSave` is plural, since it replaces the whole list. `inboxAwaitCommand` returns the command that waits on an
+  inbox.
+- `sessionList` replaces `listAttachedSessions`. It returns the attached sessions first, then the registered ones
+  that are not attached, each with a flag `attached`. `attached: true` returns only the attached ones, which is what
+  the web UI asks for, and `attached: false` only the others.
+- The files of the methods carry the new names, such as `method.task-get.ts`.
+- `PROTOCOL_VERSION` is 11, since every method has a new name.
+
+Rejected:
+
+- Names such as `task.get` or `task/get`. Agents see the methods as tools, and a tool name allows no dot or slash.
+
+## Phase 14
+
+`/atomic-workflow:plan [task id] [prompt]` runs the three stages of planning in order. Without a task id, it starts
+with `plan-goals`. With a task id, it resumes at the stage that the status of the task names.
+
+- Each stage skill finishes by naming the next stage, and `/atomic-workflow:plan` invokes it with the Skill tool in
+  the same reply, until the status of the task is `complete`.
+- The stage skills drop `disable-model-invocation`, since a skill that only the user can invoke cannot be invoked by
+  another skill. Their descriptions now sit in the context of every session.
+
+Rejected:
+
+- Reading the `SKILL.md` of each stage and following it. The stage skills would get no arguments, and their
+  `allowed-tools` would not apply.
+
 ## Layout
 
 ```
@@ -349,6 +479,11 @@ plugin/                           the plugin, and the local marketplace that hol
   .mcp.json                       the session server
   hooks/hooks.json                the hook that resumes the messages of a session after `/clear`
   skills/atomic-workflow/SKILL.md
+  skills/plan/SKILL.md            every stage of planning, in order
+  skills/plan-goals/SKILL.md      the first stage of planning, which settles the goals of a task
+  skills/plan-design/SKILL.md     the second stage of planning, which settles the design of a task
+  skills/plan-tickets/SKILL.md    the last stage of planning, which splits the design of a task into tickets
+  references/planning.md          the rules that every stage of planning shares
   agents/worker.md                the subagent that carries out the messages of the repository server
   dist/                           bundles, built by `npm run build` and committed
 mcp/                              the MCP project: sources, configs and build

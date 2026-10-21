@@ -4,6 +4,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { sqliteMessageLogStore } from './message-log-store.sqlite.ts';
 import type { OpenStorageFunction } from './open-storage.ts';
 import { sqliteSessionStore } from './session-store.sqlite.ts';
+import { sqliteTaskStore } from './task-store.sqlite.ts';
 
 /**
  * Time in ms that a statement waits for a lock that another connection holds, such as the one of a second repository
@@ -41,6 +42,71 @@ const MIGRATIONS: readonly string[] = [
   `ALTER TABLE session ADD COLUMN role TEXT NOT NULL DEFAULT 'orchestrator'
     CHECK (role IN ('orchestrator', 'subagent'));
   ALTER TABLE session ADD COLUMN parent_id TEXT REFERENCES session (id);`,
+  `CREATE TABLE task (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    slug TEXT NOT NULL,
+    phase TEXT NOT NULL CHECK (phase IN ('goals', 'decisions', 'tickets', 'done')),
+    created_at INTEGER NOT NULL
+  ) STRICT;
+  CREATE TABLE goal (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    task_id INTEGER NOT NULL REFERENCES task (id),
+    summary TEXT NOT NULL,
+    details TEXT,
+    source TEXT NOT NULL CHECK (source IN ('user', 'agent'))
+  ) STRICT;
+  CREATE INDEX goal_task ON goal (task_id, id);`,
+  `CREATE TABLE task_new (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    slug TEXT NOT NULL,
+    phase TEXT NOT NULL CHECK (phase IN ('goals', 'design', 'tickets', 'done')),
+    created_at INTEGER NOT NULL,
+    design TEXT
+  ) STRICT;
+  INSERT INTO task_new (id, slug, phase, created_at)
+    SELECT id, slug, CASE phase WHEN 'decisions' THEN 'design' ELSE phase END, created_at FROM task;
+  DROP TABLE task;
+  ALTER TABLE task_new RENAME TO task;`,
+  `CREATE TABLE task_new (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    slug TEXT NOT NULL,
+    status TEXT NOT NULL CHECK (status IN ('plan-goals', 'plan-design', 'plan-tickets', 'complete')),
+    created_at INTEGER NOT NULL,
+    design TEXT
+  ) STRICT;
+  INSERT INTO task_new (id, slug, status, created_at, design)
+    SELECT id, slug, CASE phase WHEN 'done' THEN 'complete' ELSE 'plan-' || phase END, created_at, design FROM task;
+  DROP TABLE task;
+  ALTER TABLE task_new RENAME TO task;
+  CREATE TABLE ticket (
+    task_id INTEGER NOT NULL REFERENCES task (id),
+    id INTEGER NOT NULL,
+    complexity TEXT NOT NULL CHECK (complexity IN ('simple', 'moderate', 'complex')),
+    slug TEXT NOT NULL,
+    summary TEXT NOT NULL,
+    description TEXT NOT NULL,
+    PRIMARY KEY (task_id, id)
+  ) STRICT;
+  CREATE TABLE ticket_dependency (
+    task_id INTEGER NOT NULL,
+    ticket_id INTEGER NOT NULL,
+    depends_on_id INTEGER NOT NULL CHECK (depends_on_id < ticket_id),
+    PRIMARY KEY (task_id, ticket_id, depends_on_id),
+    FOREIGN KEY (task_id, ticket_id) REFERENCES ticket (task_id, id),
+    FOREIGN KEY (task_id, depends_on_id) REFERENCES ticket (task_id, id)
+  ) STRICT;
+  CREATE TABLE goal_new (
+    task_id INTEGER NOT NULL REFERENCES task (id),
+    id INTEGER NOT NULL,
+    summary TEXT NOT NULL,
+    details TEXT,
+    source TEXT NOT NULL CHECK (source IN ('user', 'agent')),
+    PRIMARY KEY (task_id, id)
+  ) STRICT;
+  INSERT INTO goal_new (task_id, id, summary, details, source)
+    SELECT task_id, ROW_NUMBER() OVER (PARTITION BY task_id ORDER BY id), summary, details, source FROM goal;
+  DROP TABLE goal;
+  ALTER TABLE goal_new RENAME TO goal;`,
 ];
 
 /**
@@ -58,6 +124,7 @@ export const sqliteOpenStorage: OpenStorageFunction = async (path) => {
     return {
       sessions: sqliteSessionStore(database),
       messageLog: sqliteMessageLogStore(database),
+      tasks: sqliteTaskStore(database),
       close: () => database.close(),
     };
   } catch (error) {
@@ -67,10 +134,25 @@ export const sqliteOpenStorage: OpenStorageFunction = async (path) => {
 };
 
 /**
- * Runs the steps of `MIGRATIONS` that `database` has not run yet, in one transaction.
- * If `database` has run more steps than `MIGRATIONS` holds, throws.
+ * Runs the steps of `MIGRATIONS` that `database` has not run yet, in one transaction, with foreign keys off.
+ * If `database` has run more steps than `MIGRATIONS` holds, or if the steps leave a foreign key broken, throws.
  */
 const migrate = (database: DatabaseSync): void => {
+  // A step can rebuild a table that another table references, which a foreign key check would block. The pragma has
+  // no effect inside a transaction, so it wraps the transaction.
+  database.exec('PRAGMA foreign_keys = OFF');
+  try {
+    runMigrations(database);
+  } finally {
+    database.exec('PRAGMA foreign_keys = ON');
+  }
+};
+
+/**
+ * Runs the steps of `MIGRATIONS` that `database` has not run yet, in one transaction.
+ * If `database` has run more steps than `MIGRATIONS` holds, or if the steps leave a foreign key broken, throws.
+ */
+const runMigrations = (database: DatabaseSync): void => {
   // An immediate transaction takes the write lock before it reads the version, so two servers never run one step twice.
   database.exec('BEGIN IMMEDIATE');
   try {
@@ -78,6 +160,8 @@ const migrate = (database: DatabaseSync): void => {
     if (version > MIGRATIONS.length)
       throw new Error(`The database has schema version ${version}, newer than ${MIGRATIONS.length}`);
     for (const step of MIGRATIONS.slice(version)) database.exec(step);
+    if (database.prepare('PRAGMA foreign_key_check').get() !== undefined)
+      throw new Error('The steps of the schema leave a foreign key broken');
     database.exec(`PRAGMA user_version = ${MIGRATIONS.length}`);
     database.exec('COMMIT');
   } catch (error) {

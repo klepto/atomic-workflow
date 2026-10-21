@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { Attach, type Attachment } from './attachment/attach.ts';
 import { RepositoryAddress } from './attachment/repository-address.ts';
 import { Dispatch } from './rpc/dispatch.ts';
-import { awaitInboxMethod } from './rpc/method.await-inbox.ts';
+import { inboxAwaitMethod } from './rpc/method.inbox-await.ts';
 import { OpenRpcConnection } from './rpc/rpc-connection.ts';
 
 /**
@@ -33,8 +33,8 @@ const main = async (): Promise<void> => {
   if (attachment === undefined) return;
   const { connection } = attachment;
   try {
-    const params: z.input<typeof awaitInboxMethod.params> = { sessionId: input.session_id };
-    const result = (await connection.request(awaitInboxMethod.name, params)) as { commandLine: string | null };
+    const params: z.input<typeof inboxAwaitMethod.params> = { sessionId: input.session_id };
+    const result = (await connection.request(inboxAwaitMethod.name, params)) as { commandLine: string | null };
     if (result.commandLine !== null) process.stdout.write(`${JSON.stringify(hookOutput(result.commandLine))}\n`);
   } finally {
     connection.close();

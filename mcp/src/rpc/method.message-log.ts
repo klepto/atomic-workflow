@@ -4,7 +4,7 @@ import type { Method } from './method.ts';
 import { RpcError, RpcErrorCode } from './rpc-error.ts';
 
 /**
- * Schema of the parameters of `logMessage`.
+ * Schema of the parameters of `messageLog`.
  */
 const PARAMS = z.object({
   sessionId: z.string().describe('Identifier of the registered session that the message belongs to'),
@@ -15,12 +15,12 @@ const PARAMS = z.object({
 });
 
 /**
- * `Method` named `logMessage`, which adds a message of a registered session to the message log and returns it as
+ * `Method` named `messageLog`, which adds a message of a registered session to the message log and returns it as
  * logged. A message without a time gets the time of the call. A message with the message id of a logged message
  * is not added again. A message of a session that is not registered fails with invalid parameters.
  */
-export const logMessageMethod: Method<typeof PARAMS, LoggedMessage> = {
-  name: 'logMessage',
+export const messageLogMethod: Method<typeof PARAMS, LoggedMessage> = {
+  name: 'messageLog',
   description: 'Adds a message to the message log of the repository, and returns it with its identifier.',
   agent: false,
   params: PARAMS,

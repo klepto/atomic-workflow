@@ -36596,7 +36596,7 @@ import { createConnection } from "node:net";
 import { setTimeout as sleep } from "node:timers/promises";
 
 // src/attachment/hello.ts
-var PROTOCOL_VERSION = 7;
+var PROTOCOL_VERSION = 11;
 var HELLO_METHOD = "hello";
 var HELLO_PARAMS = external_exports.object({
   protocol: external_exports.number().int(),
@@ -36818,12 +36818,12 @@ var errorObject = (error62) => {
 // src/rpc/dispatch.ts
 var Dispatch = zodDispatch;
 
-// src/rpc/method.end-subagent.ts
+// src/rpc/method.subagent-end.ts
 var PARAMS = external_exports.object({
   sessionId: external_exports.string().describe("Session id of the subagent that has ended")
 });
-var endSubagentMethod = {
-  name: "endSubagent",
+var subagentEndMethod = {
+  name: "subagentEnd",
   description: "Removes a subagent that has ended from the started subagents.",
   agent: false,
   params: PARAMS,
@@ -36832,13 +36832,13 @@ var endSubagentMethod = {
   }
 };
 
-// src/rpc/method.await-command.ts
+// src/rpc/method.inbox-await-command.ts
 var PARAMS2 = external_exports.object({
   sessionId: external_exports.string().min(1).describe("Session id of the session or subagent that waits, or its beginning"),
   after: external_exports.number().int().min(0).default(0).describe("Number of the last message that the session has received")
 });
-var awaitCommandMethod = {
-  name: "awaitCommand",
+var inboxAwaitCommandMethod = {
+  name: "inboxAwaitCommand",
   description: "Waits for the next messages of a session or a subagent, and acknowledges the ones before.",
   agent: false,
   params: PARAMS2,
@@ -36850,13 +36850,13 @@ var awaitCommandMethod = {
   }
 };
 
-// src/rpc/method.await-inbox.ts
+// src/rpc/method.inbox-await.ts
 var BIND_TIMEOUT = 5e3;
 var PARAMS3 = external_exports.object({
   sessionId: external_exports.string().min(1).describe("Session id of the session whose inbox to wait for")
 });
-var awaitInboxMethod = {
-  name: "awaitInbox",
+var inboxAwaitMethod = {
+  name: "inboxAwait",
   description: "Waits a few seconds for a session to have an inbox, and returns the command that waits for its messages.",
   agent: false,
   params: PARAMS3,
@@ -36866,16 +36866,83 @@ var awaitInboxMethod = {
   }
 };
 
-// src/rpc/method.deliver-message.ts
+// src/storage/task-store.ts
+var TASK_STATUSES = ["plan-goals", "plan-design", "plan-tickets", "complete"];
+var GOAL_SOURCES = ["user", "agent"];
+var TICKET_COMPLEXITIES = ["simple", "moderate", "complex"];
+
+// src/rpc/slug.ts
+var SLUG = external_exports.string().max(60).regex(/^[a-z0-9]+-[a-z0-9]+-[a-z0-9]+$/, "Must be three lowercase words joined by hyphens");
+
+// src/rpc/method.task-create.ts
 var PARAMS4 = external_exports.object({
+  slug: SLUG.describe(
+    "Short name of the task, derived from what the user asked for: exactly three lowercase words joined by hyphens"
+  ),
+  summary: external_exports.string().trim().min(1).regex(/^[^\r\n]*$/, "Must be one line").describe("Summary of the first goal, on one line"),
+  details: external_exports.string().trim().min(1).optional().describe("Further information and comments on the first goal"),
+  source: external_exports.enum(GOAL_SOURCES).describe("Who the first goal came from: user, or agent for an accepted suggestion")
+});
+var taskCreateMethod = {
+  name: "taskCreate",
+  description: "Creates a task of the atomic workflow with its first goal, once the user approved that goal, and returns it.",
+  agent: true,
+  params: PARAMS4,
+  handle: async ({ slug, summary, details = null, source }, { tasks }) => tasks.create({ slug, createdAt: Date.now(), goal: { summary, details, source } })
+};
+
+// src/rpc/method.task-get.ts
+var PARAMS5 = external_exports.object({
+  taskId: external_exports.number().int().positive().describe("Identifier of the task")
+});
+var taskGetMethod = {
+  name: "taskGet",
+  description: "Returns a task of the atomic workflow with its status, its goals, its design and its tickets.",
+  agent: true,
+  params: PARAMS5,
+  handle: async ({ taskId }, { tasks }) => {
+    const task = await tasks.get(taskId);
+    if (task === void 0) throw new RpcError(RpcErrorCode.INVALID_PARAMS, `No task ${taskId} exists`);
+    return task;
+  }
+};
+
+// src/rpc/open-task.ts
+var openTask = async (taskId, context) => {
+  const task = await taskGetMethod.handle({ taskId }, context);
+  if (task.status === "complete")
+    throw new RpcError(RpcErrorCode.INVALID_REQUEST, `The plan of task ${taskId} is complete`);
+  return task;
+};
+
+// src/rpc/method.goal-delete.ts
+var PARAMS6 = external_exports.object({
+  taskId: external_exports.number().int().positive().describe("Identifier of the task"),
+  goalId: external_exports.number().int().positive().describe("Number of the goal to delete within the task, counted from 1. Each later goal moves down by one")
+});
+var goalDeleteMethod = {
+  name: "goalDelete",
+  description: "Deletes a goal of a task of the atomic workflow, and returns the task.",
+  agent: true,
+  params: PARAMS6,
+  handle: async ({ taskId, goalId }, context) => {
+    await openTask(taskId, context);
+    if (!await context.tasks.deleteGoal(taskId, goalId))
+      throw new RpcError(RpcErrorCode.INVALID_PARAMS, `Task ${taskId} has no goal ${goalId}`);
+    return taskGetMethod.handle({ taskId }, context);
+  }
+};
+
+// src/rpc/method.message-deliver.ts
+var PARAMS7 = external_exports.object({
   sessionId: external_exports.string().describe("Identifier of the attached session or subagent to deliver the message to"),
   content: external_exports.string().min(1).describe("Text of the message")
 });
-var deliverMessageMethod = {
-  name: "deliverMessage",
+var messageDeliverMethod = {
+  name: "messageDeliver",
   description: "Puts a message into the inbox of an attached session of the repository, or of a subagent.",
   agent: false,
-  params: PARAMS4,
+  params: PARAMS7,
   handle: async ({ sessionId, content }, { inboxes, messageLog }) => {
     if (!inboxes.deliver(sessionId, content))
       throw new RpcError(RpcErrorCode.INVALID_PARAMS, `No session ${sessionId} is attached`);
@@ -36884,46 +36951,55 @@ var deliverMessageMethod = {
 };
 
 // src/rpc/method.echo.ts
-var PARAMS5 = external_exports.object({ message: external_exports.string().describe("Text to send back") });
+var PARAMS8 = external_exports.object({ message: external_exports.string().describe("Text to send back") });
 var echoMethod = {
   name: "echo",
   description: "Sends a message to the atomic-workflow server, which returns it unchanged. Use it to test the connection.",
   agent: true,
-  params: PARAMS5,
+  params: PARAMS8,
   handle: async ({ message }) => ({ message })
 };
 
-// src/rpc/method.list-attached-sessions.ts
-var PARAMS6 = external_exports.object({});
-var listAttachedSessionsMethod = {
-  name: "listAttachedSessions",
-  description: "Returns the sessions and subagents of the repository that messages can be delivered to now.",
+// src/rpc/method.session-list.ts
+var PARAMS9 = external_exports.object({
+  attached: external_exports.boolean().optional().describe(
+    "true for only the attached sessions, which can take a message now, false for only the others, all when left out"
+  )
+});
+var sessionListMethod = {
+  name: "sessionList",
+  description: "Returns the sessions and subagents of the repository, and whether each one is attached, so messages can be delivered to it now.",
   agent: false,
-  params: PARAMS6,
-  handle: async (_params, { sessionConnections, subagents }) => ({
-    sessions: [
-      ...sessionConnections.list().map((sessionId) => ({ sessionId, role: "orchestrator", parentId: null })),
-      ...subagents.list().map(({ sessionId, parentId }) => ({ sessionId, role: "subagent", parentId }))
-    ]
-  })
+  params: PARAMS9,
+  handle: async ({ attached }, context) => {
+    const live = attachedSessions(context);
+    if (attached === true) return { sessions: live };
+    const liveIds = new Set(live.map(({ sessionId }) => sessionId));
+    const others = (await context.sessions.list()).filter(({ id }) => !liveIds.has(id)).map(({ id, role, parentId }) => ({ sessionId: id, role, parentId, attached: false }));
+    return { sessions: attached === false ? others : [...live, ...others] };
+  }
 };
+var attachedSessions = ({ sessionConnections, subagents }) => [
+  ...sessionConnections.list().map((sessionId) => ({ sessionId, role: "orchestrator", parentId: null, attached: true })),
+  ...subagents.list().map(({ sessionId, parentId }) => ({ sessionId, role: "subagent", parentId, attached: true }))
+];
 
 // src/storage/session-store.ts
 var AGENTS = ["claude", "codex"];
 var SESSION_ROLES = ["orchestrator", "subagent"];
 
-// src/rpc/method.list-messages.ts
-var PARAMS7 = external_exports.object({
+// src/rpc/method.message-list.ts
+var PARAMS10 = external_exports.object({
   sessionId: external_exports.string().optional().describe("Identifier of the session whose messages to return, all when left out"),
   role: external_exports.enum(SESSION_ROLES).optional().describe("Role of the sessions whose messages to return, all when left out"),
   after: external_exports.number().int().nonnegative().optional().describe("Identifier after which the list starts, 0 for the start, the latest messages when left out"),
   limit: external_exports.number().int().min(1).max(1e3).default(100).describe("Greatest number of messages to return")
 });
-var listMessagesMethod = {
-  name: "listMessages",
+var messageListMethod = {
+  name: "messageList",
   description: "Returns the messages of the message log of the repository after an identifier, or the latest ones.",
   agent: false,
-  params: PARAMS7,
+  params: PARAMS10,
   handle: async ({ sessionId, role, after, limit }, { messageLog }) => ({
     messages: await messageLog.list({ sessionId, role, after, limit })
   })
@@ -36932,19 +37008,19 @@ var listMessagesMethod = {
 // src/storage/message-log-store.ts
 var MESSAGE_SENDERS = ["user", "agent"];
 
-// src/rpc/method.log-message.ts
-var PARAMS8 = external_exports.object({
+// src/rpc/method.message-log.ts
+var PARAMS11 = external_exports.object({
   sessionId: external_exports.string().describe("Identifier of the registered session that the message belongs to"),
   messageId: external_exports.string().optional().describe("Identifier that the agent gives the message, unique in its session"),
   sender: external_exports.enum(MESSAGE_SENDERS).describe("Who wrote the message: user or agent"),
   content: external_exports.string().describe("Text of the message"),
   timestamp: external_exports.number().int().nonnegative().optional().describe("Time of the message in ms since the epoch")
 });
-var logMessageMethod = {
-  name: "logMessage",
+var messageLogMethod = {
+  name: "messageLog",
   description: "Adds a message to the message log of the repository, and returns it with its identifier.",
   agent: false,
-  params: PARAMS8,
+  params: PARAMS11,
   handle: async ({ sessionId, messageId, sender, content, timestamp = Date.now() }, { sessions, messageLog }) => {
     if (await sessions.get(sessionId) === void 0)
       throw new RpcError(RpcErrorCode.INVALID_PARAMS, `No session ${sessionId} is registered`);
@@ -36952,8 +37028,8 @@ var logMessageMethod = {
   }
 };
 
-// src/rpc/method.register-session.ts
-var PARAMS9 = external_exports.object({
+// src/rpc/method.session-register.ts
+var PARAMS12 = external_exports.object({
   sessionId: external_exports.string().min(1).describe("Identifier of the session, as the agent gives it"),
   agent: external_exports.enum(AGENTS).describe("Agent that the session runs in: claude or codex"),
   directory: external_exports.string().min(1).describe("Absolute path of the directory of the project of the session"),
@@ -36961,42 +37037,145 @@ var PARAMS9 = external_exports.object({
   role: external_exports.enum(SESSION_ROLES).default("orchestrator").describe("Role of the session: orchestrator or subagent"),
   parentId: external_exports.string().min(1).optional().describe("Identifier of the orchestrator session that a subagent runs inside")
 });
-var registerSessionMethod = {
-  name: "registerSession",
+var sessionRegisterMethod = {
+  name: "sessionRegister",
   description: "Registers a session of an agent in the repository, so that its messages can be logged.",
   agent: false,
-  params: PARAMS9,
+  params: PARAMS12,
   handle: ({ sessionId, agent, directory, startedAt = Date.now(), role, parentId = null }, { sessions }) => sessions.register({ id: sessionId, agent, directory, startedAt, role, parentId })
 };
 
-// src/rpc/method.start-subagent.ts
+// src/rpc/method.design-save.ts
+var PARAMS13 = external_exports.object({
+  taskId: external_exports.number().int().positive().describe("Identifier of the task"),
+  design: external_exports.string().trim().min(1).describe("Whole design of the task in Markdown, which replaces the stored one")
+});
+var designSaveMethod = {
+  name: "designSave",
+  description: "Replaces the design of a task of the atomic workflow with a whole new draft of it, and returns the task.",
+  agent: true,
+  params: PARAMS13,
+  handle: async ({ taskId, design }, context) => {
+    await openTask(taskId, context);
+    await context.tasks.setDesign(taskId, design);
+    return taskGetMethod.handle({ taskId }, context);
+  }
+};
+
+// src/rpc/method.goal-save.ts
+var PARAMS14 = external_exports.object({
+  taskId: external_exports.number().int().positive().describe("Identifier of the task"),
+  goalId: external_exports.number().int().positive().optional().describe("Number of the goal to edit within the task, counted from 1, a new goal when left out"),
+  summary: external_exports.string().trim().min(1).regex(/^[^\r\n]*$/, "Must be one line").describe("Summary of the goal, on one line"),
+  details: external_exports.string().trim().min(1).optional().describe("Further information and comments on the goal, none when left out"),
+  source: external_exports.enum(GOAL_SOURCES).optional().describe("Who a new goal came from: user, or agent for an accepted suggestion. Required for a new goal only")
+});
+var goalSaveMethod = {
+  name: "goalSave",
+  description: "Adds a goal that the user approved to a task of the atomic workflow, or edits one of its goals, and returns the task.",
+  agent: true,
+  params: PARAMS14,
+  handle: async ({ taskId, goalId, summary, details = null, source }, context) => {
+    await openTask(taskId, context);
+    if (goalId === void 0) {
+      if (source === void 0) throw new RpcError(RpcErrorCode.INVALID_PARAMS, "A new goal needs a source");
+      await context.tasks.addGoal(taskId, { summary, details, source });
+    } else if (!await context.tasks.editGoal(taskId, goalId, { summary, details }))
+      throw new RpcError(RpcErrorCode.INVALID_PARAMS, `Task ${taskId} has no goal ${goalId}`);
+    return taskGetMethod.handle({ taskId }, context);
+  }
+};
+
+// src/rpc/method.tickets-save.ts
+var PARAMS15 = external_exports.object({
+  taskId: external_exports.number().int().positive().describe("Identifier of the task"),
+  tickets: external_exports.array(
+    external_exports.object({
+      complexity: external_exports.enum(TICKET_COMPLEXITIES).describe(
+        "simple for mechanical work that follows an existing pattern, moderate for several files with small decisions, complex for cross-cutting work, tricky logic or real judgement"
+      ),
+      slug: SLUG.describe("Short name of the ticket: exactly three lowercase words joined by hyphens"),
+      summary: external_exports.string().trim().min(1).regex(/^[^\r\n]*$/, "Must be one line").describe("Summary of the ticket in one sentence"),
+      description: external_exports.string().trim().min(1).describe("Description in Markdown, with everything an agent needs to do the ticket in a fresh context"),
+      dependsOn: external_exports.array(external_exports.number().int().positive()).default([]).describe("Numbers of the earlier tickets in this list that must be done first, counted from 1")
+    })
+  ).min(1).describe("Whole list of tickets in order, which replaces the stored one. Ticket n gets the identifier n")
+});
+var ticketsSaveMethod = {
+  name: "ticketsSave",
+  description: "Replaces the tickets of a task of the atomic workflow with a whole new list of them, and returns the task.",
+  agent: true,
+  params: PARAMS15,
+  handle: async ({ taskId, tickets }, context) => {
+    await openTask(taskId, context);
+    const invalid = tickets.findIndex(
+      ({ dependsOn }, index) => new Set(dependsOn).size !== dependsOn.length || dependsOn.some((id) => id > index)
+    );
+    if (invalid !== -1)
+      throw new RpcError(
+        RpcErrorCode.INVALID_PARAMS,
+        `Ticket ${invalid + 1} must depend on earlier tickets, each once`
+      );
+    await context.tasks.setTickets(taskId, tickets);
+    return taskGetMethod.handle({ taskId }, context);
+  }
+};
+
+// src/rpc/method.task-set-status.ts
+var PARAMS16 = external_exports.object({
+  taskId: external_exports.number().int().positive().describe("Identifier of the task"),
+  status: external_exports.enum(TASK_STATUSES).describe("Status to set: the stage of planning the user works on, or complete")
+});
+var taskSetStatusMethod = {
+  name: "taskSetStatus",
+  description: "Sets the status of a task of the atomic workflow to the stage of planning the user works on, or to complete once the user is satisfied with the whole plan, and returns the task.",
+  agent: true,
+  params: PARAMS16,
+  handle: async ({ taskId, status }, context) => {
+    const task = await openTask(taskId, context);
+    const missing = missingPart(task, status);
+    if (missing !== void 0)
+      throw new RpcError(RpcErrorCode.INVALID_REQUEST, `Task ${taskId} needs ${missing} for the status ${status}`);
+    await context.tasks.setStatus(taskId, status);
+    return taskGetMethod.handle({ taskId }, context);
+  }
+};
+var missingPart = (task, status) => {
+  const rank = TASK_STATUSES.indexOf(status);
+  if (rank >= 1 && task.goals.length === 0) return "goals";
+  if (rank >= 2 && task.design === null) return "a design";
+  if (rank >= 3 && task.tickets.length === 0) return "tickets";
+  return void 0;
+};
+
+// src/rpc/method.subagent-start.ts
 import { randomUUID } from "node:crypto";
 
-// src/rpc/session-method.follow-subagent.ts
-var PARAMS10 = external_exports.object({
+// src/rpc/session-method.subagent-follow.ts
+var PARAMS17 = external_exports.object({
   sessionId: external_exports.string().min(1).describe("Identifier of the session of the subagent"),
   parentId: external_exports.string().min(1).describe("Identifier of the orchestrator session that the subagent runs inside")
 });
-var followSubagentMethod = {
-  name: "followSubagent",
+var subagentFollowMethod = {
+  name: "subagentFollow",
   description: "Logs the transcript of a subagent of the session.",
   agent: false,
-  params: PARAMS10,
+  params: PARAMS17,
   handle: async ({ sessionId, parentId }, { followSubagent: followSubagent2 }) => followSubagent2(sessionId, parentId)
 };
 
-// src/rpc/method.start-subagent.ts
+// src/rpc/method.subagent-start.ts
 var ATTACH_TIMEOUT = 6e4;
 var AGENT_TYPE = "atomic-workflow:worker";
-var PARAMS11 = external_exports.object({
+var PARAMS18 = external_exports.object({
   prompt: external_exports.string().min(1).optional().describe("First command of the subagent, none when left out"),
   parentId: external_exports.string().optional().describe("Session id of the orchestrator, the one that attached last when left out")
 });
-var startSubagentMethod = {
-  name: "startSubagent",
+var subagentStartMethod = {
+  name: "subagentStart",
   description: "Starts a subagent inside an orchestrator session, by default the one that attached last, and returns its session id.",
   agent: false,
-  params: PARAMS11,
+  params: PARAMS18,
   handle: async ({ prompt, parentId: pickedId }, context) => {
     const { sessions, sessionConnections, subagents, inboxes } = context;
     const parentId = pickedId ?? sessionConnections.list().at(-1);
@@ -37009,7 +37188,7 @@ var startSubagentMethod = {
     await sessions.register({ id: sessionId, agent, directory, startedAt: Date.now(), role: "subagent", parentId });
     subagents.start(sessionId, parentId, connection);
     inboxes.open(sessionId, connection.closed);
-    if (prompt !== void 0) await deliverMessageMethod.handle({ sessionId, content: prompt }, context);
+    if (prompt !== void 0) await messageDeliverMethod.handle({ sessionId, content: prompt }, context);
     try {
       await spawn2(context, parentId, sessionId);
     } catch (error62) {
@@ -37019,7 +37198,7 @@ var startSubagentMethod = {
       throw new RpcError(RpcErrorCode.INTERNAL_ERROR, `The subagent ${sessionId} did not attach: ${reason}`);
     }
     const params = { sessionId, parentId };
-    await connection.request(followSubagentMethod.name, params);
+    await connection.request(subagentFollowMethod.name, params);
     return { sessionId };
   }
 };
@@ -37027,7 +37206,7 @@ var spawn2 = async (context, parentId, sessionId) => {
   const attached = context.subagents.waitForAttach(sessionId, AbortSignal.timeout(ATTACH_TIMEOUT));
   attached.catch(() => void 0);
   const content = spawnMessage(sessionId, context.awaitCommandLine(sessionId));
-  await deliverMessageMethod.handle({ sessionId: parentId, content }, context);
+  await messageDeliverMethod.handle({ sessionId: parentId, content }, context);
   await attached;
 };
 var spawnMessage = (sessionId, commandLine) => {
@@ -37042,15 +37221,15 @@ var spawnMessage = (sessionId, commandLine) => {
   ].join("\n");
 };
 
-// src/rpc/method.stop-subagent.ts
-var PARAMS12 = external_exports.object({
+// src/rpc/method.subagent-stop.ts
+var PARAMS19 = external_exports.object({
   sessionId: external_exports.string().describe("Session id of the subagent to stop")
 });
-var stopSubagentMethod = {
-  name: "stopSubagent",
-  description: "Stops a subagent that startSubagent started.",
+var subagentStopMethod = {
+  name: "subagentStop",
+  description: "Stops a subagent that subagentStart started.",
   agent: false,
-  params: PARAMS12,
+  params: PARAMS19,
   handle: async ({ sessionId }, { subagents, inboxes }) => {
     if (!subagents.stop(sessionId))
       throw new RpcError(RpcErrorCode.INVALID_PARAMS, `No subagent ${sessionId} is started`);
@@ -37061,16 +37240,23 @@ var stopSubagentMethod = {
 // src/rpc/method.ts
 var Methods = [
   echoMethod,
-  registerSessionMethod,
-  logMessageMethod,
-  listMessagesMethod,
-  listAttachedSessionsMethod,
-  deliverMessageMethod,
-  startSubagentMethod,
-  stopSubagentMethod,
-  endSubagentMethod,
-  awaitCommandMethod,
-  awaitInboxMethod
+  sessionRegisterMethod,
+  messageLogMethod,
+  messageListMethod,
+  sessionListMethod,
+  messageDeliverMethod,
+  subagentStartMethod,
+  subagentStopMethod,
+  subagentEndMethod,
+  inboxAwaitCommandMethod,
+  inboxAwaitMethod,
+  taskGetMethod,
+  taskCreateMethod,
+  goalSaveMethod,
+  goalDeleteMethod,
+  designSaveMethod,
+  ticketsSaveMethod,
+  taskSetStatusMethod
 ];
 
 // src/rpc/rpc-connection.ndjson.ts
@@ -37156,7 +37342,7 @@ var send = (connection, message) => {
 var OpenRpcConnection = ndjsonOpenRpcConnection;
 
 // src/rpc/session-method.ts
-var SessionMethods = [followSubagentMethod];
+var SessionMethods = [subagentFollowMethod];
 
 // src/transcript/find-transcript.claude.ts
 import { access, open as open2, readdir, readFile } from "node:fs/promises";
@@ -37327,7 +37513,7 @@ var rpcLogTranscript = async (transcript, directory, connection, signal, depende
     agent: transcript.agent,
     directory
   };
-  await connection.request(registerSessionMethod.name, session, signal);
+  await connection.request(sessionRegisterMethod.name, session, signal);
   const ended = new AbortController();
   const following = AbortSignal.any([signal, ended.signal]);
   const stop = () => ended.abort();
@@ -37341,7 +37527,7 @@ var logLines = async (transcript, connection, lines, signal) => {
     const message = transcript.parse(line);
     if (message === void 0) continue;
     const params = { sessionId: transcript.sessionId, ...message };
-    await connection.request(logMessageMethod.name, params, signal);
+    await connection.request(messageLogMethod.name, params, signal);
   }
 };
 
@@ -37531,7 +37717,7 @@ var logSubagent = async (session, attachment2, parent, sessionId) => {
     await logTranscript(transcript, session.directory, connection, logging.signal, { tailFile });
     if (logging.signal.aborted) return;
     const params = { sessionId };
-    await connection.request(endSubagentMethod.name, params, logging.signal);
+    await connection.request(subagentEndMethod.name, params, logging.signal);
   } catch (error62) {
     if (!logging.signal.aborted) process.stderr.write(`Could not log the subagent ${sessionId}: ${messageOf(error62)}
 `);

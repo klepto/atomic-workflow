@@ -8,19 +8,19 @@ import type { Method } from './method.ts';
 const BIND_TIMEOUT = 5_000;
 
 /**
- * Schema of the parameters of `awaitInbox`.
+ * Schema of the parameters of `inboxAwait`.
  */
 const PARAMS = z.object({
   sessionId: z.string().min(1).describe('Session id of the session whose inbox to wait for'),
 });
 
 /**
- * `Method` named `awaitInbox`, which waits up to `BIND_TIMEOUT` ms for the session `sessionId` to have an inbox, and
+ * `Method` named `inboxAwait`, which waits up to `BIND_TIMEOUT` ms for the session `sessionId` to have an inbox, and
  * returns the command line that waits for its messages. If no inbox opens by then, returns `null` as the command line
  * instead. Agents do not call it as a tool.
  */
-export const awaitInboxMethod: Method<typeof PARAMS, { readonly commandLine: string | null }> = {
-  name: 'awaitInbox',
+export const inboxAwaitMethod: Method<typeof PARAMS, { readonly commandLine: string | null }> = {
+  name: 'inboxAwait',
   description:
     'Waits a few seconds for a session to have an inbox, and returns the command that waits for its messages.',
   agent: false,

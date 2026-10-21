@@ -1,6 +1,6 @@
 import type { z } from 'zod';
 import type { Method } from './method.ts';
-import { followSubagentMethod } from './session-method.follow-subagent.ts';
+import { subagentFollowMethod } from './session-method.subagent-follow.ts';
 
 /**
  * Services of a session server that a method of the session server uses to do its work.
@@ -17,4 +17,4 @@ export interface SessionMethodContext {
 /**
  * Methods that the repository server can call on a session server.
  */
-export const SessionMethods: readonly Method<z.ZodObject, unknown, SessionMethodContext>[] = [followSubagentMethod];
+export const SessionMethods: readonly Method<z.ZodObject, unknown, SessionMethodContext>[] = [subagentFollowMethod];

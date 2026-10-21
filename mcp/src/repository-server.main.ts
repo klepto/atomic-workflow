@@ -47,6 +47,7 @@ const serve = async (address: string, storage: Storage): Promise<void> => {
   const context: MethodContext = {
     sessions: storage.sessions,
     messageLog: storage.messageLog,
+    tasks: storage.tasks,
     sessionConnections: CreateSessionConnections(),
     subagents: CreateSubagents(),
     inboxes: CreateInboxes(),

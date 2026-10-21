@@ -1,12 +1,12 @@
 import type { z } from 'zod';
-import { logMessageMethod } from '../rpc/method.log-message.ts';
-import { registerSessionMethod } from '../rpc/method.register-session.ts';
+import { messageLogMethod } from '../rpc/method.message-log.ts';
+import { sessionRegisterMethod } from '../rpc/method.session-register.ts';
 import type { RpcConnection } from '../rpc/rpc-connection.ts';
 import type { Transcript } from './find-transcript.ts';
 import type { LogTranscriptFunction } from './log-transcript.ts';
 
 /**
- * `LogTranscriptFunction` that calls `registerSession` once and then `logMessage` for each message, one after the
+ * `LogTranscriptFunction` that calls `sessionRegister` once and then `messageLog` for each message, one after the
  * other, so the log keeps the order of the transcript. The end of the session stops the tail of the transcript, which
  * reads the file once more before it resolves.
  */
@@ -17,12 +17,12 @@ export const rpcLogTranscript: LogTranscriptFunction = async (
   signal,
   dependencies,
 ) => {
-  const session: z.input<typeof registerSessionMethod.params> = {
+  const session: z.input<typeof sessionRegisterMethod.params> = {
     sessionId: transcript.sessionId,
     agent: transcript.agent,
     directory,
   };
-  await connection.request(registerSessionMethod.name, session, signal);
+  await connection.request(sessionRegisterMethod.name, session, signal);
   const ended = new AbortController();
   const following = AbortSignal.any([signal, ended.signal]);
   const stop = (): void => ended.abort();
@@ -47,7 +47,7 @@ const logLines = async (
   for (const line of lines) {
     const message = transcript.parse(line);
     if (message === undefined) continue;
-    const params: z.input<typeof logMessageMethod.params> = { sessionId: transcript.sessionId, ...message };
-    await connection.request(logMessageMethod.name, params, signal);
+    const params: z.input<typeof messageLogMethod.params> = { sessionId: transcript.sessionId, ...message };
+    await connection.request(messageLogMethod.name, params, signal);
   }
 };

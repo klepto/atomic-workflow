@@ -13,6 +13,10 @@ export const sqliteSessionStore = (database: DatabaseSync): SessionStore => {
   const select = database.prepare(
     `SELECT id, agent, directory, started_at AS startedAt, role, parent_id AS parentId FROM session WHERE id = :id`,
   );
+  const selectAll = database.prepare(
+    `SELECT id, agent, directory, started_at AS startedAt, role, parent_id AS parentId FROM session
+    ORDER BY started_at, id`,
+  );
   // The table is strict and checks the agent and the role, so each row has the shape of a registered session.
   const get = (id: string): RegisteredSession | undefined => select.get({ id }) as RegisteredSession | undefined;
   return {
@@ -21,5 +25,6 @@ export const sqliteSessionStore = (database: DatabaseSync): SessionStore => {
       return get(session.id) ?? session;
     },
     get: async (id) => get(id),
+    list: async () => selectAll.all() as unknown as RegisteredSession[],
   };
 };
