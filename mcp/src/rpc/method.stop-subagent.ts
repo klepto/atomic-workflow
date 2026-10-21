@@ -10,16 +10,17 @@ const PARAMS = z.object({
 });
 
 /**
- * `Method` named `stopSubagent`, which stops a started subagent. The subagent gets a `stop` command the next time that
- * it waits for one, and ends. A session that is no started subagent fails with invalid parameters.
+ * `Method` named `stopSubagent`, which stops a started subagent and closes its inbox. Its wait for messages ends with
+ * `stop`, and the subagent ends. A session that is no started subagent fails with invalid parameters.
  */
 export const stopSubagentMethod: Method<typeof PARAMS, void> = {
   name: 'stopSubagent',
   description: 'Stops a subagent that startSubagent started.',
   agent: false,
   params: PARAMS,
-  handle: async ({ sessionId }, { subagents }) => {
+  handle: async ({ sessionId }, { subagents, inboxes }) => {
     if (!subagents.stop(sessionId))
       throw new RpcError(RpcErrorCode.INVALID_PARAMS, `No subagent ${sessionId} is started`);
+    inboxes.close(sessionId);
   },
 };

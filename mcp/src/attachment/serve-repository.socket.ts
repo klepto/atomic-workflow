@@ -123,8 +123,10 @@ const helloMethod = (url: string, attachSession: () => void): Method<typeof HELL
 
 /**
  * Returns the method `bindSession` of one connection, which binds a session to the connection that
- * `sessionConnection` returns. Before the client says hello as a session server, `sessionConnection` returns
- * `undefined`, and the method fails.
+ * `sessionConnection` returns, and gives the session an inbox until the connection closes. The inbox of the session
+ * that the connection served before moves to the new session, so a wait for its messages that is under way, such as
+ * one from before `/clear`, receives the messages of the new session. Before the client says hello as a session
+ * server, `sessionConnection` returns `undefined`, and the method fails.
  */
 const bindSessionMethod = (
   sessionConnection: () => RpcConnection | undefined,
@@ -134,11 +136,13 @@ const bindSessionMethod = (
     description: 'Binds a session to the connection, so that the repository server reaches the session over it.',
     agent: false,
     params: BIND_SESSION_PARAMS,
-    handle: async ({ sessionId }, { sessionConnections }) => {
+    handle: async ({ sessionId }, { sessionConnections, inboxes }) => {
       const connection = sessionConnection();
       if (connection === undefined)
         throw new RpcError(RpcErrorCode.INVALID_REQUEST, 'Only a session server can bind a session');
-      sessionConnections.bind(sessionId, connection);
+      const previous = sessionConnections.bind(sessionId, connection);
+      if (previous !== undefined) inboxes.move(previous, sessionId);
+      inboxes.open(sessionId, connection.closed);
     },
   };
 };

@@ -24,6 +24,8 @@ const DIST_DIRECTORY = join(REPOSITORY_ROOT, 'plugin', 'dist');
 const ENTRY_POINTS: Readonly<Record<string, string>> = {
   'session-server': 'src/session-server.main.ts',
   'repository-server': 'src/repository-server.main.ts',
+  'await-command': 'src/await-command.main.ts',
+  'session-start': 'src/session-start.main.ts',
 };
 
 /**

@@ -6,10 +6,11 @@ import { mapCreateSessionConnections } from './session-connections.map.ts';
  */
 export interface SessionConnections {
   /**
-   * Binds the session `sessionId` to `connection`, until the connection closes or binds another session. A session
-   * that another connection serves already moves to `connection`.
+   * Binds the session `sessionId` to `connection`, until the connection closes or binds another session, and returns
+   * the session that `connection` served before. A session that another connection serves already moves to
+   * `connection`. If `connection` served no session, returns `undefined` instead.
    */
-  bind(sessionId: string, connection: RpcConnection): void;
+  bind(sessionId: string, connection: RpcConnection): string | undefined;
 
   /**
    * Returns the connection that serves the session `sessionId`. If no connection serves it, returns `undefined`

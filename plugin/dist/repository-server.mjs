@@ -5,7 +5,118 @@ var __export = (target, all) => {
 };
 
 // src/repository-server.main.ts
+import { basename, join as join3 } from "node:path";
 import { parseArgs } from "node:util";
+
+// src/attachment/await-command-line.shell.ts
+var SESSION_PREFIX_LENGTH = 8;
+var shellAwaitCommandLine = (entryPoint, sessionId, after) => {
+  const command = `node "${entryPoint.replaceAll("\\", "/")}" ${sessionId.slice(0, SESSION_PREFIX_LENGTH)}`;
+  return after === void 0 ? command : `${command} --after ${after}`;
+};
+
+// src/attachment/await-command-line.ts
+var AwaitCommandLine = shellAwaitCommandLine;
+
+// src/attachment/inboxes.map.ts
+var BATCH_DELAY = 500;
+var notifyOpen = (listeners, sessionId) => {
+  for (const listener of listeners.get(sessionId) ?? []) listener();
+};
+var mapCreateInboxes = () => {
+  const inboxes = /* @__PURE__ */ new Map();
+  const listeners = /* @__PURE__ */ new Map();
+  return {
+    open: (sessionId, closed) => open(inboxes, listeners, sessionId, closed),
+    move: (from, to) => move(inboxes, listeners, from, to),
+    close: (sessionId) => close(inboxes, sessionId),
+    find: (sessionId) => find(inboxes, sessionId),
+    awaitOpen: (sessionId, timeout) => awaitOpen(inboxes, listeners, sessionId, timeout),
+    deliver: (sessionId, content) => deliver(inboxes.get(sessionId), content),
+    take: (sessionId, after) => take(inboxes.get(sessionId), after)
+  };
+};
+var open = (inboxes, listeners, sessionId, closed) => {
+  if (inboxes.has(sessionId)) return;
+  const inbox = { sessionId, messages: [], nextId: 1, waiter: void 0, batch: void 0 };
+  inboxes.set(sessionId, inbox);
+  notifyOpen(listeners, sessionId);
+  void closed.then(() => {
+    if (inboxes.get(inbox.sessionId) === inbox) close(inboxes, inbox.sessionId);
+  });
+};
+var move = (inboxes, listeners, from, to) => {
+  const inbox = inboxes.get(from);
+  if (inbox === void 0 || from === to) return;
+  if (inboxes.has(to)) {
+    close(inboxes, from);
+    return;
+  }
+  inboxes.delete(from);
+  inboxes.set(to, inbox);
+  inbox.sessionId = to;
+  notifyOpen(listeners, to);
+};
+var close = (inboxes, sessionId) => {
+  const inbox = inboxes.get(sessionId);
+  if (inbox === void 0) return false;
+  inboxes.delete(sessionId);
+  clearTimeout(inbox.batch);
+  inbox.waiter?.({ status: "stop" });
+  return true;
+};
+var find = (inboxes, sessionId) => {
+  if (inboxes.has(sessionId)) return sessionId;
+  const matches = [...inboxes.keys()].filter((key) => key.startsWith(sessionId));
+  return matches.length === 1 ? matches[0] : void 0;
+};
+var awaitOpen = (inboxes, listeners, sessionId, timeout) => {
+  if (inboxes.has(sessionId)) return Promise.resolve(true);
+  const waiting = listeners.get(sessionId) ?? /* @__PURE__ */ new Set();
+  listeners.set(sessionId, waiting);
+  return new Promise((resolve2) => {
+    const finish = (opened) => {
+      clearTimeout(timer);
+      waiting.delete(onOpen);
+      if (waiting.size === 0 && listeners.get(sessionId) === waiting) listeners.delete(sessionId);
+      resolve2(opened);
+    };
+    const onOpen = () => finish(true);
+    const timer = setTimeout(() => finish(false), timeout);
+    waiting.add(onOpen);
+  });
+};
+var deliver = (inbox, content) => {
+  if (inbox === void 0) return false;
+  inbox.messages.push({ id: inbox.nextId, content });
+  inbox.nextId += 1;
+  inbox.batch ??= setTimeout(() => {
+    inbox.batch = void 0;
+    inbox.waiter?.(messages(inbox));
+  }, BATCH_DELAY);
+  return true;
+};
+var take = (inbox, after) => {
+  if (inbox === void 0) return Promise.resolve({ status: "stop" });
+  inbox.messages = inbox.messages.filter((message) => message.id > after);
+  inbox.waiter?.({ status: "replaced" });
+  clearTimeout(inbox.batch);
+  inbox.batch = void 0;
+  if (inbox.messages.length > 0) return Promise.resolve(messages(inbox));
+  return new Promise((resolve2) => {
+    const finish = (delivery) => {
+      if (inbox.waiter === finish) inbox.waiter = void 0;
+      resolve2(delivery);
+    };
+    inbox.waiter = finish;
+  });
+};
+var messages = (inbox) => {
+  return { status: "messages", sessionId: inbox.sessionId, messages: [...inbox.messages] };
+};
+
+// src/attachment/inboxes.ts
+var CreateInboxes = mapCreateInboxes;
 
 // src/attachment/serve-repository.socket.ts
 import { rm } from "node:fs/promises";
@@ -5282,7 +5393,7 @@ function bucketFor(state, inst) {
   return bucket;
 }
 var handoff;
-var open = [];
+var open2 = [];
 var memo = {
   alloc(_inst, payload, empty) {
     const bucket = handoff;
@@ -5291,7 +5402,7 @@ var memo = {
     handoff = void 0;
     const entry = { value: empty, issues: null };
     bucket.set(payload.value, entry);
-    open.push(entry);
+    open2.push(entry);
     return empty;
   },
   guard(inst) {
@@ -5362,10 +5473,10 @@ var memo = {
           return payload;
         }
         handoff = bucket;
-        const depth = open.length;
+        const depth = open2.length;
         const result = base(payload, ctx);
         handoff = void 0;
-        const entry = open.length > depth ? open.pop() : void 0;
+        const entry = open2.length > depth ? open2.pop() : void 0;
         if (result instanceof Promise) {
           return result.then((r) => {
             if (entry)
@@ -19790,7 +19901,7 @@ var BIND_SESSION_PARAMS = external_exports.object({
 });
 
 // src/attachment/hello.ts
-var PROTOCOL_VERSION = 4;
+var PROTOCOL_VERSION = 7;
 var HELLO_METHOD = "hello";
 var HELLO_PARAMS = external_exports.object({
   protocol: external_exports.number().int(),
@@ -19862,11 +19973,13 @@ var bindSessionMethod = (sessionConnection) => {
     description: "Binds a session to the connection, so that the repository server reaches the session over it.",
     agent: false,
     params: BIND_SESSION_PARAMS,
-    handle: async ({ sessionId }, { sessionConnections }) => {
+    handle: async ({ sessionId }, { sessionConnections, inboxes }) => {
       const connection = sessionConnection();
       if (connection === void 0)
         throw new RpcError(RpcErrorCode.INVALID_REQUEST, "Only a session server can bind a session");
-      sessionConnections.bind(sessionId, connection);
+      const previous = sessionConnections.bind(sessionId, connection);
+      if (previous !== void 0) inboxes.move(previous, sessionId);
+      inboxes.open(sessionId, connection.closed);
     }
   };
 };
@@ -19911,12 +20024,14 @@ var mapCreateSessionConnections = () => {
   };
 };
 var bind = (connections, sessionId, connection) => {
-  for (const [boundId, bound] of connections) if (bound === connection) connections.delete(boundId);
+  const previous = [...connections].find(([, bound]) => bound === connection)?.[0];
+  if (previous !== void 0) connections.delete(previous);
   connections.delete(sessionId);
   connections.set(sessionId, connection);
   void connection.closed.then(() => {
     if (connections.get(sessionId) === connection) connections.delete(sessionId);
   });
+  return previous;
 };
 
 // src/attachment/session-connections.ts
@@ -19928,20 +20043,13 @@ var mapCreateSubagents = () => {
   return {
     start: (sessionId, parentId, connection) => start(subagents, sessionId, parentId, connection),
     waitForAttach: (sessionId, signal) => waitForAttach(subagents.get(sessionId), sessionId, signal),
-    awaitCommand: (sessionId, signal) => awaitCommand(subagents.get(sessionId), signal),
-    deliver: (sessionId, content) => deliver(subagents.get(sessionId), content),
+    attach: (sessionId) => attach(subagents.get(sessionId)),
     stop: (sessionId) => stop(subagents, sessionId),
     list: () => list(subagents)
   };
 };
 var start = (subagents, sessionId, parentId, connection) => {
-  const subagent = {
-    parentId,
-    inbox: [],
-    attached: Promise.withResolvers(),
-    isAttached: false,
-    waiter: void 0
-  };
+  const subagent = { parentId, attached: Promise.withResolvers(), isAttached: false };
   subagent.attached.promise.catch(() => void 0);
   subagents.set(sessionId, subagent);
   void connection.closed.then(() => {
@@ -19955,35 +20063,15 @@ var waitForAttach = (subagent, sessionId, signal) => {
   });
   return Promise.race([subagent.attached.promise, aborted2]);
 };
-var awaitCommand = (subagent, signal) => {
-  if (subagent === void 0) return Promise.resolve({ status: "stop" });
+var attach = (subagent) => {
+  if (subagent === void 0) return;
   subagent.isAttached = true;
   subagent.attached.resolve();
-  const content = subagent.inbox.shift();
-  if (content !== void 0) return Promise.resolve({ status: "command", content });
-  subagent.waiter?.({ status: "idle" });
-  return new Promise((resolve2) => {
-    const finish = (command) => {
-      if (subagent.waiter === finish) subagent.waiter = void 0;
-      signal.removeEventListener("abort", idle);
-      resolve2(command);
-    };
-    const idle = () => finish({ status: "idle" });
-    subagent.waiter = finish;
-    signal.addEventListener("abort", idle, { once: true });
-  });
-};
-var deliver = (subagent, content) => {
-  if (subagent === void 0) return false;
-  if (subagent.waiter === void 0) subagent.inbox.push(content);
-  else subagent.waiter({ status: "command", content });
-  return true;
 };
 var stop = (subagents, sessionId) => {
   const subagent = subagents.get(sessionId);
   if (subagent === void 0) return false;
   subagents.delete(sessionId);
-  subagent.waiter?.({ status: "stop" });
   subagent.attached.reject(new Error(`The subagent ${sessionId} was stopped`));
   return true;
 };
@@ -20034,26 +20122,37 @@ var errorObject = (error62) => {
 var Dispatch = zodDispatch;
 
 // src/rpc/method.await-command.ts
-var WAIT_TIMEOUT = 23 * 60 * 6e4;
 var PARAMS = external_exports.object({
-  sessionId: external_exports.string().min(1).describe("Session id of the subagent, as its prompt gives it")
+  sessionId: external_exports.string().min(1).describe("Session id of the session or subagent that waits, or its beginning"),
+  after: external_exports.number().int().min(0).default(0).describe("Number of the last message that the session has received")
 });
 var awaitCommandMethod = {
   name: "awaitCommand",
-  description: 'Waits for the next command of an atomic-workflow subagent. Call it only as a subagent whose prompt tells you to, with the session id from that prompt. Returns status "command" with the content to carry out, "idle" when no command came in time, or "stop" when the subagent ends.',
-  agent: true,
+  description: "Waits for the next messages of a session or a subagent, and acknowledges the ones before.",
+  agent: false,
   params: PARAMS,
-  handle: ({ sessionId }, { subagents }) => subagents.awaitCommand(sessionId, AbortSignal.timeout(WAIT_TIMEOUT))
+  handle: async ({ sessionId: name, after }, { subagents, inboxes }) => {
+    const sessionId = inboxes.find(name) ?? name;
+    subagents.attach(sessionId);
+    const subagent = subagents.list().some((attached) => attached.sessionId === sessionId);
+    return { ...await inboxes.take(sessionId, after), subagent };
+  }
 };
 
-// src/rpc/session-method.deliver.ts
-var PARAMS2 = external_exports.object({ content: external_exports.string().min(1).describe("Text of the message") });
-var deliverMethod = {
-  name: "deliver",
-  description: "Puts a message into the chat of the session.",
+// src/rpc/method.await-inbox.ts
+var BIND_TIMEOUT = 5e3;
+var PARAMS2 = external_exports.object({
+  sessionId: external_exports.string().min(1).describe("Session id of the session whose inbox to wait for")
+});
+var awaitInboxMethod = {
+  name: "awaitInbox",
+  description: "Waits a few seconds for a session to have an inbox, and returns the command that waits for its messages.",
   agent: false,
   params: PARAMS2,
-  handle: ({ content }, { pushMessage }) => pushMessage(content)
+  handle: async ({ sessionId }, { inboxes, awaitCommandLine }) => {
+    const opened = await inboxes.awaitOpen(sessionId, BIND_TIMEOUT);
+    return { commandLine: opened ? awaitCommandLine(sessionId) : null };
+  }
 };
 
 // src/rpc/method.deliver-message.ts
@@ -20063,19 +20162,13 @@ var PARAMS3 = external_exports.object({
 });
 var deliverMessageMethod = {
   name: "deliverMessage",
-  description: "Puts a message into the chat of an attached session of the repository, or of a subagent.",
+  description: "Puts a message into the inbox of an attached session of the repository, or of a subagent.",
   agent: false,
   params: PARAMS3,
-  handle: async ({ sessionId, content }, { sessionConnections, subagents, messageLog }) => {
-    if (subagents.deliver(sessionId, content)) {
-      await messageLog.append({ sessionId, messageId: null, sender: "user", content, timestamp: Date.now() });
-      return;
-    }
-    const connection = sessionConnections.get(sessionId);
-    if (connection === void 0)
+  handle: async ({ sessionId, content }, { inboxes, messageLog }) => {
+    if (!inboxes.deliver(sessionId, content))
       throw new RpcError(RpcErrorCode.INVALID_PARAMS, `No session ${sessionId} is attached`);
-    const params = { content };
-    await connection.request(deliverMethod.name, params);
+    await messageLog.append({ sessionId, messageId: null, sender: "user", content, timestamp: Date.now() });
   }
 };
 
@@ -20098,8 +20191,8 @@ var endSubagentMethod = {
   description: "Removes a subagent that has ended from the started subagents.",
   agent: false,
   params: PARAMS5,
-  handle: async ({ sessionId }, { subagents }) => {
-    subagents.stop(sessionId);
+  handle: async ({ sessionId }, { subagents, inboxes }) => {
+    if (subagents.stop(sessionId)) inboxes.close(sessionId);
   }
 };
 
@@ -20208,7 +20301,7 @@ var startSubagentMethod = {
   agent: false,
   params: PARAMS11,
   handle: async ({ prompt, parentId: pickedId }, context) => {
-    const { sessions, sessionConnections, subagents } = context;
+    const { sessions, sessionConnections, subagents, inboxes } = context;
     const parentId = pickedId ?? sessionConnections.list().at(-1);
     const connection = parentId === void 0 ? void 0 : sessionConnections.get(parentId);
     const parent = parentId === void 0 ? void 0 : await sessions.get(parentId);
@@ -20218,11 +20311,13 @@ var startSubagentMethod = {
     const { agent, directory } = parent;
     await sessions.register({ id: sessionId, agent, directory, startedAt: Date.now(), role: "subagent", parentId });
     subagents.start(sessionId, parentId, connection);
+    inboxes.open(sessionId, connection.closed);
     if (prompt !== void 0) await deliverMessageMethod.handle({ sessionId, content: prompt }, context);
     try {
-      await spawn(context, connection, sessionId);
+      await spawn(context, parentId, sessionId);
     } catch (error62) {
       subagents.stop(sessionId);
+      inboxes.close(sessionId);
       const reason = error62 instanceof Error ? error62.message : String(error62);
       throw new RpcError(RpcErrorCode.INTERNAL_ERROR, `The subagent ${sessionId} did not attach: ${reason}`);
     }
@@ -20231,21 +20326,22 @@ var startSubagentMethod = {
     return { sessionId };
   }
 };
-var spawn = async ({ subagents }, connection, sessionId) => {
-  const attached = subagents.waitForAttach(sessionId, AbortSignal.timeout(ATTACH_TIMEOUT));
+var spawn = async (context, parentId, sessionId) => {
+  const attached = context.subagents.waitForAttach(sessionId, AbortSignal.timeout(ATTACH_TIMEOUT));
   attached.catch(() => void 0);
-  const params = { content: spawnMessage(sessionId) };
-  await connection.request(deliverMethod.name, params);
+  const content = spawnMessage(sessionId, context.awaitCommandLine(sessionId));
+  await deliverMessageMethod.handle({ sessionId: parentId, content }, context);
   await attached;
 };
-var spawnMessage = (sessionId) => {
+var spawnMessage = (sessionId, commandLine) => {
   return [
     "Start a subagent for the atomic-workflow server now, and do nothing else for this message.",
     `Call the Agent tool with run_in_background set to true, subagent_type "${AGENT_TYPE}", description "atomic-workflow subagent ${sessionId.slice(0, 8)}", and exactly this prompt:`,
     "",
-    `Your session id is ${sessionId}.`,
+    `Your session id is ${sessionId}. Your wait command is:`,
+    commandLine,
     "",
-    "When this subagent completes, do not act on its result and do not reply about it. The atomic-workflow server handles it."
+    "Each time this subagent reports back, do not act on its report and do not reply about it. The atomic-workflow server handles it."
   ].join("\n");
 };
 
@@ -20258,9 +20354,10 @@ var stopSubagentMethod = {
   description: "Stops a subagent that startSubagent started.",
   agent: false,
   params: PARAMS12,
-  handle: async ({ sessionId }, { subagents }) => {
+  handle: async ({ sessionId }, { subagents, inboxes }) => {
     if (!subagents.stop(sessionId))
       throw new RpcError(RpcErrorCode.INVALID_PARAMS, `No subagent ${sessionId} is started`);
+    inboxes.close(sessionId);
   }
 };
 
@@ -20275,7 +20372,8 @@ var Methods = [
   startSubagentMethod,
   stopSubagentMethod,
   endSubagentMethod,
-  awaitCommandMethod
+  awaitCommandMethod,
+  awaitInboxMethod
 ];
 
 // src/rpc/rpc-connection.ndjson.ts
@@ -20731,7 +20829,7 @@ var httpStartWebServer = async (handle) => {
   const server = createServer2((request2, response) => void route(handle, request2, response));
   await listen(server);
   const { port } = server.address();
-  return { url: `http://${HOST}:${port}/`, close: () => close(server) };
+  return { url: `http://${HOST}:${port}/`, close: () => close2(server) };
 };
 var route = async (handle, request2, response) => {
   const { pathname } = new URL(request2.url ?? "/", `http://${HOST}`);
@@ -20768,7 +20866,7 @@ var listen = (server) => {
     });
   });
 };
-var close = (server) => {
+var close2 = (server) => {
   return new Promise((resolve2, reject) => {
     server.close((error62) => error62 === void 0 ? resolve2() : reject(error62));
     server.closeAllConnections();
@@ -20779,6 +20877,10 @@ var close = (server) => {
 var StartWebServer = httpStartWebServer;
 
 // src/repository-server.main.ts
+var AWAIT_COMMAND = join3(
+  import.meta.dirname,
+  basename(import.meta.filename).replace("repository-server", "await-command")
+);
 var main = async () => {
   const { values } = parseArgs({ options: { address: { type: "string" }, directory: { type: "string" } } });
   if (values.address === void 0) throw new Error("The argument --address <address> is missing");
@@ -20795,7 +20897,9 @@ var serve2 = async (address, storage) => {
     sessions: storage.sessions,
     messageLog: storage.messageLog,
     sessionConnections: CreateSessionConnections(),
-    subagents: CreateSubagents()
+    subagents: CreateSubagents(),
+    inboxes: CreateInboxes(),
+    awaitCommandLine: (sessionId) => AwaitCommandLine(AWAIT_COMMAND, sessionId)
   };
   const webServer = await StartWebServer((message) => Dispatch(Methods, context, message));
   try {

@@ -23,8 +23,8 @@ export interface ServeRepositoryDependencies {
  * attached to it leaves. Each client calls `hello` first, which returns `url`, and then the methods of `methods`,
  * which run with the services of `context`. A client counts as an attached session server once it says hello in the
  * role `session`. An attached session server calls `bindSession` for each session that it serves, which binds the
- * session to its connection in the session connections of `context`. A repository server that no session server
- * attaches to in its first seconds ends as well.
+ * session to its connection in the session connections of `context`, and gives it an inbox in the inboxes of
+ * `context`. A repository server that no session server attaches to in its first seconds ends as well.
  * If another repository server serves `address` already, rejects.
  */
 export type ServeRepositoryFunction = (

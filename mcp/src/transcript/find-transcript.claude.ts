@@ -17,7 +17,6 @@ const ENTRY = z.object({
   isMeta: z.boolean().optional(),
   isSidechain: z.boolean().optional(),
   isCompactSummary: z.boolean().optional(),
-  origin: z.object({ kind: z.string() }).optional(),
   message: z.object({
     content: z.union([z.string(), z.array(z.object({ type: z.string(), text: z.string().optional() }))]),
   }),
@@ -47,10 +46,11 @@ const SESSION_FILE = z.object({
 
 /**
  * Schema of the fields of the metadata file of a Claude Code subagent that its end needs. The format is internal to
- * Claude Code, so every other field may be missing or change.
+ * Claude Code, so every other field may be missing or change. `finished` is no end: Claude Code sets it each time the
+ * subagent reports back, and a background command of the subagent wakes it again.
  */
 const SUBAGENT_META = z.object({
-  finished: z.boolean().optional(),
+  stoppedByUser: z.boolean().optional(),
 });
 
 /**
@@ -177,7 +177,8 @@ const expectedTranscriptFile = (projects: string, name: string, environment: Nod
  * `FindSubagentTranscriptFunction` that finds the transcript of a subagent of a Claude Code session. Claude Code writes
  * it to `subagents/agent-<agent id>.jsonl` in a directory beside the transcript of the parent, named after the session
  * of the parent, and starts it with the prompt of the subagent. Beside it, `agent-<agent id>.meta.json` sets
- * `finished` once the subagent has finished. The directory is searched every `POLL_INTERVAL` ms, until
+ * `stoppedByUser` once the subagent is stopped, such as by `TaskStop`. The directory is searched every `POLL_INTERVAL`
+ * ms, until
  * `SUBAGENT_SEARCH_TIMEOUT` ms have passed.
  */
 export const claudeFindSubagentTranscript: FindSubagentTranscriptFunction = async (parent, sessionId, signal) => {
@@ -192,7 +193,7 @@ export const claudeFindSubagentTranscript: FindSubagentTranscriptFunction = asyn
         sessionId,
         path,
         parse: entryParser(true),
-        waitForEnd: (signal) => waitForFinish(path.replace(/\.jsonl$/, '.meta.json'), signal),
+        waitForEnd: (signal) => waitForStop(path.replace(/\.jsonl$/, '.meta.json'), signal),
       };
     if (signal.aborted || Date.now() >= deadline) return undefined;
     // The only failure of the sleep is the abort, which the next round of the loop handles.
@@ -231,39 +232,33 @@ const readStart = async (path: string): Promise<string> => {
 };
 
 /**
- * Reads the metadata file of a subagent at `path` every `POLL_INTERVAL` ms, and resolves once it sets `finished`, or
- * when `signal` aborts.
+ * Reads the metadata file of a subagent at `path` every `POLL_INTERVAL` ms, and resolves once it sets `stoppedByUser`,
+ * or when `signal` aborts.
  */
-const waitForFinish = async (path: string, signal: AbortSignal): Promise<void> => {
+const waitForStop = async (path: string, signal: AbortSignal): Promise<void> => {
   while (!signal.aborted) {
-    if (await isFinished(path)) return;
+    if (await isStopped(path)) return;
     // The only failure of the sleep is the abort, which ends the loop.
     await sleep(POLL_INTERVAL, undefined, { signal }).catch(() => undefined);
   }
 };
 
 /**
- * Returns whether the metadata file of a subagent at `path` sets `finished`. A file that does not exist does not.
+ * Returns whether the metadata file of a subagent at `path` sets `stoppedByUser`. A file that does not exist does not.
  */
-const isFinished = async (path: string): Promise<boolean> => {
+const isStopped = async (path: string): Promise<boolean> => {
   const text = await readFileIfExists(path);
   if (text === undefined) return false;
   const meta = SUBAGENT_META.safeParse(parseJson(text));
-  return meta.success && meta.data.finished === true;
+  return meta.success && meta.data.stoppedByUser === true;
 };
-
-/**
- * Pattern of the text of a message that a channel delivered, which Claude Code wraps in a `channel` tag. The first
- * group is the message.
- */
-const CHANNEL_TAG = /^<channel\b[^>]*>\n?([\s\S]*?)\n?<\/channel>$/;
 
 /**
  * Returns the function that returns the message of a user or an agent that a line of a Claude Code transcript holds.
  * With `sidechain`, only the entries of a subagent are messages, and without it, only the entries of the session
- * itself. Entries that only Claude Code wrote, such as the text of a skill, are no messages, and neither are tool
- * calls, tool results and thinking. A message that a channel delivered is a message of the user, without the
- * `channel` tag around it. If the line holds no message, the function returns `undefined` instead.
+ * itself. Entries that only Claude Code wrote, such as the text of a skill or the notice that a background command
+ * ended, are no messages, and neither are tool calls, tool results and thinking. If the line holds no message, the
+ * function returns `undefined` instead.
  */
 const entryParser = (sidechain: boolean): ((line: string) => TranscriptMessage | undefined) => {
   return (line) => parseEntry(line, sidechain);
@@ -276,12 +271,10 @@ const entryParser = (sidechain: boolean): ((line: string) => TranscriptMessage |
 const parseEntry = (line: string, sidechain: boolean): TranscriptMessage | undefined => {
   const entry = ENTRY.safeParse(parseJson(line));
   if (!entry.success) return undefined;
-  const { type, uuid, timestamp, isMeta, isSidechain = false, isCompactSummary, origin, message } = entry.data;
+  const { type, uuid, timestamp, isMeta, isSidechain = false, isCompactSummary, message } = entry.data;
   const sender = SENDERS.get(type);
-  const channel = origin?.kind === 'channel';
-  if (sender === undefined || (isMeta && !channel) || isSidechain !== sidechain || isCompactSummary) return undefined;
-  const text = textOf(message.content);
-  const content = channel ? (CHANNEL_TAG.exec(text)?.[1] ?? text) : text;
+  if (sender === undefined || isMeta || isSidechain !== sidechain || isCompactSummary) return undefined;
+  const content = textOf(message.content);
   return content === '' ? undefined : { messageId: uuid, sender, content, timestamp: Date.parse(timestamp) };
 };
 

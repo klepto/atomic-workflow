@@ -2,16 +2,7 @@ import type { RpcConnection } from '../rpc/rpc-connection.ts';
 import { mapCreateSubagents } from './subagents.map.ts';
 
 /**
- * Command that a subagent receives when it waits for one. `command` carries a message to carry out, `idle` means that
- * no message came in time, and `stop` means that the subagent is stopped and ends.
- */
-export type SubagentCommand =
-  | { readonly status: 'command'; readonly content: string }
-  | { readonly status: 'idle' }
-  | { readonly status: 'stop' };
-
-/**
- * Subagent that has attached and waits for commands.
+ * Subagent that has attached.
  */
 export interface AttachedSubagent {
   /**
@@ -26,8 +17,8 @@ export interface AttachedSubagent {
 }
 
 /**
- * Subagents that run inside the attached orchestrator sessions, each with an inbox of the messages that it has not
- * received yet. A subagent attaches the first time that it waits for a command.
+ * Subagents that run inside the attached orchestrator sessions. A subagent attaches the first time that it waits for
+ * its messages.
  */
 export interface Subagents {
   /**
@@ -43,22 +34,13 @@ export interface Subagents {
   waitForAttach(sessionId: string, signal: AbortSignal): Promise<void>;
 
   /**
-   * Attaches the subagent `sessionId`, and returns the oldest message of its inbox as a command. With an empty inbox,
-   * waits for the next message, and returns an `idle` command when `signal` aborts first. A subagent that waits a
-   * second time stops the first wait with an `idle` command. A subagent that is not started, or that is stopped, gets
-   * a `stop` command.
+   * Attaches the subagent `sessionId`. A subagent that is attached already stays attached, and a session that is no
+   * started subagent is left as it is.
    */
-  awaitCommand(sessionId: string, signal: AbortSignal): Promise<SubagentCommand>;
+  attach(sessionId: string): void;
 
   /**
-   * Puts the message `content` into the inbox of the subagent `sessionId`, and returns `true`. If no such subagent is
-   * started, returns `false` instead.
-   */
-  deliver(sessionId: string, content: string): boolean;
-
-  /**
-   * Stops the subagent `sessionId`, which gets a `stop` command when it waits, and returns `true`. If no such subagent
-   * is started, returns `false` instead.
+   * Removes the subagent `sessionId`, and returns `true`. If no such subagent is started, returns `false` instead.
    */
   stop(sessionId: string): boolean;
 

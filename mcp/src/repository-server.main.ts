@@ -1,4 +1,7 @@
+import { basename, join } from 'node:path';
 import { parseArgs } from 'node:util';
+import { AwaitCommandLine } from './attachment/await-command-line.ts';
+import { CreateInboxes } from './attachment/inboxes.ts';
 import { ServeRepository } from './attachment/serve-repository.ts';
 import { CreateSessionConnections } from './attachment/session-connections.ts';
 import { CreateSubagents } from './attachment/subagents.ts';
@@ -8,6 +11,16 @@ import { OpenRpcConnection } from './rpc/rpc-connection.ts';
 import { DatabasePath } from './storage/database-path.ts';
 import { OpenStorage, type Storage } from './storage/open-storage.ts';
 import { StartWebServer } from './web/start-web-server.ts';
+
+/**
+ * Absolute path of the entry point of the command line tool that waits for the messages of a session, which sits
+ * beside this entry point and is named like it with `await-command` in place of `repository-server`:
+ * `await-command.main.ts` in the sources, and `await-command.mjs` in the bundle.
+ */
+const AWAIT_COMMAND = join(
+  import.meta.dirname,
+  basename(import.meta.filename).replace('repository-server', 'await-command'),
+);
 
 /**
  * Serves as the repository server at the address that the argument `--address <address>` names, with a web server on
@@ -36,6 +49,8 @@ const serve = async (address: string, storage: Storage): Promise<void> => {
     messageLog: storage.messageLog,
     sessionConnections: CreateSessionConnections(),
     subagents: CreateSubagents(),
+    inboxes: CreateInboxes(),
+    awaitCommandLine: (sessionId) => AwaitCommandLine(AWAIT_COMMAND, sessionId),
   };
   const webServer = await StartWebServer((message) => Dispatch(Methods, context, message));
   try {

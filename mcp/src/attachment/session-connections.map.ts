@@ -15,14 +15,21 @@ export const mapCreateSessionConnections: CreateSessionConnectionsFunction = () 
 
 /**
  * Binds the session `sessionId` to `connection` in `connections`, in place of the session that `connection` served
- * before. The binding goes away when the connection closes, unless another connection has taken the session by then.
+ * before, and returns that session. The binding goes away when the connection closes, unless another connection has
+ * taken the session by then. If `connection` served no session, returns `undefined` instead.
  */
-const bind = (connections: Map<string, RpcConnection>, sessionId: string, connection: RpcConnection): void => {
-  for (const [boundId, bound] of connections) if (bound === connection) connections.delete(boundId);
+const bind = (
+  connections: Map<string, RpcConnection>,
+  sessionId: string,
+  connection: RpcConnection,
+): string | undefined => {
+  const previous = [...connections].find(([, bound]) => bound === connection)?.[0];
+  if (previous !== undefined) connections.delete(previous);
   // A map keeps the place of a key that it sets again, so the session moves to the end only once it is deleted.
   connections.delete(sessionId);
   connections.set(sessionId, connection);
   void connection.closed.then(() => {
     if (connections.get(sessionId) === connection) connections.delete(sessionId);
   });
+  return previous;
 };

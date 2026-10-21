@@ -1,9 +1,11 @@
 import type { z } from 'zod';
+import type { Inboxes } from '../attachment/inboxes.ts';
 import type { SessionConnections } from '../attachment/session-connections.ts';
 import type { Subagents } from '../attachment/subagents.ts';
 import type { MessageLogStore } from '../storage/message-log-store.ts';
 import type { SessionStore } from '../storage/session-store.ts';
 import { awaitCommandMethod } from './method.await-command.ts';
+import { awaitInboxMethod } from './method.await-inbox.ts';
 import { deliverMessageMethod } from './method.deliver-message.ts';
 import { echoMethod } from './method.echo.ts';
 import { endSubagentMethod } from './method.end-subagent.ts';
@@ -37,6 +39,17 @@ export interface MethodContext {
    * Subagents that run inside the attached orchestrator sessions.
    */
   readonly subagents: Subagents;
+
+  /**
+   * Inboxes of the bound sessions and of the started subagents.
+   */
+  readonly inboxes: Inboxes;
+
+  /**
+   * Returns the command line that waits for the messages of the session `sessionId`, which an agent runs in the
+   * background.
+   */
+  awaitCommandLine(sessionId: string): string;
 }
 
 /**
@@ -85,4 +98,5 @@ export const Methods: readonly Method[] = [
   stopSubagentMethod,
   endSubagentMethod,
   awaitCommandMethod,
+  awaitInboxMethod,
 ];

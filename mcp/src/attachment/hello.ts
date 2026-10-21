@@ -4,7 +4,7 @@ import { z } from 'zod';
  * Version of the protocol between the repository server and its clients. A change that an older client or an older
  * repository server does not understand raises it.
  */
-export const PROTOCOL_VERSION = 4;
+export const PROTOCOL_VERSION = 7;
 
 /**
  * Name of the method that a client calls first on each connection to the repository server.

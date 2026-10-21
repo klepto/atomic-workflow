@@ -9,16 +9,16 @@ const PARAMS = z.object({
 });
 
 /**
- * `Method` named `endSubagent`, which removes a subagent that has ended from the started subagents, so it no longer
- * takes messages. A session that is no started subagent, such as one that `stopSubagent` stopped already, is left as
- * it is.
+ * `Method` named `endSubagent`, which removes a subagent that has ended from the started subagents, and closes its
+ * inbox, so it no longer takes messages. A session that is no started subagent, such as one that `stopSubagent`
+ * stopped already, is left as it is.
  */
 export const endSubagentMethod: Method<typeof PARAMS, void> = {
   name: 'endSubagent',
   description: 'Removes a subagent that has ended from the started subagents.',
   agent: false,
   params: PARAMS,
-  handle: async ({ sessionId }, { subagents }) => {
-    subagents.stop(sessionId);
+  handle: async ({ sessionId }, { subagents, inboxes }) => {
+    if (subagents.stop(sessionId)) inboxes.close(sessionId);
   },
 };

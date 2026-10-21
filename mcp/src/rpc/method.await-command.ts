@@ -1,31 +1,36 @@
 import { z } from 'zod';
-import type { SubagentCommand } from '../attachment/subagents.ts';
+import type { InboxDelivery } from '../attachment/inboxes.ts';
 import type { Method } from './method.ts';
-
-/**
- * Time in ms that `awaitCommand` waits for a message before it returns an `idle` command, 23 hours. It stays below the
- * timeout of a tool call that the plugin gives the session server, 24 hours, so the call never fails while it waits.
- */
-const WAIT_TIMEOUT = 23 * 60 * 60_000;
 
 /**
  * Schema of the parameters of `awaitCommand`.
  */
 const PARAMS = z.object({
-  sessionId: z.string().min(1).describe('Session id of the subagent, as its prompt gives it'),
+  sessionId: z.string().min(1).describe('Session id of the session or subagent that waits, or its beginning'),
+  after: z.number().int().min(0).default(0).describe('Number of the last message that the session has received'),
 });
 
 /**
- * `Method` named `awaitCommand`, which attaches a subagent and returns its next command. It waits up to
- * `WAIT_TIMEOUT` ms for a message, and returns an `idle` command when none comes.
+ * Result of `awaitCommand`: the outcome of the wait, and whether the session that waits is a started subagent.
  */
-export const awaitCommandMethod: Method<typeof PARAMS, SubagentCommand> = {
+export type AwaitCommandResult = InboxDelivery & { readonly subagent: boolean };
+
+/**
+ * `Method` named `awaitCommand`, which acknowledges the messages of a session up to the number `after`, and returns
+ * the messages that are left, or waits for the next one. The session may be named by the beginning of its id. It waits as long as it takes, and ends with `stop` once the
+ * session can take no more messages, or with `replaced` once a newer wait of the session takes over. The first call
+ * of a started subagent attaches it, and each result tells whether the session is a started subagent. Agents do not call it as a tool, but run the command line tool that calls it in
+ * the background, so the wait blocks no turn of the agent.
+ */
+export const awaitCommandMethod: Method<typeof PARAMS, AwaitCommandResult> = {
   name: 'awaitCommand',
-  description:
-    'Waits for the next command of an atomic-workflow subagent. Call it only as a subagent whose prompt tells you ' +
-    'to, with the session id from that prompt. Returns status "command" with the content to carry out, "idle" when ' +
-    'no command came in time, or "stop" when the subagent ends.',
-  agent: true,
+  description: 'Waits for the next messages of a session or a subagent, and acknowledges the ones before.',
+  agent: false,
   params: PARAMS,
-  handle: ({ sessionId }, { subagents }) => subagents.awaitCommand(sessionId, AbortSignal.timeout(WAIT_TIMEOUT)),
+  handle: async ({ sessionId: name, after }, { subagents, inboxes }) => {
+    const sessionId = inboxes.find(name) ?? name;
+    subagents.attach(sessionId);
+    const subagent = subagents.list().some((attached) => attached.sessionId === sessionId);
+    return { ...(await inboxes.take(sessionId, after)), subagent };
+  },
 };

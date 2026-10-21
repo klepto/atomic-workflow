@@ -55,7 +55,7 @@ export interface Transcript {
 
   /**
    * Resolves when the session of the transcript ends, such as when Claude Code moves on to a new session after
-   * `/clear`, or when a subagent finishes. The transcript grows no more after that. Also resolves when `signal` aborts.
+   * `/clear`, or when a subagent is stopped. The transcript grows no more after that. Also resolves when `signal` aborts.
    * If the agent cannot be asked for its session, rejects.
    */
   waitForEnd(signal: AbortSignal): Promise<void>;

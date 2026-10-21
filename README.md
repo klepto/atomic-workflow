@@ -237,6 +237,109 @@ Rejected:
 - A tool `reply` that the subagent calls with the result of each command. The transcript holds the result already, at
   no cost in tokens.
 
+## Phase 7
+
+The repository server delivers messages to the main session and to its subagents the same way: through an inbox per
+session, which the agent waits on with a command that it runs in the background. The end of the command wakes the
+agent. This replaces the channel of phase 5 and the blocking tool `awaitCommand` of phase 6, so a session needs no
+`--dangerously-load-development-channels`, and an idle subagent costs no turns.
+
+- Each bound session and each started subagent has an inbox in the memory of the repository server. `bindSession`
+  opens the inbox of a session, and `startSubagent` the inbox of a subagent. An inbox closes when the connection of its
+  session server closes, and the inbox of a subagent also when `stopSubagent` or `endSubagent` removes it.
+- When a session server binds a new session, such as after `/clear`, the inbox of its old session moves to the new
+  one, with its messages and its wait. The agent keeps receiving messages after `/clear` without a new `activate`.
+- `deliverMessage` puts the message into the inbox of the session, and logs it as a message of the user, since the
+  agent receives it as the output of a command, which is no message of its transcript. Claude Code writes the notice
+  that a background command ended as an entry of its own (`isMeta`), which the log skips.
+- `awaitCommand` takes a session id and `after`, the number of the last message that the session received. It drops
+  the messages up to `after`, and returns the messages that are left, all at once, or waits as long as it takes for the
+  next one. It returns the status `messages` with the messages and the session that the inbox belongs to now, `stop`
+  when the inbox is closed or the session has none, or `replaced` when a newer wait of the same session takes over. The
+  first call of a subagent attaches it. Agents do not see it as a tool.
+- A message ends the wait 500 ms after it comes in, with every message that came in by then, so a burst of messages
+  wakes the agent once. Each wake costs a notice, a call that reads the output, and a call that starts the next wait.
+- `awaitCommand` also takes the beginning of a session id, which it resolves to the only open inbox whose session id
+  begins with it.
+- A message counts as received only once the next wait names its number, so a message that a wait took, but that never
+  reached the agent, comes again with the next wait.
+- The command line tool `await-command.mjs <session id> [--after <number>]` in `plugin/dist/` calls `awaitCommand` and
+  prints what the agent must do: run the next wait in the background first, with the exact command line it names, then
+  handle the messages like messages of the user. The agent reads this text on each message, so it stays two short
+  lines. It names the session of the inbox, so a wait from before `/clear` continues with the new session. A wait that
+  ends with `stop`, or that fails, tells the agent not to run it again.
+  The command line is `node "<path with forward slashes>" <session id> [--after <number>]`, which runs the same in
+  Bash and in PowerShell. It names the session by the first 8 characters of its id, to save tokens on each wait.
+- `activate` returns once the session is bound, and its result names the first command line of the session. The skill
+  runs it in the background.
+- The message that asks the orchestrator to spawn a subagent gives the subagent a prompt with its session id and its
+  first command line. The agent `worker` runs the command in the background, and reports back with the single word
+  `waiting` at the end of each turn, or `stopped` once its messages are stopped.
+- Claude Code hands each report of a background agent back to the orchestrator, after each turn of the subagent, not
+  only at its end. The metadata of the subagent sets `finished` at each report, so the session server no longer reads
+  it as the end of the subagent. The end is now `stoppedByUser`, which `TaskStop` sets.
+- The session server no longer declares `claude/channel`, and offers no method `deliver`. `.mcp.json` no longer raises
+  the timeout of a tool call, since no tool waits.
+- `PROTOCOL_VERSION` is 6, since `awaitCommand` takes the beginning of a session id, which an older repository server
+  reads as a session without an inbox.
+
+```
+node plugin/dist/await-command.mjs <session id>
+node plugin/dist/await-command.mjs <session id> --after 3
+```
+
+Rejected:
+
+- A `Monitor` on a command that prints one line per message. A `Monitor` expires after 30 minutes and must be started
+  again, which costs a turn every 25 minutes of an idle session. It also cuts each line after about 500 bytes.
+- A foreground command that waits. `Bash` ends a foreground command after 10 minutes, so an idle session costs a turn
+  every 10 minutes.
+- A prompt that tells the subagent never to report back. Claude Code sends the report at the end of each turn of a
+  subagent, not the model, and only a blocking wait avoids the end of the turn.
+
+## Phase 8
+
+The agent keeps receiving the messages of the repository server after `/clear`. The session server moves the inbox to
+the new session already, but the new session starts with an empty context: it does not know that it is attached, and
+the wait from before `/clear` either ends with it or wakes an agent that does not trust its output.
+
+- The plugin has a `SessionStart` hook with the matcher `clear`, which runs `session-start.mjs` in `plugin/dist/`. The
+  hook reads the id of the new session from its input, and asks the repository server whether that session has an
+  inbox. If it does, its output adds the command line of the first wait of the new session to the context of the
+  agent, with the same instruction that the skill gives, so the agent starts the wait in the background.
+- `awaitInbox` takes a session id, and waits up to 5 seconds for the session to have an inbox, since the session server
+  may bind the new session up to a second after the hook starts. It returns the command line that waits for the
+  messages of the session, or `null` when no inbox opens. Agents do not see it as a tool.
+- The new wait acknowledges no message, so a message that the wait from before `/clear` took, but that the agent never
+  handled, comes again. A wait from before `/clear` that still runs ends with `replaced`.
+- Outside of a git repository, without a running repository server, or without an inbox for the new session, the hook
+  prints nothing. A session that was never activated costs `/clear` the 5 seconds of the wait only while a repository
+  server runs for its repository.
+- `PROTOCOL_VERSION` is 7, since the hook calls `awaitInbox`, which an older repository server lacks.
+
+Rejected:
+
+- The wait from before `/clear`, which Claude Code may keep running. Its output reaches the new session as the output
+  of a command that the agent did not start, so the agent does not handle it like messages of the user.
+
+## Phase 9
+
+The user sees in the terminal of a session what each message of the repository server says. Claude Code shows the end
+of a wait as a notice that names the command, and the output that holds the message stays folded inside a tool call.
+
+- The output of a wait that holds messages tells the agent to start its reply with one quote line per message, which it
+  lists as they are: `> ` and the first line of the message, cut to 200 characters. A quote that leaves out part of
+  the message ends with `…`. The tool cuts the quote, so the agent copies it, and the quote of a long message costs
+  few tokens.
+- A subagent quotes nothing, since its replies do not show in the terminal, and its definition asks for a report of
+  one word. `awaitCommand` returns whether the session that waits is a started subagent, as `subagent`.
+
+Rejected:
+
+- A `PostToolUse` hook that shows the message to the user with `systemMessage`, at no cost in tokens. It only sees the
+  output when the agent reads it with the tool that the hook watches, and must tell the output of a wait apart from
+  any other.
+
 ## Layout
 
 ```
@@ -244,16 +347,19 @@ plugin/                           the plugin, and the local marketplace that hol
   .claude-plugin/plugin.json      manifest of the plugin
   .claude-plugin/marketplace.json local marketplace, with the plugin at its root
   .mcp.json                       the session server
+  hooks/hooks.json                the hook that resumes the messages of a session after `/clear`
   skills/atomic-workflow/SKILL.md
-  agents/worker.md                the subagent that waits for the commands of the repository server
+  agents/worker.md                the subagent that carries out the messages of the repository server
   dist/                           bundles, built by `npm run build` and committed
 mcp/                              the MCP project: sources, configs and build
   src/                            sources of both servers and the command line tool
     session-server.main.ts        entry point of the session server
     repository-server.main.ts     entry point of the repository server
     cli.main.ts                   entry point of the command line tool, which calls one method
+    await-command.main.ts         entry point of the command line tool that waits for the messages of a session
+    session-start.main.ts         entry point of the hook that resumes the messages of a session after `/clear`
     attachment/                   the pipe between clients and the repository server: address, attach, serve,
-                                  hello, the connections of the bound sessions and the subagents
+                                  hello, the connections of the bound sessions, the subagents and the inboxes
     rpc/                          JSON-RPC 2.0: messages, connection, dispatch, and the methods
     launch/                       start of a process outside the process tree of the caller
     storage/                      persistent data: the stores, their SQLite implementations and the database file
@@ -267,6 +373,4 @@ mcp/                              the MCP project: sources, configs and build
 - Run `npm` and `npx` in `mcp/`.
 - `npm run build` bundles `plugin/dist/`. `npm run typecheck` and `npx biome ci` check the sources.
 - `claude --plugin-dir ./plugin` runs a session with the plugin loaded from the working copy.
-- `claude --dangerously-load-development-channels plugin:atomic-workflow@atomic-workflow` runs a session that receives
-  delivered messages, with the plugin installed from its local marketplace.
 - `node src/cli.main.ts echo '{"message":"Hi"}'` calls a method on the running repository server of the repository.
