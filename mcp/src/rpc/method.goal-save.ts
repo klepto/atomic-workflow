@@ -53,6 +53,6 @@ export const goalSaveMethod: Method<typeof PARAMS, Task> = {
       await context.tasks.addGoal(taskId, { summary, details, source });
     } else if (!(await context.tasks.editGoal(taskId, goalId, { summary, details })))
       throw new RpcError(RpcErrorCode.INVALID_PARAMS, `Task ${taskId} has no goal ${goalId}`);
-    return taskGetMethod.handle({ taskId }, context);
+    return taskGetMethod.handle({ task: taskId }, context);
   },
 };

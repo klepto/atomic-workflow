@@ -96,7 +96,10 @@ const serve = (repository: Repository, socket: Socket): void => {
     bindSessionMethod(() => (session ? connection : undefined)),
     ...repository.methods,
   ];
-  const connection = openConnection(socket, (message) => dispatch(methods, repository.context, message));
+  // Each request names this connection as its caller. The handler only runs once `connection` is set.
+  const connection: RpcConnection = openConnection(socket, (message) =>
+    dispatch(methods, { ...repository.context, caller: connection }, message),
+  );
 };
 
 /**

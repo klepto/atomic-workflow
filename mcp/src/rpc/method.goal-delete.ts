@@ -31,6 +31,6 @@ export const goalDeleteMethod: Method<typeof PARAMS, Task> = {
     await openTask(taskId, context);
     if (!(await context.tasks.deleteGoal(taskId, goalId)))
       throw new RpcError(RpcErrorCode.INVALID_PARAMS, `Task ${taskId} has no goal ${goalId}`);
-    return taskGetMethod.handle({ taskId }, context);
+    return taskGetMethod.handle({ task: taskId }, context);
   },
 };

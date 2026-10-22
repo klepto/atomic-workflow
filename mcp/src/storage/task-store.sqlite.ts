@@ -2,6 +2,11 @@ import type { DatabaseSync } from 'node:sqlite';
 import type { Goal, NewTicket, Task, TaskStore, TaskSummary, Ticket } from './task-store.ts';
 
 /**
+ * SQL list of the statuses of a completed ticket, whose work landed on the task branch.
+ */
+const COMPLETED = `('needs-review', 'done')`;
+
+/**
  * Returns the `TaskStore` that keeps the tasks in the table `task` of `database`, their goals in the table `goal`, and
  * their tickets in the table `ticket`, with the dependencies between tickets in the table `ticket_dependency`. The
  * tables are strict and check the status, the source, the mode and the complexity, so each row that it selects has
@@ -12,12 +17,12 @@ export const sqliteTaskStore = (database: DatabaseSync): TaskStore => {
     `INSERT INTO task (slug, status, created_at) VALUES (:slug, 'plan-goals', :createdAt) RETURNING id`,
   );
   const selectTask = database.prepare(
-    `SELECT id, slug, status, created_at AS createdAt, design FROM task WHERE id = :id`,
+    `SELECT id, slug, status, created_at AS createdAt, design, base_branch AS baseBranch FROM task WHERE id = :id`,
   );
-  // Tickets have no completion yet, so each ticket counts as not completed.
   const selectTasks = database.prepare(
-    `SELECT id, slug, status, created_at AS createdAt, 0 AS completedTickets,
-      (SELECT COUNT(*) FROM ticket WHERE task_id = task.id) AS uncompletedTickets
+    `SELECT id, slug, status, created_at AS createdAt,
+      (SELECT COUNT(*) FROM ticket WHERE task_id = task.id AND status IN ${COMPLETED}) AS completedTickets,
+      (SELECT COUNT(*) FROM ticket WHERE task_id = task.id) AS totalTickets
     FROM task ORDER BY id`,
   );
   const removeTaskGoals = database.prepare(`DELETE FROM goal WHERE task_id = :taskId`);
@@ -38,16 +43,21 @@ export const sqliteTaskStore = (database: DatabaseSync): TaskStore => {
   const negateLaterGoals = database.prepare(`UPDATE goal SET id = -id WHERE task_id = :taskId AND id > :goalId`);
   const lowerNegatedGoals = database.prepare(`UPDATE goal SET id = -id - 1 WHERE task_id = :taskId AND id < 0`);
   const updateDesign = database.prepare(`UPDATE task SET design = :design WHERE id = :taskId`);
-  const insertTicket = database.prepare(
-    `INSERT INTO ticket (task_id, id, mode, complexity, slug, summary, description)
-    VALUES (:taskId, :id, :mode, :complexity, :slug, :summary, :description)`,
+  // A ticket that replaces a stored one with its identifier keeps the progress of the stored one.
+  const upsertTicket = database.prepare(
+    `INSERT INTO ticket (task_id, id, mode, type, complexity, slug, summary, description, fixes)
+    VALUES (:taskId, :id, :mode, :type, :complexity, :slug, :summary, :description, :fixes)
+    ON CONFLICT (task_id, id) DO UPDATE SET mode = excluded.mode, type = excluded.type,
+      complexity = excluded.complexity, slug = excluded.slug, summary = excluded.summary,
+      description = excluded.description, fixes = excluded.fixes`,
   );
   const insertDependency = database.prepare(
     `INSERT INTO ticket_dependency (task_id, ticket_id, depends_on_id) VALUES (:taskId, :ticketId, :dependsOnId)`,
   );
   // The dependencies of each ticket come back as a JSON array, so one query selects the tickets with them.
   const selectTickets = database.prepare(
-    `SELECT id, mode, complexity, slug, summary, description,
+    `SELECT id, mode, type, complexity, slug, summary, description, fixes, status, stage,
+      blocked_reason AS blockedReason,
       (SELECT json_group_array(depends_on_id) FROM (
         SELECT depends_on_id FROM ticket_dependency
         WHERE task_id = ticket.task_id AND ticket_id = ticket.id ORDER BY depends_on_id
@@ -56,7 +66,13 @@ export const sqliteTaskStore = (database: DatabaseSync): TaskStore => {
   );
   const removeDependencies = database.prepare(`DELETE FROM ticket_dependency WHERE task_id = :taskId`);
   const removeTickets = database.prepare(`DELETE FROM ticket WHERE task_id = :taskId`);
+  const removeLaterTickets = database.prepare(`DELETE FROM ticket WHERE task_id = :taskId AND id > :count`);
   const updateStatus = database.prepare(`UPDATE task SET status = :status WHERE id = :taskId`);
+  const updateBaseBranch = database.prepare(`UPDATE task SET base_branch = :branch WHERE id = :taskId`);
+  const updateTicketProgress = database.prepare(
+    `UPDATE ticket SET status = :status, stage = :stage, blocked_reason = :blockedReason
+    WHERE task_id = :taskId AND id = :ticketId`,
+  );
   const get = (id: number): Task | undefined => {
     const row = selectTask.get({ id }) as Omit<Task, 'goals' | 'tickets'> | undefined;
     if (row === undefined) return undefined;
@@ -65,9 +81,10 @@ export const sqliteTaskStore = (database: DatabaseSync): TaskStore => {
   };
   const getTickets = (taskId: number): Ticket[] =>
     selectTickets.all({ taskId }).map((row) => ({ ...row, dependsOn: JSON.parse(row.dependsOn as string) }) as Ticket);
-  const insertTickets = (taskId: number, tickets: readonly NewTicket[]): void => {
-    tickets.forEach(({ mode, complexity, slug, summary, description }, index) => {
-      insertTicket.run({ taskId, id: index + 1, mode, complexity, slug, summary, description });
+  const storeTickets = (taskId: number, tickets: readonly NewTicket[]): void => {
+    removeLaterTickets.run({ taskId, count: tickets.length });
+    tickets.forEach(({ mode, type, complexity, slug, summary, description, fixes }, index) => {
+      upsertTicket.run({ taskId, id: index + 1, mode, type, complexity, slug, summary, description, fixes });
     });
     tickets.forEach(({ dependsOn }, index) => {
       for (const dependsOnId of dependsOn) insertDependency.run({ taskId, ticketId: index + 1, dependsOnId });
@@ -129,8 +146,7 @@ export const sqliteTaskStore = (database: DatabaseSync): TaskStore => {
       database.exec('BEGIN IMMEDIATE');
       try {
         removeDependencies.run({ taskId });
-        removeTickets.run({ taskId });
-        insertTickets(taskId, tickets);
+        storeTickets(taskId, tickets);
         database.exec('COMMIT');
       } catch (error) {
         database.exec('ROLLBACK');
@@ -140,5 +156,10 @@ export const sqliteTaskStore = (database: DatabaseSync): TaskStore => {
     setStatus: async (taskId, status) => {
       updateStatus.run({ taskId, status });
     },
+    setBaseBranch: async (taskId, branch) => {
+      updateBaseBranch.run({ taskId, branch });
+    },
+    setTicketProgress: async (taskId, ticketId, { status, stage, blockedReason }) =>
+      updateTicketProgress.run({ taskId, ticketId, status, stage, blockedReason }).changes > 0,
   };
 };

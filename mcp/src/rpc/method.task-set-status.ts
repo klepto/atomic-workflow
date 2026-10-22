@@ -10,14 +10,17 @@ import { RpcError, RpcErrorCode } from './rpc-error.ts';
  */
 const PARAMS = z.object({
   taskId: z.number().int().positive().describe('Identifier of the task'),
-  status: z.enum(TASK_STATUSES).describe('Status to set: the stage of planning the user works on, or complete'),
+  status: z
+    .enum(TASK_STATUSES)
+    .exclude(['done'])
+    .describe('Status to set: the stage of planning the user works on, or complete'),
 });
 
 /**
  * `Method` named `taskSetStatus`, which sets the status of a task, and returns the task. A status needs every part of the
  * plan before it: `plan-design` needs goals, `plan-tickets` a design too, and `complete` tickets too. A task that does
- * not exist fails with invalid parameters. A complete task, and a task that lacks a part of the plan, fail with an
- * invalid request.
+ * not exist fails with invalid parameters. A complete or done task, and a task that lacks a part of the plan, fail
+ * with an invalid request. Only `worktreeMerge` sets a task `done`.
  */
 export const taskSetStatusMethod: Method<typeof PARAMS, Task> = {
   name: 'taskSetStatus',
@@ -31,7 +34,7 @@ export const taskSetStatusMethod: Method<typeof PARAMS, Task> = {
     if (missing !== undefined)
       throw new RpcError(RpcErrorCode.INVALID_REQUEST, `Task ${taskId} needs ${missing} for the status ${status}`);
     await context.tasks.setStatus(taskId, status);
-    return taskGetMethod.handle({ taskId }, context);
+    return taskGetMethod.handle({ task: taskId }, context);
   },
 };
 

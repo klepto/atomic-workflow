@@ -1,3 +1,4 @@
+import { homedir } from 'node:os';
 import { basename, join } from 'node:path';
 import { parseArgs } from 'node:util';
 import { AwaitCommandLine } from './attachment/await-command-line.ts';
@@ -5,12 +6,15 @@ import { CreateInboxes } from './attachment/inboxes.ts';
 import { ServeRepository } from './attachment/serve-repository.ts';
 import { CreateSessionConnections } from './attachment/session-connections.ts';
 import { CreateSubagents } from './attachment/subagents.ts';
+import { CreateTicketClaims } from './attachment/ticket-claims.ts';
 import { Dispatch } from './rpc/dispatch.ts';
 import { type MethodContext, Methods } from './rpc/method.ts';
 import { OpenRpcConnection } from './rpc/rpc-connection.ts';
 import { DatabasePath } from './storage/database-path.ts';
 import { OpenStorage, type Storage } from './storage/open-storage.ts';
 import { StartWebServer } from './web/start-web-server.ts';
+import { CopyIgnored } from './worktree/copy-ignored.ts';
+import { CreateWorktrees } from './worktree/worktrees.ts';
 
 /**
  * Absolute path of the entry point of the command line tool that waits for the messages of a session, which sits
@@ -26,7 +30,7 @@ const AWAIT_COMMAND = join(
  * Serves as the repository server at the address that the argument `--address <address>` names, with a web server on
  * a free port of the local host. Clients call the methods of `Methods` at the address and on the web server alike.
  * The methods keep their data in the storage of the repository that holds the directory that the argument
- * `--directory <directory>` names. The process ends when the last session server leaves.
+ * `--directory <directory>` names, and its worktrees below the home of the user. The process ends when the last session server leaves.
  */
 const main = async (): Promise<void> => {
   const { values } = parseArgs({ options: { address: { type: 'string' }, directory: { type: 'string' } } });
@@ -34,16 +38,17 @@ const main = async (): Promise<void> => {
   if (values.directory === undefined) throw new Error('The argument --directory <directory> is missing');
   const storage = await OpenStorage(await DatabasePath(values.directory));
   try {
-    await serve(values.address, storage);
+    await serve(values.address, values.directory, storage);
   } finally {
     storage.close();
   }
 };
 
 /**
- * Serves as the repository server at `address`, with the stores of `storage`, until the last session server leaves.
+ * Serves as the repository server at `address`, for the repository that holds `directory`, with the stores of
+ * `storage`, until the last session server leaves.
  */
-const serve = async (address: string, storage: Storage): Promise<void> => {
+const serve = async (address: string, directory: string, storage: Storage): Promise<void> => {
   const context: MethodContext = {
     sessions: storage.sessions,
     messageLog: storage.messageLog,
@@ -51,6 +56,9 @@ const serve = async (address: string, storage: Storage): Promise<void> => {
     sessionConnections: CreateSessionConnections(),
     subagents: CreateSubagents(),
     inboxes: CreateInboxes(),
+    worktrees: CreateWorktrees({ directory, home: homedir(), copyIgnored: CopyIgnored }),
+    ticketClaims: CreateTicketClaims(),
+    caller: undefined,
     awaitCommandLine: (sessionId) => AwaitCommandLine(AWAIT_COMMAND, sessionId),
   };
   const webServer = await StartWebServer((message) => Dispatch(Methods, context, message));

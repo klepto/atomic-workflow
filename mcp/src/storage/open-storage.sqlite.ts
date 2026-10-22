@@ -122,6 +122,58 @@ const MIGRATIONS: readonly string[] = [
     SELECT task_id, id, 'unattended', complexity, slug, summary, description FROM ticket;
   DROP TABLE ticket;
   ALTER TABLE ticket_new RENAME TO ticket;`,
+  `ALTER TABLE task ADD COLUMN base_branch TEXT;
+  ALTER TABLE ticket ADD COLUMN type TEXT NOT NULL DEFAULT 'code' CHECK (type IN ('code', 'other'));
+  ALTER TABLE ticket ADD COLUMN status TEXT NOT NULL DEFAULT 'not-started'
+    CHECK (status IN ('not-started', 'in-progress', 'needs-review', 'blocked', 'done'));
+  ALTER TABLE ticket ADD COLUMN stage TEXT CHECK (stage IN ('prototype', 'refactor', 'tests'));
+  ALTER TABLE ticket ADD COLUMN blocked_reason TEXT;`,
+  `CREATE TABLE task_new (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    slug TEXT NOT NULL,
+    status TEXT NOT NULL CHECK (status IN ('plan-goals', 'plan-design', 'plan-tickets', 'complete', 'done')),
+    created_at INTEGER NOT NULL,
+    design TEXT,
+    base_branch TEXT
+  ) STRICT;
+  INSERT INTO task_new (id, slug, status, created_at, design, base_branch)
+    SELECT id, slug, status, created_at, design, base_branch FROM task;
+  DELETE FROM sqlite_sequence WHERE name = 'task_new';
+  INSERT INTO sqlite_sequence (name, seq) SELECT 'task_new', seq FROM sqlite_sequence WHERE name = 'task';
+  DROP TABLE task;
+  ALTER TABLE task_new RENAME TO task;`,
+  // Step 9 rebuilds the table `ticket`, since SQLite cannot change the check of a column. It turns each `moderate`
+  // ticket into a `simple` one. The stage `refactor` now comes last, and only a `complex` ticket runs it, so a ticket
+  // in it moves to the stage that now does its work: `tests` for a `complex` ticket, `prototype` for a `simple` one.
+  `CREATE TABLE ticket_new (
+    task_id INTEGER NOT NULL REFERENCES task (id),
+    id INTEGER NOT NULL,
+    mode TEXT NOT NULL CHECK (mode IN ('unattended', 'attended', 'manual')),
+    complexity TEXT CHECK (complexity IN ('simple', 'complex')),
+    slug TEXT NOT NULL,
+    summary TEXT NOT NULL,
+    description TEXT NOT NULL,
+    type TEXT NOT NULL DEFAULT 'code' CHECK (type IN ('code', 'other')),
+    status TEXT NOT NULL DEFAULT 'not-started'
+      CHECK (status IN ('not-started', 'in-progress', 'needs-review', 'blocked', 'done')),
+    stage TEXT CHECK (stage IN ('prototype', 'tests', 'refactor')),
+    blocked_reason TEXT,
+    PRIMARY KEY (task_id, id),
+    CHECK ((mode = 'manual') = (complexity IS NULL))
+  ) STRICT;
+  INSERT INTO ticket_new
+    (task_id, id, mode, complexity, slug, summary, description, type, status, stage, blocked_reason)
+    SELECT task_id, id, mode, CASE complexity WHEN 'moderate' THEN 'simple' ELSE complexity END, slug, summary,
+      description, type, status,
+      CASE WHEN stage = 'refactor' AND complexity = 'complex' THEN 'tests'
+        WHEN stage = 'refactor' THEN 'prototype' ELSE stage END,
+      blocked_reason
+    FROM ticket;
+  DROP TABLE ticket;
+  ALTER TABLE ticket_new RENAME TO ticket;`,
+  // Step 10 adds the ticket that a ticket fixes. The ticket depends on it too, so the foreign key of its row in
+  // `ticket_dependency` checks that it exists.
+  `ALTER TABLE ticket ADD COLUMN fixes INTEGER CHECK (fixes < id);`,
 ];
 
 /**

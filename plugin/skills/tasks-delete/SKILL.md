@@ -1,9 +1,8 @@
 ---
 name: tasks-delete
-description: Deletes a task of the atomic workflow with its goals, its design and its tickets.
+description: Deletes a task of the atomic workflow with its goals, its design, its tickets, and its worktrees and branches.
 argument-hint: "<task id | task slug>"
-disable-model-invocation: true
-allowed-tools: mcp__plugin_atomic-workflow_atomic-workflow__activate, mcp__plugin_atomic-workflow_atomic-workflow__taskList, mcp__plugin_atomic-workflow_atomic-workflow__taskDelete, Bash(node:*)
+allowed-tools: mcp__plugin_atomic-workflow_atomic-workflow__activate, mcp__plugin_atomic-workflow_atomic-workflow__taskDelete, Bash(node:*)
 ---
 
 # Delete a task
@@ -11,11 +10,12 @@ allowed-tools: mcp__plugin_atomic-workflow_atomic-workflow__activate, mcp__plugi
 Arguments: `$ARGUMENTS`. The first word names the task: its id, its slug, or both as `/tasks` prints them, such as
 `3-cache-layer-redis`. Without one, ask for it.
 
-1. Call the tool `activate` of the MCP server `atomic-workflow`. If its result does not start with
-   `Atomic-workflow already attached.`, run the command it names with the Bash tool, with `run_in_background` set to
-   true.
-2. Find the id of the task. A word that starts with a number names the task with that id. A slug alone names the tasks
-   that `taskList` returns with that slug:
-   - With none, tell the user that no task has that slug, and stop.
-   - With several, print them as `/tasks` does, ask which id to delete, and stop.
-3. Call `taskDelete` with the id. Then print `Deleted **<id>-<slug>**.` with the id and slug of its result.
+1. Activate as `../../references/activate.md` says, relative to the base directory of this skill.
+2. Call `taskDelete` with the first word, without `force`.
+   - If it fails because no task has that id or slug, or because several tasks have that slug, print its message,
+     and stop.
+   - If it fails because work has not landed, print its message, and ask the user whether to delete the task anyway
+     and lose that work. Stop. Only when the user confirms in their next message, call `taskDelete` again with
+     the same word and `force` set to true.
+3. Print `Deleted **<id>-<slug>**.` with the id and slug of its result. Then print the number of worktrees and branches
+   that it removed, and each of its warnings.

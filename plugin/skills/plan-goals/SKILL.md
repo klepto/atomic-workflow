@@ -17,12 +17,16 @@ Arguments: `$ARGUMENTS`. A first word that is a number is the id of a task to re
 
 ## Start
 
-With a task id, follow the start of planning with the stage `plan-goals`. Then show the goal list, and ask what to
-change.
+With a task id, follow the start of planning with the stage `plan-goals`. Then, for a task that is not `complete`,
+show the goal list, and ask what to change.
 
-Without a task id, only call `activate` and run its command. Then ask: "Let's begin planning, what are your goals?"
-With a prompt, put below the question a goal list of the goals that you suggest from it. The slug of the new task is
-three words from the prompt, or from the first goal without a prompt.
+A task that is `complete` has its goals frozen, and this stage has no amend mode. Show the goal list, then say: "The
+plan of this task is complete, so its goals are frozen. To change its design, run `/atomic-workflow:plan-design <task
+id>`. To change its tickets, run `/atomic-workflow:plan-tickets <task id>`." Then stop, and ask nothing.
+
+Without a task id, only activate, as the first step of the start of planning says. Then ask: "Let's begin planning,
+what are your goals?" With a prompt, put below the question a goal list of the goals that you suggest from it. The
+slug of the new task is three words from the prompt, or from the first goal without a prompt.
 
 ## Finish
 

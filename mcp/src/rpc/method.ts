@@ -2,9 +2,12 @@ import type { z } from 'zod';
 import type { Inboxes } from '../attachment/inboxes.ts';
 import type { SessionConnections } from '../attachment/session-connections.ts';
 import type { Subagents } from '../attachment/subagents.ts';
+import type { TicketClaims } from '../attachment/ticket-claims.ts';
 import type { MessageLogStore } from '../storage/message-log-store.ts';
 import type { SessionStore } from '../storage/session-store.ts';
 import type { TaskStore } from '../storage/task-store.ts';
+import type { Worktrees } from '../worktree/worktrees.ts';
+import type { RpcConnection } from './rpc-connection.ts';
 import { inboxAwaitCommandMethod } from './method.inbox-await-command.ts';
 import { inboxAwaitMethod } from './method.inbox-await.ts';
 import { taskCreateMethod } from './method.task-create.ts';
@@ -23,6 +26,11 @@ import { designSaveMethod } from './method.design-save.ts';
 import { goalSaveMethod } from './method.goal-save.ts';
 import { ticketsSaveMethod } from './method.tickets-save.ts';
 import { taskSetStatusMethod } from './method.task-set-status.ts';
+import { ticketNextMethod } from './method.ticket-next.ts';
+import { ticketSetStatusMethod } from './method.ticket-set-status.ts';
+import { worktreeCreateMethod } from './method.worktree-create.ts';
+import { worktreeDeleteMethod } from './method.worktree-delete.ts';
+import { worktreeMergeMethod } from './method.worktree-merge.ts';
 import { subagentStartMethod } from './method.subagent-start.ts';
 import { subagentStopMethod } from './method.subagent-stop.ts';
 
@@ -59,6 +67,22 @@ export interface MethodContext {
    * Inboxes of the bound sessions and of the started subagents.
    */
   readonly inboxes: Inboxes;
+
+  /**
+   * Branches and worktrees of the tasks of the repository.
+   */
+  readonly worktrees: Worktrees;
+
+  /**
+   * Claims of the tickets in progress, each held by the connection of the client that works on it.
+   */
+  readonly ticketClaims: TicketClaims;
+
+  /**
+   * Connection that the request came over, or `undefined` for a request without one, such as a request to the web
+   * server.
+   */
+  readonly caller: RpcConnection | undefined;
 
   /**
    * Returns the command line that waits for the messages of the session `sessionId`, which an agent runs in the
@@ -123,4 +147,9 @@ export const Methods: readonly Method[] = [
   designSaveMethod,
   ticketsSaveMethod,
   taskSetStatusMethod,
+  ticketNextMethod,
+  ticketSetStatusMethod,
+  worktreeCreateMethod,
+  worktreeMergeMethod,
+  worktreeDeleteMethod,
 ];

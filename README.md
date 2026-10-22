@@ -407,7 +407,7 @@ Rejected:
 The last stage of planning: `/atomic-workflow:plan-tickets <task id>` splits the design of a task into tickets, and
 revises the split with the user until they accept it. Every part of the plan stays open until the plan is complete.
 
-- A ticket has an id from 1 within its task, a complexity, `simple`, `moderate` or `complex`, a slug, a summary of
+- A ticket has an id from 1 within its task, a complexity, `simple` or `complex`, a slug, a summary of
   one sentence, a description in Markdown, and the ids of the earlier tickets of the task that it depends on. The
   complexity will select the model that does the ticket.
 - A ticket is the work of one agent in one session, which ends in one commit that passes the checks. Its description
@@ -531,6 +531,349 @@ Rejected:
 - The mapping from goals to decisions in the design. The agent checks that every goal has a section that meets it, and
   the reader sees the goals and the sections side by side.
 
+## Phase 18
+
+`/atomic-workflow:implement <task> <ticket>` implements one ticket of a task whose plan is complete, in a worktree of
+its own, and lands it on the task branch as one commit. Each ticket of the type `code` runs in stages:
+`/atomic-workflow:implement-prototype`, `/atomic-workflow:implement-refactor` and `/atomic-workflow:implement-tests`.
+
+- A task has a task branch, `atomic-workflow/<task id>-<task slug>/main`, made on the first start of one of its
+  tickets from the branch that the main checkout has checked out. The task records that branch as its base branch.
+  The task branch holds only the work of the tickets that landed.
+- Each ticket works on a branch of its own, `atomic-workflow/<task id>-<task slug>/<ticket id>-<ticket slug>`, made
+  from the tip of the task branch. The task branch ends in `/main` because git cannot hold a branch
+  `atomic-workflow/1-cache-layer-redis` beside a branch `atomic-workflow/1-cache-layer-redis/2-read-through-cache`.
+- Each branch has a worktree in `~/.atomic-workflow/worktrees/<name of the main checkout>-<hash of its path>/`:
+  `<task id>-<task slug>/main` for the task, and `<task id>-<task slug>/<ticket id>-<ticket slug>` for a ticket. They
+  sit outside the main checkout, so no IDE indexes them, and the hash keeps two repositories with the same name apart.
+- A new worktree gets a copy of each file and directory that the main checkout ignores, such as `node_modules` and
+  `.env`, but never the storage in `.agents/atomic-workflow/`. A file is cloned where the file system supports it. A
+  link is recreated, with a target inside the checkout moved into the worktree.
+- A ticket has a type, `code` or `other`, which `plan-tickets` sets. `code` runs in stages. `other`, such as research,
+  moving files or a `manual` ticket, runs in one pass.
+- A ticket has a status: `not-started`, `in-progress`, `needs-review` once its work landed on the task branch,
+  `blocked` with a reason, and `done` once the review of its work passed. A ticket in progress or blocked has the
+  stage that its work is in, `prototype`, `refactor` or `tests`, so a new `/atomic-workflow:implement` resumes there.
+  Whether a ticket waits for its dependencies follows from them, and is no status.
+- The stages run by complexity. A `simple` ticket runs `refactor` then `tests`, since its design names
+  its API already, and `refactor` then writes the code in its final shape from scratch. A `complex` ticket runs all
+  three. Each stage ends in a commit of the form `wip(<stage>): ...` in the worktree of the ticket, after the commands
+  of `## Verify` that apply to it pass. `tests` writes no tests when the instructions of the repository say so.
+- All stages run in the session that calls `/atomic-workflow:implement`, chained with the Skill tool, so they share
+  one context and its cache, and a later stage reads the work of an earlier one from the diff. Every skill can be
+  invoked by the model, so an orchestrator can later hand a ticket to a subagent.
+- Before the ticket lands, the skill runs `## Verify` once more and checks each acceptance criterion against the diff
+  of the ticket.
+- `worktreeCreate` starts a ticket whose dependencies all landed: it makes the branches and worktrees that do not
+  exist, records the base branch of the task, and sets the ticket `in-progress`. A branch that exists keeps its
+  commits, so the call is safe to repeat.
+- `worktreeMerge` takes a commit message whose summary line follows the conventional commits, such as `feat: ...`.
+  It squashes the commits of the ticket since it left the task branch into one commit with the message, rebases it
+  onto the task branch in the worktree of the ticket, and moves the task branch forward to it in the worktree of the
+  task, so its files follow. It then sets the ticket `needs-review`. No hook of the repository runs for the squash and
+  the rebase. A worktree with changes that no commit holds refuses to merge.
+- A rebase that stops on a conflict stays stopped in the worktree of the ticket, and `worktreeMerge` fails with the
+  conflicting files in its data. Once they are resolved and added, the next `worktreeMerge` continues the rebase.
+- `worktreeDelete` removes the worktree and the branch of a ticket, or every worktree and branch of a task. Without
+  `force`, it refuses to remove a branch whose commits have not landed, on the task branch for a ticket branch and on
+  the base branch for the task branch, or a worktree with uncommitted changes. A ticket in progress or blocked whose
+  branch it removes is `not-started` again. The skill removes the worktree of each ticket that landed.
+- `taskDelete` removes every worktree and branch of the task first, with the same refusal unless `force`, and deletes
+  nothing when it refuses. A worktree or branch that cannot be removed, such as a directory that another program
+  holds, stays with a warning, and the task is deleted anyway. `/atomic-workflow:tasks-delete` asks the user before it
+  forces a deletion that loses work.
+- A ticket in progress is claimed by the connection of the session server that started it. The repository server keeps
+  the claims in memory. `worktreeCreate` and `ticketSetStatus` with `in-progress` claim the ticket, and refuse a
+  ticket that another connection holds, so two sessions never work on one ticket. The same connection may claim again,
+  so a session resumes after `/clear`. `worktreeMerge`, `worktreeDelete`, `taskDelete` and every other status end the
+  work, and release the claim. A connection that closes, such as that of a session that ended or crashed, releases
+  each ticket that it holds, so its tickets can be taken over. A caller without a connection, such as the web UI,
+  cannot start a ticket. The check and the claim run with no await between them, so two requests at the same moment
+  cannot both claim.
+- A conflict of `worktreeMerge` leaves the claim with the session that resolves it.
+- The calls of the repository server on the branches and worktrees run one at a time, in the order they came, so two
+  sessions that merge tickets of one task never move the task branch at once.
+- Subagents share the session server, and so the connection, of their orchestrator, so the claims do not keep two
+  subagents of one orchestrator apart. The orchestrator that hands out the tickets must do that.
+- `ticketSetStatus` sets the status, the stage and the reason of a ticket. `done` needs a ticket that `needs-review`,
+  and only `worktreeMerge` sets `needs-review`, so `needs-review` always means that the work landed.
+- `taskList` counts a ticket as completed once its work landed, as `needs-review` or `done`.
+- Step 7 of the schema adds the base branch to the table `task`, and the type, status, stage and reason to the table
+  `ticket`. Each existing ticket gets the type `code` and the status `not-started`.
+- `/atomic-workflow`, `/atomic-workflow:plan`, `/atomic-workflow:tasks` and `/atomic-workflow:tasks-delete` drop
+  `disable-model-invocation` too.
+- The rules that every stage of the implementation shares sit in `plugin/references/implementation.md`.
+- `PROTOCOL_VERSION` is 14, since `ticketsSave` takes the type, and the session server offers tools that an older
+  repository server lacks.
+
+```
+node src/cli.main.ts worktreeCreate '{"taskId":1,"ticketId":2}'
+node src/cli.main.ts worktreeMerge '{"taskId":1,"ticketId":2,"message":"feat: read through the cache"}'
+node src/cli.main.ts worktreeDelete '{"taskId":1,"ticketId":2}'
+```
+
+Rejected:
+
+- Review before the merge into the task branch. Review happens on the pull request of the task, and a ticket that
+  waited for its review would hold up each ticket that depends on it.
+- A fresh subagent per stage. Each one would read the ticket and the code again, without the cache of the one before.
+- Tests before the refactor. The refactor shapes the API that the tests use, so they would be written twice.
+- A setup command per repository, such as `npm ci`, in place of the copy of the ignored files. It may come later.
+- The worktrees inside the main checkout. IDEs such as IntelliJ IDEA index them as part of the project.
+- Claims in the database. They would outlive a session that crashed, and need a timeout to free its tickets.
+
+## Phase 19
+
+`/atomic-workflow:approve <task> [ticket]` approves one ticket whose work landed on the task branch and passed its
+review, and sets it `done`. Without a ticket, it approves every ticket of the task that `needs-review` at once, and
+leaves the others as they are. Once every ticket of the task is `done`, it lands the task branch on the base branch of
+the task, and sets the task `done`.
+
+- A task has a fifth status, `done`, after `complete`, once its task branch landed on its base branch. A task that is
+  `done` refuses every change of its plan and of its tickets, and `/atomic-workflow:implement` refuses it.
+- `worktreeMerge` without a ticket lands the task branch. It needs a complete task whose tickets are all `done`, and
+  refuses a message. It rebases the task branch onto the tip of the base branch in the worktree of the task, made
+  without a copy of the ignored files where it does not exist, and moves the base branch forward to it, in the
+  worktree that has it checked out, so its files follow, or as a plain reference. So the base branch gets the one
+  commit of each ticket, in a straight line, as the task branch got them. A task branch that holds the tip of the base
+  branch already lands without a rebase.
+- A rebase that stops on a conflict stays stopped in the worktree of the task, and `worktreeMerge` fails with the
+  conflicting files in its data. Once they are resolved and added, the next `worktreeMerge` without a ticket continues
+  the rebase.
+- Before it changes anything, the merge refuses a ticket branch whose commits the task branch lacks, and a worktree of
+  the task with changes that no commit holds. Once the base branch moved, it removes every worktree and branch of the
+  task. The rebase rewrote the commits of the task branch, so a ticket branch left over no longer compares with it, but
+  the check before the rebase showed that it holds no work of its own.
+- The merge holds every ticket of the task while it runs, as `taskDelete` does, and reads the task again under the
+  claims, so two sessions that approve the last two tickets at once land the task branch only once.
+- A refusal of the move of the base branch, such as changes of the main checkout that it would overwrite, leaves the
+  rebased task branch. A new `/atomic-workflow:approve` of the task, with or without a ticket that is `done` already,
+  lands the task once the cause is gone.
+- Step 8 of the schema rebuilds the table `task`, since SQLite cannot change the check of a column, and keeps its
+  sequence of identifiers, so a new task never gets the identifier of a deleted one.
+- `PROTOCOL_VERSION` is 15, since `worktreeMerge` takes no ticket.
+
+```
+node src/cli.main.ts ticketSetStatus '{"taskId":1,"ticketId":2,"status":"done"}'
+node src/cli.main.ts worktreeMerge '{"taskId":1}'
+```
+
+Rejected:
+
+- A merge commit on the base branch. The base branch would lose the straight line of one commit per ticket, which the
+  task branch keeps.
+- A merge of the task branch in the main checkout. A conflict there would stop the work of the user, while the worktree
+  of the task stays out of their way.
+- The merge as part of `ticketSetStatus`. A conflict needs an agent to resolve it, so the merge is a call of its own.
+
+## Phase 20
+
+A ticket has two complexities, and the tests of a ticket come before its refactor, so they lock the behavior that the
+refactor keeps.
+
+- A ticket has the complexity `simple` or `complex`. `simple` is for work that follows an existing pattern or makes
+  small decisions inside the design, across one or several files. `complex` is for cross-cutting work, tricky logic or
+  real judgement. The two lower complexities of phase 12 ran the same stages since phase 18, so they become one.
+- A `simple` ticket runs `prototype`, then `tests`. No refactor follows, so its prototype has the final shape at once:
+  the public API of `## Design`, the conventions of the repository, documentation on each public declaration, and no
+  dead code. These rules of the final shape sit in `plugin/references/implementation.md`, for both stages that write
+  it.
+- A `complex` ticket runs `prototype`, then `tests`, then `refactor`. The tests derive from the acceptance criteria
+  and the design, through its public API, and run against the prototype. The refactor reshapes the code while every
+  test keeps passing, and changes a test only when the public API of the design requires it.
+- The last stage, `tests` for `simple` and `refactor` for `complex`, hands the ticket on to landing.
+- Each stage skill activates the atomic workflow when its conversation has not yet, so it runs alone too.
+- Step 9 of the schema rebuilds the table `ticket`, since SQLite cannot change the check of a column. Each ticket of
+  the dropped complexity becomes `simple`. A ticket in the stage `refactor` moves to the stage that now does its work:
+  `tests` for a `complex` ticket, and `prototype` for a `simple` one.
+
+Rejected:
+
+- The refactor before the tests, as in phase 18. Tests written after the refactor do not guard it, so a refactor that
+  breaks a behavior goes unseen. The design names the API that the tests use, so they are not written twice.
+
+## Phase 21
+
+A complete plan can still change while its tickets are worked on, and a ticket whose landed work fails its review gets
+a follow-up ticket that fixes it.
+
+- While a task is `complete`, `designSave` and `ticketsSave` still work, and only a `done` task refuses them. The
+  goals stay frozen, and so does the status: `goalSave`, `goalDelete` and `taskSetStatus` still refuse a complete task.
+- `ticketsSave` on a complete task locks each ticket whose work started, any status but `not-started`. Each locked
+  ticket must come back at its id, with the same fields and the same dependencies, and the refusal names each locked
+  ticket that changed, with its status. A `not-started` ticket can change, or go away when no locked ticket comes
+  after it, and a new ticket goes at the end. So the id of a started ticket, which its branch and its worktree carry,
+  never changes.
+- `ticketsSave` keeps the progress of each stored ticket at its id, so a locked ticket keeps its status and its stage.
+  It holds the claims of the `not-started` tickets and of each ticket that a follow-up ticket fixes while it checks
+  and stores the list, and reads the task again under them, so a ticket that starts or gets approved meanwhile is seen.
+- In planning, `plan-design` and `plan-tickets` run in amend mode on a complete task: they never call
+  `taskSetStatus`, and their finish prints what changed. `plan-goals` tells the user that the goals are frozen, and
+  names the other two stages. `/atomic-workflow:plan <task>` with a complete task runs `plan-tickets` in amend mode.
+- The design is the document of the result, so it can change after work landed. A change to a section that a locked
+  ticket quotes in its `## Design` comes with a `not-started` ticket that brings the code in line, in the same change.
+- A ticket has an optional `fixes`: the id of an earlier ticket whose work landed and needs review, and that it
+  fixes. `ticketsSave` adds that id to `dependsOn`, so `worktreeCreate` and `/atomic-workflow:implement` let the
+  follow-up ticket start while the ticket it fixes needs review, with no change. It refuses a ticket that fixes itself
+  or a later ticket, and a new or changed ticket that fixes a ticket that does not need review. A locked follow-up
+  ticket is not checked again, so the list still saves once the ticket it fixes is `done`.
+- `ticketSetStatus` with `done` refuses a ticket while a follow-up ticket of it has not landed, and names the follow-up
+  ticket. It checks under the claim of the ticket, after it reads the task again. Once the follow-up ticket lands,
+  both can be approved. `/atomic-workflow:approve` without a ticket approves each ticket that the server accepts, in
+  the order of their ids, and reports each one that it held back with the reason.
+- To reject a landed ticket, the user runs `/atomic-workflow:plan-tickets <task>` and asks for a follow-up ticket.
+  `worktreeMerge` of the task needs every ticket `done`, so a new ticket keeps the task branch from landing until it
+  is approved too.
+- Step 10 of the schema adds the column `fixes` to the table `ticket`, with a check that it is less than the id of
+  the ticket. The row of the dependency in `ticket_dependency` holds the foreign key.
+- `PROTOCOL_VERSION` is 16, since `ticketsSave` takes `fixes`, which an older repository server drops.
+
+```
+node src/cli.main.ts designSave '{"taskId":1,"design":"# Cache layer\n..."}'
+node src/cli.main.ts ticketsSave '{"taskId":1,"tickets":[...,{"mode":"unattended","type":"code","complexity":"simple","slug":"fix-cache-keys","summary":"...","description":"...","fixes":2}]}'
+```
+
+Rejected:
+
+- Reopening a landed ticket. Its one commit sits on the task branch already, and a second pass would need a second
+  commit under the same ticket. A follow-up ticket keeps one commit per ticket.
+- A fix of a `done` ticket. A done ticket passed its review, so a fix has no approval to hold back. A plain ticket
+  does that work.
+- `fixes` apart from `dependsOn`. Every reader of the dependencies, `worktreeCreate` and the skills alike, would need
+  to know about it. With the id in `dependsOn` too, they work unchanged.
+- Removing a `not-started` ticket before a started one, with the ids that follow renumbered. The ids of started
+  tickets name their branches and worktrees, and the follow-up tickets that fix them.
+
+## Phase 22
+
+`/atomic-workflow:implement <task> [ticket]` takes the ticket as an option. Without it, the skill picks the next ready
+ticket of the task, and implements it as if the user had named it. Its first line names the ticket, as
+`Next ready ticket: **<id>-<slug>**.`
+
+- A ticket is ready when its work has not landed, every ticket that it depends on has landed, and no other session
+  holds it. The dependency rule lives in `pendingDependencies` of `open-ticket.ts`, which `worktreeCreate` uses too, and
+  `hasLanded` holds what counts as landed, `needs-review` or `done`, for both and for `ticketSetStatus`.
+- `ticketNext` returns the next ticket of a complete task: the first ready ticket that is `in-progress`, since its work
+  sits in a worktree already, else the first ready ticket that is `not-started`, each in the order of their ids. A
+  ticket in progress that the same connection holds counts as ready, so a session resumes its own ticket after
+  `/clear`. It also returns each ticket whose work has not landed and that cannot be picked, with its cause:
+  `elsewhere` while another session holds it, `blocked` with its reason, and `dependencies` with the ids it waits for.
+- A `blocked` ticket is never picked. It waits for the user, and its reason says what for, so an agent that picked it
+  would meet the same cause again. The user names it once the cause is gone.
+- Without a ready ticket, the skill prints why, one line per ticket that waits, and stops. When every ticket landed, it
+  points to `/atomic-workflow:approve <task>`.
+- `plan-tickets` ends planning with the next step, `/atomic-workflow:implement <task id>`.
+- `PROTOCOL_VERSION` is 17, since the session server offers `ticketNext`, which an older repository server lacks.
+
+```
+node src/cli.main.ts ticketNext '{"taskId":1}'
+```
+
+Rejected:
+
+- The selection in the skill, from the result of `taskGet`. The claims live in the memory of the repository server,
+  and `taskGet` does not show them, so the skill would pick a ticket that another session holds. It would also repeat
+  the dependency rule of `worktreeCreate`, and the two could drift apart.
+- A `ready` flag or a claim holder on each ticket of `taskGet`. Every reader of a task would carry a value that only
+  one skill uses, and the order of the pick would still sit in the skill.
+- The claim of the picked ticket in `ticketNext`. `worktreeCreate` claims it a moment later, and refuses it when
+  another session took it in between, so the pick stays a plain read.
+
+## Phase 23
+
+`/atomic-workflow:implement-all <task>` implements every ticket of a task in the mode `unattended`, in waves, with the
+ready tickets of each wave in parallel subagents, and lands their work on the task branch in the order of their ids.
+
+- `ticketNext` also returns `pickable`: every ticket that can be picked, in the order of their ids, each with its id,
+  slug, status and mode. It comes from the same filter that picks the next ticket, so the rule stays in one place.
+- Each wave takes the tickets of `pickable` in the mode `unattended`, at most 4, and starts one subagent of the type
+  `general-purpose` for each, all in one message. That type has every tool that the work needs: Skill, the tools of the
+  MCP server, Bash, Read, Edit and Write. The agent `worker` has neither Skill nor the tools of the MCP server, and
+  only runs the messages of the server.
+- Each subagent runs `/atomic-workflow:implement <task> <ticket> --no-land`. The new argument stops the work after the
+  check, and ends with one report: `Ready to land` with the worktree, the commit message and the check, `Blocked` with
+  the reason, or `Stopped` with the cause. Without a user, it takes only an `unattended` ticket, and blocks the ticket
+  where it would ask.
+- Once every subagent of the wave has ended, the skill lands each finished ticket in the order of their ids, with
+  `worktreeMerge` and `worktreeDelete`, as `implement` does. A conflict that it cannot resolve, a failed merge, and a
+  subagent that ends without a report block the ticket, so no ticket runs twice. A blocked ticket stops only the
+  tickets that depend on it, through the dependency rule of `ticketNext`.
+- The waves go on until no `unattended` ticket can be picked. A ticket in the mode `attended` or `manual` runs in no
+  wave, and only the tickets that depend on it wait. The report names each ticket that landed with its commit, each
+  blocked ticket with its reason, each ticket that waits for the user with its `/atomic-workflow:implement` command,
+  each ticket that waits for dependencies, and the next step, `/atomic-workflow:approve <task>` once every ticket
+  landed.
+- A subagent of the Agent tool runs in the same Claude Code process as its session, so its tool calls go through the
+  same session server, over its one connection to the repository server. Each request names that connection as its
+  caller, so the claim of a ticket that a subagent starts belongs to the session, and the session lands it with no
+  change to the claims.
+- `plan-tickets` names both next steps, `/atomic-workflow:implement <task>` and `/atomic-workflow:implement-all
+  <task>`.
+- `PROTOCOL_VERSION` is 18, since `ticketNext` returns `pickable`, which an older repository server lacks.
+
+Rejected:
+
+- Stop at the first ticket that needs the user. The tickets that do not depend on it would wait for no reason, and the
+  user would come back to less work done.
+- More than 4 subagents at once. They run their builds and tests at the same time, and each one more makes the
+  conflicts at landing more likely, since every ticket of a wave starts from the same task branch.
+- The landing in each subagent. The merges would race each other on the task branch, and the order of the ids would be
+  lost. One conversation that lands every ticket of the wave keeps the task branch one commit per ticket, in order.
+- A copy of the steps of `implement` in the new skill. The argument `--no-land` keeps one description of the work, so
+  the two skills cannot drift apart.
+- An option of `ticketNext` that returns the tickets that can be picked in place of the next one. Two shapes of the
+  result would need two readers, while one more field costs `implement` nothing.
+
+```
+node src/cli.main.ts ticketNext '{"taskId":1}'
+```
+
+## Phase 24
+
+A new ticket starts from a task branch that is synced with its base branch, and the landing of a ticket squashes only
+its own commits, even when the task branch was rebased after the ticket started.
+
+- Before `worktreeCreate` makes the branch of a ticket, it syncs the task branch with the local tip of the base
+  branch, in the worktree of the task, with no fetch: a task branch that the base branch holds moves forward to it,
+  and any other is rebased onto it by `rebaseOnto`, the rebase that lands the task. The base branch is the one that
+  the task records, or for a task without one, the branch that the main checkout has checked out, as before. A call
+  for a ticket whose branch exists syncs nothing.
+- The ticket branch starts at the tip of the task branch after the sync, and that commit is its fork point. The squash
+  of `worktreeMerge` runs `reset --soft <fork point>`, one commit with the message, then `rebase --onto <task tip>
+  <fork point>`. Before, it took `merge-base <task tip> <ticket>`, which after a rebase of the task branch finds the
+  start of the task, so the commit of the ticket swept in old copies of every ticket before it. A ticket branch
+  without a fork point, made before this phase, or one that no longer holds its fork point, still takes the merge base.
+- The fork point is the reference `refs/atomic-workflow/fork-points/<task id>-<task slug>/<ticket id>-<ticket slug>`.
+  It moves to the tip of the task branch when a rebase of the ticket ends, and to the tip of the ticket branch once
+  the ticket lands, so a ticket that goes on after it landed squashes only its new commits. It is deleted with its
+  branch, by `worktreeDelete`, by `tasks-delete`, and by the landing of the task, so a new branch gets a new fork point.
+- A sync that stops on a conflict fails with the kind `conflict` and the files, and leaves the rebase stopped in the
+  worktree of the task. Once the files are resolved and added there, the next `worktreeCreate` continues it, then
+  makes the branch of the ticket. A call for a ticket whose branch exists continues it only once no file conflicts,
+  and else warns. While it stays stopped, `worktreeMerge` of a ticket refuses, since the task branch cannot move.
+- The sync is skipped, with a line in the new `warnings` of `worktreeCreate`, when the base branch does not exist, the
+  worktree of the task has uncommitted changes, or another ticket branch of the task has no fork point, since a rebase
+  would break its squash. A stopped rebase in the worktree of the task that is no sync refuses the call.
+- `worktreeCreate` returns `taskBranchSynced` and `warnings`. `implement` names both, and resolves a conflict of the
+  sync in the worktree of the task, so that the changes of the base branch and the landed tickets both stay.
+- `implement-all` calls `worktreeCreate` for each ticket of a wave, in the order of their ids, before it starts the
+  subagents. So the session resolves any conflict of the sync itself, and the subagents find their worktrees made.
+- The git work of a repository runs one call at a time already: `gitCreateWorktrees` queues every call, and the one
+  repository server of the repository holds the one queue. The sync runs inside the call of `worktreeCreate`, so it
+  never interleaves with the landing of a ticket on the same task branch, from this session or another one.
+- `PROTOCOL_VERSION` is 19, since `worktreeCreate` returns `taskBranchSynced` and `warnings`, which an older repository
+  server lacks.
+
+Rejected:
+
+- The fork point in a nullable column of the tickets. It is a fact of git that only the git calls read and write, in
+  the queued call that makes, rebases or lands the branch. In the database, the methods would write it after the call
+  leaves the queue, so a sync in between would read a fork point that is not there yet. It would also need a clearing
+  in each method that deletes a branch, while the reference goes away with the branch in one place.
+- A sync on every call of `worktreeCreate`. A ticket in progress already has its fork point, and a sync then would only
+  move the task branch under it for no use.
+- A fetch of the base branch. The user decides when the local base branch moves.
+
 ## Layout
 
 ```
@@ -543,10 +886,20 @@ plugin/                           the plugin, and the local marketplace that hol
   skills/plan/SKILL.md            every stage of planning, in order
   skills/tasks/SKILL.md           the list of the tasks
   skills/tasks-delete/SKILL.md    the deletion of a task
+  skills/implement/SKILL.md       the implementation of one ticket, named or the next ready one, which lands it on the
+                                  task branch, or with `--no-land` stops after the check
+  skills/implement-all/SKILL.md   the implementation of every unattended ticket of a task, in waves of parallel
+                                  subagents, which lands each one on the task branch in the order of their ids
+  skills/implement-prototype/SKILL.md the first stage, which writes the code of a ticket without tests
+  skills/implement-tests/SKILL.md     the stage that locks the behavior of the code of a ticket with tests
+  skills/implement-refactor/SKILL.md  the last stage of a complex ticket, which brings its code to its final shape
+  skills/approve/SKILL.md         the approval of one ticket or all of them, which lands the task branch once every
+                                  ticket is done
   skills/plan-goals/SKILL.md      the first stage of planning, which settles the goals of a task
   skills/plan-design/SKILL.md     the second stage of planning, which settles the design of a task
   skills/plan-tickets/SKILL.md    the last stage of planning, which splits the design of a task into tickets
   references/planning.md          the rules that every stage of planning shares
+  references/implementation.md    the rules that every stage of the implementation shares
   agents/worker.md                the subagent that carries out the messages of the repository server
   dist/                           bundles, built by `npm run build` and committed
 mcp/                              the MCP project: sources, configs and build
@@ -563,6 +916,7 @@ mcp/                              the MCP project: sources, configs and build
     storage/                      persistent data: the stores, their SQLite implementations and the database file
     transcript/                   the transcript of a session: find it, follow it, and log its messages
     web/                          the web server of the repository server
+    worktree/                     the branches and worktrees of the tasks, and the copy of the ignored files
   scripts/build.main.ts           builds plugin/dist/
 ```
 

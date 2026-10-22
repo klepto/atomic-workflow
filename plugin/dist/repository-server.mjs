@@ -5,7 +5,8 @@ var __export = (target, all) => {
 };
 
 // src/repository-server.main.ts
-import { basename, join as join3 } from "node:path";
+import { homedir } from "node:os";
+import { basename as basename2, join as join5 } from "node:path";
 import { parseArgs } from "node:util";
 
 // src/attachment/await-command-line.shell.ts
@@ -74,12 +75,12 @@ var awaitOpen = (inboxes, listeners, sessionId, timeout) => {
   if (inboxes.has(sessionId)) return Promise.resolve(true);
   const waiting = listeners.get(sessionId) ?? /* @__PURE__ */ new Set();
   listeners.set(sessionId, waiting);
-  return new Promise((resolve2) => {
+  return new Promise((resolve4) => {
     const finish = (opened) => {
       clearTimeout(timer);
       waiting.delete(onOpen);
       if (waiting.size === 0 && listeners.get(sessionId) === waiting) listeners.delete(sessionId);
-      resolve2(opened);
+      resolve4(opened);
     };
     const onOpen = () => finish(true);
     const timer = setTimeout(() => finish(false), timeout);
@@ -103,10 +104,10 @@ var take = (inbox, after) => {
   clearTimeout(inbox.batch);
   inbox.batch = void 0;
   if (inbox.messages.length > 0) return Promise.resolve(messages(inbox));
-  return new Promise((resolve2) => {
+  return new Promise((resolve4) => {
     const finish = (delivery) => {
       if (inbox.waiter === finish) inbox.waiter = void 0;
-      resolve2(delivery);
+      resolve4(delivery);
     };
     inbox.waiter = finish;
   });
@@ -887,9 +888,9 @@ function nullish(input2) {
   return input2 === null || input2 === void 0;
 }
 function cleanRegex(source) {
-  const start2 = source.startsWith("^") ? 1 : 0;
+  const start3 = source.startsWith("^") ? 1 : 0;
   const end = source.endsWith("$") ? source.length - 1 : source.length;
-  return source.slice(start2, end);
+  return source.slice(start3, end);
 }
 function floatSafeRemainder(val, step) {
   const ratio = val / step;
@@ -1360,9 +1361,9 @@ function sizeCaps(defChecks) {
   }
   return caps;
 }
-function attachSchema(issues, start2, inst) {
+function attachSchema(issues, start3, inst) {
   var _a3;
-  for (let i = start2; i < issues.length; i++) {
+  for (let i = start3; i < issues.length; i++) {
     (_a3 = issues[i]).schema ?? (_a3.schema = inst);
   }
 }
@@ -3547,10 +3548,10 @@ function capSize(inst, size) {
     if (n > cap && !ctx?.skipChecks && ctx?.direction !== "backward") {
       for (const [max, ch] of sizeCaps(inst._zod.def.checks)) {
         if (n > max && ch._zod.def.when(payload)) {
-          const start2 = payload.issues.length;
+          const start3 = payload.issues.length;
           ch._zod.check(payload);
-          payload.issues[start2].continue = false;
-          attachSchema(payload.issues, start2, inst);
+          payload.issues[start3].continue = false;
+          attachSchema(payload.issues, start3, inst);
           return payload;
         }
       }
@@ -3791,8 +3792,8 @@ var $ZodObjectJIT = /* @__PURE__ */ $constructor("$ZodObjectJIT", (inst, def) =>
   const _normalized = cached(() => normalizeDef(def));
   const memo2 = globalConfig.memoizer;
   const generateFastpass = (shape) => {
-    const normalized = _normalized.value;
-    const syms = normalized.symbolKeys;
+    const normalized2 = _normalized.value;
+    const syms = normalized2.symbolKeys;
     const doc = new Doc(["payload", "ctx"], { shape, inst, memo: memo2, syms });
     const parseStr = (k) => `shape[${k}]._zod.run({ value: input[${k}], issues: [] }, ctx)`;
     const prefixStr = (id, k) => `
@@ -3810,11 +3811,11 @@ var $ZodObjectJIT = /* @__PURE__ */ $constructor("$ZodObjectJIT", (inst, def) =>
     doc.write(`const input = payload.value;`);
     const ids = /* @__PURE__ */ Object.create(null);
     let counter = 0;
-    for (const key of normalized.allKeys) {
+    for (const key of normalized2.allKeys) {
       ids[key] = `key_${counter++}`;
     }
     doc.write(memo2 ? `const newResult = memo.alloc(inst, payload, {}, ctx);` : `const newResult = {};`);
-    for (const key of normalized.allKeys) {
+    for (const key of normalized2.allKeys) {
       if (key === "__proto__")
         continue;
       const id = ids[key];
@@ -5244,7 +5245,7 @@ var recursive = /* @__PURE__ */ new WeakMap();
 var NONE = 0;
 var ASSUMED = 1;
 var PROVEN = 2;
-function isRecursive(inst, stack, resolve2) {
+function isRecursive(inst, stack, resolve4) {
   const cached2 = recursive.get(inst);
   if (cached2 !== void 0)
     return cached2 ? PROVEN : NONE;
@@ -5254,7 +5255,7 @@ function isRecursive(inst, stack, resolve2) {
   let result = NONE;
   const check2 = (child) => {
     if (result !== PROVEN && child?._zod) {
-      const answer = isRecursive(child, stack, resolve2);
+      const answer = isRecursive(child, stack, resolve4);
       if (answer > result)
         result = answer;
     }
@@ -5265,13 +5266,13 @@ function isRecursive(inst, stack, resolve2) {
       const desc = Object.getOwnPropertyDescriptor(sh, key);
       if (spread && !desc.enumerable)
         continue;
-      const child = desc.get ? ASSUMED : desc.value?._zod ? isRecursive(desc.value, stack, resolve2) : NONE;
+      const child = desc.get ? ASSUMED : desc.value?._zod ? isRecursive(desc.value, stack, resolve4) : NONE;
       if (child > answer)
         answer = child;
     }
     return answer;
   };
-  const merge2 = (answer) => {
+  const merge3 = (answer) => {
     if (answer > result)
       result = answer;
   };
@@ -5280,7 +5281,7 @@ function isRecursive(inst, stack, resolve2) {
   switch (kind) {
     case "object": {
       const raw = rawShape(def);
-      merge2(raw ? shape(raw, true) : ASSUMED);
+      merge3(raw ? shape(raw, true) : ASSUMED);
       check2(def.catchall);
       break;
     }
@@ -5329,8 +5330,8 @@ function isRecursive(inst, stack, resolve2) {
       break;
     // `$ZodLazy` caches its inner on the def, so a resolved edge is followed exactly
     case "lazy": {
-      const inner = def._cachedInner ?? (resolve2 ? inst._zod.innerType : void 0);
-      merge2(inner ? isRecursive(inner, stack, false) : ASSUMED);
+      const inner = def._cachedInner ?? (resolve4 ? inst._zod.innerType : void 0);
+      merge3(inner ? isRecursive(inner, stack, false) : ASSUMED);
       break;
     }
     // a leaf by choice: `parts` are regex fragments, not data positions
@@ -19653,23 +19654,23 @@ function fromJSONSchema(schema, params) {
   if (typeof schema === "boolean") {
     return schema ? z.any() : z.never();
   }
-  let normalized;
+  let normalized2;
   try {
-    normalized = JSON.parse(JSON.stringify(schema));
+    normalized2 = JSON.parse(JSON.stringify(schema));
   } catch {
     throw new Error("fromJSONSchema input is not valid JSON (possibly cyclic); use $defs/$ref for recursive schemas");
   }
-  const version2 = detectVersion(normalized, params?.defaultTarget);
-  const defs = normalized.$defs || normalized.definitions || {};
+  const version2 = detectVersion(normalized2, params?.defaultTarget);
+  const defs = normalized2.$defs || normalized2.definitions || {};
   const ctx = {
     version: version2,
     defs,
     refs: /* @__PURE__ */ new Map(),
     processing: /* @__PURE__ */ new Set(),
-    rootSchema: normalized,
+    rootSchema: normalized2,
     registry: params?.registry ?? globalRegistry
   };
-  return convertSchema(normalized, ctx);
+  return convertSchema(normalized2, ctx);
 }
 
 // node_modules/zod/v4/core/visit.js
@@ -19901,7 +19902,7 @@ var BIND_SESSION_PARAMS = external_exports.object({
 });
 
 // src/attachment/hello.ts
-var PROTOCOL_VERSION = 13;
+var PROTOCOL_VERSION = 19;
 var HELLO_METHOD = "hello";
 var HELLO_PARAMS = external_exports.object({
   protocol: external_exports.number().int(),
@@ -19915,7 +19916,7 @@ var HELLO_RESULT = external_exports.object({
 var FIRST_ATTACH_TIMEOUT = 1e4;
 var socketServeRepository = async (address, url2, methods, context, dependencies) => {
   const server = createServer();
-  const closed = new Promise((resolve2) => server.once("close", () => resolve2()));
+  const closed = new Promise((resolve4) => server.once("close", () => resolve4()));
   const repository = {
     server,
     url: url2,
@@ -19948,7 +19949,10 @@ var serve = (repository, socket) => {
     bindSessionMethod(() => session ? connection : void 0),
     ...repository.methods
   ];
-  const connection = openConnection(socket, (message) => dispatch(methods, repository.context, message));
+  const connection = openConnection(
+    socket,
+    (message) => dispatch(methods, { ...repository.context, caller: connection }, message)
+  );
 };
 var helloMethod = (url2, attachSession) => {
   return {
@@ -19992,21 +19996,21 @@ var listenReclaiming = async (server, address) => {
   if (retryError !== void 0) throw retryError;
 };
 var listenCatching = (server, address) => {
-  return new Promise((resolve2) => {
-    server.once("error", resolve2);
+  return new Promise((resolve4) => {
+    server.once("error", resolve4);
     server.listen(address, () => {
-      server.off("error", resolve2);
-      resolve2(void 0);
+      server.off("error", resolve4);
+      resolve4(void 0);
     });
   });
 };
 var isServed = (address) => {
-  return new Promise((resolve2) => {
+  return new Promise((resolve4) => {
     const socket = createConnection(address);
-    socket.once("error", () => resolve2(false));
+    socket.once("error", () => resolve4(false));
     socket.once("connect", () => {
       socket.destroy();
-      resolve2(true);
+      resolve4(true);
     });
   });
 };
@@ -20082,6 +20086,35 @@ var list = (subagents) => {
 // src/attachment/subagents.ts
 var CreateSubagents = mapCreateSubagents;
 
+// src/attachment/ticket-claims.map.ts
+var mapCreateTicketClaims = () => {
+  const holders = /* @__PURE__ */ new Map();
+  return {
+    claim: (taskId, ticketId, claimant) => {
+      const key = keyOf(taskId, ticketId);
+      const holder = holders.get(key);
+      if (holder === claimant) return "kept";
+      if (holder !== void 0) return "refused";
+      holders.set(key, claimant);
+      void claimant.closed.then(() => {
+        if (holders.get(key) === claimant) holders.delete(key);
+      });
+      return "claimed";
+    },
+    isHeldByOther: (taskId, ticketId, caller) => {
+      const holder = holders.get(keyOf(taskId, ticketId));
+      return holder !== void 0 && holder !== caller;
+    },
+    release: (taskId, ticketId) => {
+      holders.delete(keyOf(taskId, ticketId));
+    }
+  };
+};
+var keyOf = (taskId, ticketId) => `${taskId}/${ticketId}`;
+
+// src/attachment/ticket-claims.ts
+var CreateTicketClaims = mapCreateTicketClaims;
+
 // src/rpc/dispatch.zod.ts
 var REQUEST = external_exports.object({
   jsonrpc: external_exports.literal("2.0"),
@@ -20156,10 +20189,12 @@ var inboxAwaitMethod = {
 };
 
 // src/storage/task-store.ts
-var TASK_STATUSES = ["plan-goals", "plan-design", "plan-tickets", "complete"];
+var TASK_STATUSES = ["plan-goals", "plan-design", "plan-tickets", "complete", "done"];
 var GOAL_SOURCES = ["user", "agent"];
 var TICKET_MODES = ["unattended", "attended", "manual"];
-var TICKET_COMPLEXITIES = ["simple", "moderate", "complex"];
+var TICKET_COMPLEXITIES = ["simple", "complex"];
+var TICKET_TYPES = ["code", "other"];
+var TICKET_STAGES = ["prototype", "tests", "refactor"];
 
 // src/rpc/slug.ts
 var SLUG = external_exports.string().max(60).regex(/^[a-z0-9]+-[a-z0-9]+-[a-z0-9]+$/, "Must be three lowercase words joined by hyphens");
@@ -20182,26 +20217,59 @@ var taskCreateMethod = {
 };
 
 // src/rpc/method.task-get.ts
+var TASK_REFERENCE = external_exports.union([external_exports.number().int().positive(), external_exports.string().min(1)]).describe("Task: its identifier, its slug, or both as <id>-<slug>, such as 3-cache-layer-redis");
 var PARAMS4 = external_exports.object({
-  taskId: external_exports.number().int().positive().describe("Identifier of the task")
+  task: TASK_REFERENCE
 });
 var taskGetMethod = {
   name: "taskGet",
-  description: "Returns a task of the atomic workflow with its status, its goals, its design and its tickets.",
+  description: "Returns a task of the atomic workflow, named by its id, its slug or both as <id>-<slug>, with its status, its goals, its design and its tickets.",
   agent: true,
   params: PARAMS4,
-  handle: async ({ taskId }, { tasks }) => {
-    const task = await tasks.get(taskId);
-    if (task === void 0) throw new RpcError(RpcErrorCode.INVALID_PARAMS, `No task ${taskId} exists`);
-    return task;
+  handle: async ({ task }, { tasks }) => findTask(task, tasks)
+};
+var findTask = async (reference, tasks) => {
+  const word = String(reference);
+  if (/^\d+$/.test(word)) return taskOfId(Number(word), tasks);
+  const [, id = "", slug = ""] = /^(\d+)-(.+)$/.exec(word) ?? [];
+  if (!SLUG.safeParse(slug).success) return taskOfSlug(word, tasks);
+  const task = await taskOfId(Number(id), tasks);
+  if (task.slug !== slug)
+    throw new RpcError(RpcErrorCode.INVALID_PARAMS, `No task ${word} exists: task ${id} is ${id}-${task.slug}`);
+  return task;
+};
+var taskOfId = async (id, tasks) => {
+  const task = await tasks.get(id);
+  if (task === void 0) throw new RpcError(RpcErrorCode.INVALID_PARAMS, `No task ${id} exists`);
+  return task;
+};
+var taskOfSlug = async (slug, tasks) => {
+  const [match, ...others] = (await tasks.list()).filter((task) => task.slug === slug);
+  if (match === void 0) throw new RpcError(RpcErrorCode.INVALID_PARAMS, `No task has the slug ${slug}`);
+  if (others.length > 0) {
+    const names = [match, ...others].map(({ id }) => `${id}-${slug}`).join(", ");
+    throw new RpcError(
+      RpcErrorCode.INVALID_PARAMS,
+      `Several tasks have the slug ${slug}: ${names}. Name one by its id`
+    );
   }
+  return taskOfId(match.id, tasks);
 };
 
 // src/rpc/open-task.ts
 var openTask = async (taskId, context) => {
-  const task = await taskGetMethod.handle({ taskId }, context);
+  const task = await openAmendableTask(taskId, context);
   if (task.status === "complete")
-    throw new RpcError(RpcErrorCode.INVALID_REQUEST, `The plan of task ${taskId} is complete`);
+    throw new RpcError(
+      RpcErrorCode.INVALID_REQUEST,
+      `The plan of task ${taskId} is complete, so only its design and the tickets whose work has not started can change`
+    );
+  return task;
+};
+var openAmendableTask = async (taskId, context) => {
+  const task = await taskGetMethod.handle({ task: taskId }, context);
+  if (task.status === "done")
+    throw new RpcError(RpcErrorCode.INVALID_REQUEST, `Task ${taskId} is done, so its plan cannot change`);
   return task;
 };
 
@@ -20219,7 +20287,7 @@ var goalDeleteMethod = {
     await openTask(taskId, context);
     if (!await context.tasks.deleteGoal(taskId, goalId))
       throw new RpcError(RpcErrorCode.INVALID_PARAMS, `Task ${taskId} has no goal ${goalId}`);
-    return taskGetMethod.handle({ taskId }, context);
+    return taskGetMethod.handle({ task: taskId }, context);
   }
 };
 
@@ -20268,25 +20336,112 @@ var subagentEndMethod = {
 var PARAMS9 = external_exports.object({});
 var taskListMethod = {
   name: "taskList",
-  description: "Returns every task of the atomic workflow with its slug, its status, its creation time and its numbers of completed and uncompleted tickets.",
+  description: "Returns every task of the atomic workflow with its slug, its status, its creation time and its number of completed tickets, whose work landed, and its total number of tickets.",
   agent: true,
   params: PARAMS9,
   handle: async (_params, { tasks }) => ({ tasks: await tasks.list() })
 };
 
+// src/worktree/worktree-error.ts
+var WorktreeError = class extends Error {
+  /**
+   * Kind of the refusal.
+   */
+  kind;
+  /**
+   * Paths of the files in conflict, relative to the worktree and with forward slashes, for a `conflict`. Empty for
+   * every other kind.
+   */
+  files;
+  /**
+   * Creates the refusal of the kind `kind` with the description `message` and the conflicting files `files`.
+   */
+  constructor(kind, message, files = []) {
+    super(message);
+    this.name = "WorktreeError";
+    this.kind = kind;
+    this.files = files;
+  }
+};
+
+// src/rpc/open-ticket.ts
+var openTicket = async (taskId, ticketId, context) => {
+  const task = await openCompleteTask(taskId, context);
+  const ticket = task.tickets.find(({ id }) => id === ticketId);
+  if (ticket === void 0) throw new RpcError(RpcErrorCode.INVALID_PARAMS, `Task ${taskId} has no ticket ${ticketId}`);
+  return { task, ticket };
+};
+var openCompleteTask = async (taskId, context) => {
+  const task = await taskGetMethod.handle({ task: taskId }, context);
+  if (task.status === "done")
+    throw new RpcError(RpcErrorCode.INVALID_REQUEST, `Task ${taskId} is done, and its branch landed already`);
+  if (task.status !== "complete")
+    throw new RpcError(RpcErrorCode.INVALID_REQUEST, `The plan of task ${taskId} is not complete. Complete it first`);
+  return task;
+};
+var hasLanded = (status) => status === "needs-review" || status === "done";
+var pendingDependencies = (task, ticket) => ticket.dependsOn.filter((id) => {
+  const dependency = task.tickets.find((other) => other.id === id);
+  return dependency === void 0 || !hasLanded(dependency.status);
+});
+var lastingHolder = (context) => {
+  if (context.caller !== void 0) return context.caller;
+  throw new RpcError(
+    RpcErrorCode.INVALID_REQUEST,
+    "Only a client that is connected to the repository server can start the work on a ticket"
+  );
+};
+var callHolder = (context) => context.caller ?? { closed: new Promise(() => void 0) };
+var claimTickets = (taskId, ticketIds, holder, context) => {
+  const held = ticketIds.filter((id) => context.ticketClaims.isHeldByOther(taskId, id, holder));
+  if (held.length > 0)
+    throw new RpcError(
+      RpcErrorCode.INVALID_REQUEST,
+      `${held.length === 1 ? "Ticket" : "Tickets"} ${held.join(", ")} of task ${taskId} ${held.length === 1 ? "is" : "are"} in progress in another session`
+    );
+  return ticketIds.filter((id) => context.ticketClaims.claim(taskId, id, holder) === "claimed");
+};
+var releaseTickets = (taskId, ticketIds, context) => {
+  for (const id of ticketIds) context.ticketClaims.release(taskId, id);
+};
+var endWork = async (taskId, ticketIds, context, operation) => {
+  claimTickets(taskId, ticketIds, callHolder(context), context);
+  try {
+    return await operation();
+  } finally {
+    releaseTickets(taskId, ticketIds, context);
+  }
+};
+var worktreeCall = async (call3) => {
+  try {
+    return await call3();
+  } catch (error62) {
+    if (!(error62 instanceof WorktreeError)) throw error62;
+    throw new RpcError(RpcErrorCode.INVALID_REQUEST, error62.message, { kind: error62.kind, files: error62.files });
+  }
+};
+
 // src/rpc/method.task-delete.ts
 var PARAMS10 = external_exports.object({
-  taskId: external_exports.number().int().positive().describe("Identifier of the task")
+  task: TASK_REFERENCE,
+  force: external_exports.boolean().default(false).describe(
+    "Whether to delete the task also when its branches hold commits that have not landed, or its worktrees hold uncommitted changes, which are then lost"
+  )
 });
 var taskDeleteMethod = {
   name: "taskDelete",
-  description: "Deletes a task of the atomic workflow with its goals, its design and its tickets, for good.",
+  description: "Deletes a task of the atomic workflow with its goals, its design, its tickets, and its worktrees and branches, for good. Refuses to lose work that has not landed unless forced.",
   agent: true,
   params: PARAMS10,
-  handle: async ({ taskId }, context) => {
-    const { slug } = await taskGetMethod.handle({ taskId }, context);
-    await context.tasks.delete(taskId);
-    return { taskId, slug };
+  handle: async ({ task: reference, force }, context) => {
+    const task = await taskGetMethod.handle({ task: reference }, context);
+    const taskId = task.id;
+    const ticketIds = task.tickets.map(({ id }) => id);
+    return endWork(taskId, ticketIds, context, async () => {
+      const worktrees = await worktreeCall(() => context.worktrees.deleteTask(task, task.baseBranch, force));
+      await context.tasks.delete(taskId);
+      return { taskId, slug: task.slug, worktrees };
+    });
   }
 };
 
@@ -20382,13 +20537,13 @@ var PARAMS15 = external_exports.object({
 });
 var designSaveMethod = {
   name: "designSave",
-  description: "Replaces the design of a task of the atomic workflow with a whole new draft of it, and returns the task.",
+  description: "Replaces the design of a task of the atomic workflow with a whole new draft of it, and returns the task. The design of a complete task can change too, until the task is done.",
   agent: true,
   params: PARAMS15,
   handle: async ({ taskId, design }, context) => {
-    await openTask(taskId, context);
+    await openAmendableTask(taskId, context);
     await context.tasks.setDesign(taskId, design);
-    return taskGetMethod.handle({ taskId }, context);
+    return taskGetMethod.handle({ task: taskId }, context);
   }
 };
 
@@ -20412,7 +20567,7 @@ var goalSaveMethod = {
       await context.tasks.addGoal(taskId, { summary, details, source });
     } else if (!await context.tasks.editGoal(taskId, goalId, { summary, details }))
       throw new RpcError(RpcErrorCode.INVALID_PARAMS, `Task ${taskId} has no goal ${goalId}`);
-    return taskGetMethod.handle({ taskId }, context);
+    return taskGetMethod.handle({ task: taskId }, context);
   }
 };
 
@@ -20424,46 +20579,93 @@ var PARAMS17 = external_exports.object({
       mode: external_exports.enum(TICKET_MODES).describe(
         "Who does the work: unattended for an agent alone from start to finish, attended for an agent that needs the user between turns, manual for the user, whom an agent guides and whose work it checks"
       ),
+      type: external_exports.enum(TICKET_TYPES).describe(
+        "How the work runs: code for work that changes the code of the repository, in stages, other for any other work, such as research or moving files, in one pass"
+      ),
       complexity: external_exports.enum(TICKET_COMPLEXITIES).nullable().default(null).describe(
-        "simple for mechanical work that follows an existing pattern, moderate for several files with small decisions, complex for cross-cutting work, tricky logic or real judgement. null for a manual ticket, and only for one"
+        "simple for work that follows an existing pattern or makes small decisions inside the design, across one or several files, complex for cross-cutting work, tricky logic or real judgement. null for a manual ticket, and only for one"
       ),
       slug: SLUG.describe("Short name of the ticket: exactly three lowercase words joined by hyphens"),
       summary: external_exports.string().trim().min(1).regex(/^[^\r\n]*$/, "Must be one line").describe("Summary of the ticket in one sentence"),
       description: external_exports.string().trim().min(1).describe("Description in Markdown, with everything an agent needs to do the ticket in a fresh context"),
-      dependsOn: external_exports.array(external_exports.number().int().positive()).default([]).describe("Numbers of the earlier tickets in this list that must be done first, counted from 1")
+      dependsOn: external_exports.array(external_exports.number().int().positive()).default([]).describe("Numbers of the earlier tickets in this list that must be done first, counted from 1"),
+      fixes: external_exports.number().int().positive().nullable().default(null).describe(
+        "Number of the earlier ticket in this list whose work landed and needs review, and that this follow-up ticket fixes. The ticket then depends on it too. null for a ticket that fixes none"
+      )
     })
-  ).min(1).describe("Whole list of tickets in order, which replaces the stored one. Ticket n gets the identifier n")
+  ).min(1).describe(
+    "Whole list of tickets in order, which replaces the stored one. Ticket n gets the identifier n. On a complete task, each ticket whose work started stays as stored, with the same number: only a ticket that is not-started may change or go away, and a new ticket goes at the end"
+  )
 });
 var ticketsSaveMethod = {
   name: "ticketsSave",
-  description: "Replaces the tickets of a task of the atomic workflow with a whole new list of them, and returns the task.",
+  description: "Replaces the tickets of a task of the atomic workflow with a whole new list of them, and returns the task. On a complete task, each ticket whose work started must stay as stored.",
   agent: true,
   params: PARAMS17,
   handle: async ({ taskId, tickets }, context) => {
-    await openTask(taskId, context);
-    const invalid = tickets.findIndex(
-      ({ dependsOn }, index) => new Set(dependsOn).size !== dependsOn.length || dependsOn.some((id) => id > index)
-    );
-    if (invalid !== -1)
-      throw new RpcError(
-        RpcErrorCode.INVALID_PARAMS,
-        `Ticket ${invalid + 1} must depend on earlier tickets, each once`
-      );
-    const misfit = tickets.findIndex(({ mode, complexity }) => mode === "manual" !== (complexity === null));
-    if (misfit !== -1)
-      throw new RpcError(
-        RpcErrorCode.INVALID_PARAMS,
-        `Ticket ${misfit + 1} must have a complexity, unless its mode is manual, which has none`
-      );
-    await context.tasks.setTickets(taskId, tickets);
-    return taskGetMethod.handle({ taskId }, context);
+    const stored = await openAmendableTask(taskId, context);
+    checkShape(tickets);
+    const saved = tickets.map(withFixDependency);
+    const notStarted = stored.tickets.filter(({ status }) => status === "not-started").map(({ id }) => id);
+    const fixed = saved.flatMap(({ fixes }) => fixes === null ? [] : [fixes]);
+    return endWork(taskId, [.../* @__PURE__ */ new Set([...notStarted, ...fixed])], context, async () => {
+      const task = await openAmendableTask(taskId, context);
+      checkLocked(task, saved);
+      checkFixes(task, saved);
+      await context.tasks.setTickets(taskId, saved);
+      return taskGetMethod.handle({ task: taskId }, context);
+    });
   }
+};
+var checkShape = (tickets) => {
+  const invalid = tickets.findIndex(
+    ({ dependsOn }, index) => new Set(dependsOn).size !== dependsOn.length || dependsOn.some((id) => id > index)
+  );
+  if (invalid !== -1)
+    throw new RpcError(RpcErrorCode.INVALID_PARAMS, `Ticket ${invalid + 1} must depend on earlier tickets, each once`);
+  const late = tickets.findIndex(({ fixes }, index) => fixes !== null && fixes > index);
+  if (late !== -1) throw new RpcError(RpcErrorCode.INVALID_PARAMS, `Ticket ${late + 1} must fix an earlier ticket`);
+  const misfit = tickets.findIndex(({ mode, complexity }) => mode === "manual" !== (complexity === null));
+  if (misfit !== -1)
+    throw new RpcError(
+      RpcErrorCode.INVALID_PARAMS,
+      `Ticket ${misfit + 1} must have a complexity, unless its mode is manual, which has none`
+    );
+};
+var withFixDependency = (ticket) => {
+  const dependsOn = ticket.fixes === null ? ticket.dependsOn : [...ticket.dependsOn, ticket.fixes];
+  return { ...ticket, dependsOn: [...new Set(dependsOn)].sort((first, second) => first - second) };
+};
+var checkLocked = (task, tickets) => {
+  const changed = task.tickets.filter(
+    (stored) => stored.status !== "not-started" && !isSameTicket(stored, tickets[stored.id - 1])
+  );
+  if (changed.length === 0) return;
+  const names = changed.map(({ id, status }) => `${id} (${status})`).join(", ");
+  const one = changed.length === 1;
+  throw new RpcError(
+    RpcErrorCode.INVALID_REQUEST,
+    `${one ? "Ticket" : "Tickets"} ${names} of task ${task.id} started already, so ${one ? "it" : "each"} must stay as stored, with the same number, fields and dependencies. Only a ticket that is not-started may change or go away, and a new ticket goes at the end`
+  );
+};
+var isSameTicket = (stored, ticket) => ticket !== void 0 && stored.mode === ticket.mode && stored.type === ticket.type && stored.complexity === ticket.complexity && stored.slug === ticket.slug && stored.summary === ticket.summary && stored.description === ticket.description && stored.fixes === ticket.fixes && stored.dependsOn.join() === ticket.dependsOn.join();
+var checkFixes = (task, tickets) => {
+  tickets.forEach(({ fixes }, index) => {
+    const started = (task.tickets[index]?.status ?? "not-started") !== "not-started";
+    if (fixes === null || started) return;
+    const status = task.tickets[fixes - 1]?.status ?? "not-started";
+    if (status !== "needs-review")
+      throw new RpcError(
+        RpcErrorCode.INVALID_REQUEST,
+        `Ticket ${index + 1} fixes ticket ${fixes}, which is ${status}, and only a ticket whose work landed and needs review can get a fix`
+      );
+  });
 };
 
 // src/rpc/method.task-set-status.ts
 var PARAMS18 = external_exports.object({
   taskId: external_exports.number().int().positive().describe("Identifier of the task"),
-  status: external_exports.enum(TASK_STATUSES).describe("Status to set: the stage of planning the user works on, or complete")
+  status: external_exports.enum(TASK_STATUSES).exclude(["done"]).describe("Status to set: the stage of planning the user works on, or complete")
 });
 var taskSetStatusMethod = {
   name: "taskSetStatus",
@@ -20476,7 +20678,7 @@ var taskSetStatusMethod = {
     if (missing !== void 0)
       throw new RpcError(RpcErrorCode.INVALID_REQUEST, `Task ${taskId} needs ${missing} for the status ${status}`);
     await context.tasks.setStatus(taskId, status);
-    return taskGetMethod.handle({ taskId }, context);
+    return taskGetMethod.handle({ task: taskId }, context);
   }
 };
 var missingPart = (task, status) => {
@@ -20487,11 +20689,257 @@ var missingPart = (task, status) => {
   return void 0;
 };
 
+// src/rpc/method.ticket-next.ts
+var PARAMS19 = external_exports.object({
+  taskId: external_exports.number().int().positive().describe("Identifier of the task")
+});
+var ticketNextMethod = {
+  name: "ticketNext",
+  description: "Returns the next ticket to work on of a task of the atomic workflow whose plan is complete: the first ready ticket in progress, else the first ready ticket not started, or null. Also returns every ticket that can be picked, with its mode, and each ticket whose work has not landed and that cannot be picked, with its cause: elsewhere, blocked or dependencies.",
+  agent: true,
+  params: PARAMS19,
+  handle: async ({ taskId }, context) => {
+    const task = await openCompleteTask(taskId, context);
+    const open3 = task.tickets.filter(({ status }) => !hasLanded(status));
+    const pickable = open3.filter((ticket2) => ticket2.status !== "blocked" && isReady(task, ticket2, context));
+    const ticket = pickable.find(({ status }) => status === "in-progress") ?? pickable.find(({ status }) => status === "not-started") ?? null;
+    const waiting = open3.filter((other) => !pickable.includes(other)).map((other) => waitingTicket(task, other, context));
+    return { ticket, pickable: pickable.map(pickableTicket), waiting };
+  }
+};
+var isReady = (task, ticket, context) => pendingDependencies(task, ticket).length === 0 && !isElsewhere(task, ticket, context);
+var pickableTicket = ({ id, slug, status, mode }) => ({ id, slug, status, mode });
+var waitingTicket = (task, ticket, context) => {
+  const { id, slug, status, blockedReason } = ticket;
+  const pending = pendingDependencies(task, ticket);
+  return { id, slug, status, cause: causeOf(task, ticket, context), blockedReason, pendingDependencies: pending };
+};
+var causeOf = (task, ticket, context) => {
+  if (isElsewhere(task, ticket, context)) return "elsewhere";
+  if (ticket.status === "blocked") return "blocked";
+  return "dependencies";
+};
+var isElsewhere = (task, ticket, context) => context.ticketClaims.isHeldByOther(task.id, ticket.id, callHolder(context));
+
+// src/rpc/method.ticket-set-status.ts
+var PARAMS20 = external_exports.object({
+  taskId: external_exports.number().int().positive().describe("Identifier of the task"),
+  ticketId: external_exports.number().int().positive().describe("Identifier of the ticket within its task"),
+  status: external_exports.enum(["not-started", "in-progress", "blocked", "done"]).describe(
+    "Status to set: in-progress while the work runs, blocked while it waits for the cause that reason names, done once the review of the landed work passed, not-started to start over. worktreeMerge sets needs-review"
+  ),
+  stage: external_exports.enum(TICKET_STAGES).nullable().optional().describe(
+    "Stage of a ticket of the type code that is in progress or blocked: prototype, tests or refactor. Leave it out to keep the stored stage"
+  ),
+  reason: external_exports.string().trim().min(1).optional().describe("Cause that a blocked ticket waits for, in one sentence. Only for the status blocked")
+});
+var ticketSetStatusMethod = {
+  name: "ticketSetStatus",
+  description: "Sets the status of a ticket of the atomic workflow, with the stage of its work and the reason that it is blocked, and returns the ticket.",
+  agent: true,
+  params: PARAMS20,
+  handle: async ({ taskId, ticketId, status, stage, reason }, context) => {
+    const { ticket } = await openTicket(taskId, ticketId, context);
+    const refusal = refusalOf(ticket, status, stage, reason);
+    if (refusal !== void 0) throw new RpcError(RpcErrorCode.INVALID_REQUEST, refusal);
+    const working = status === "in-progress" || status === "blocked";
+    const progress = {
+      status,
+      stage: working ? stage === void 0 ? ticket.stage : stage : null,
+      blockedReason: reason ?? null
+    };
+    const store = async () => {
+      if (status === "done") await checkFollowUps(taskId, ticketId, context);
+      await context.tasks.setTicketProgress(taskId, ticketId, progress);
+      return { ...ticket, ...progress };
+    };
+    if (status !== "in-progress") return endWork(taskId, [ticketId], context, store);
+    claimTickets(taskId, [ticketId], lastingHolder(context), context);
+    return store();
+  }
+};
+var checkFollowUps = async (taskId, ticketId, context) => {
+  const { tickets } = await taskGetMethod.handle({ task: taskId }, context);
+  const pending = tickets.filter(({ fixes, status }) => fixes === ticketId && !hasLanded(status)).map(({ id, slug, status }) => `${id}-${slug} (${status})`);
+  if (pending.length === 0) return;
+  const one = pending.length === 1;
+  throw new RpcError(
+    RpcErrorCode.INVALID_REQUEST,
+    `Ticket ${ticketId} waits for its follow-up ${one ? "ticket" : "tickets"} ${pending.join(", ")}, which ${one ? "fixes" : "fix"} it and ${one ? "has" : "have"} not landed yet. Land ${one ? "it" : "them"} first`
+  );
+};
+var refusalOf = (ticket, status, stage, reason) => {
+  const landed = hasLanded(ticket.status);
+  if (status === "done" && ticket.status !== "needs-review")
+    return `Ticket ${ticket.id} is ${ticket.status}, and only a ticket that needs review can be done`;
+  if (status !== "done" && landed)
+    return `The work of ticket ${ticket.id} landed already, so it cannot be ${status} again. To fix it, add a follow-up ticket that fixes it`;
+  if (status === "blocked" !== (reason !== void 0))
+    return "A reason is needed for the status blocked, and only for it";
+  if (stage === void 0 || stage === null) return void 0;
+  if (status !== "in-progress" && status !== "blocked") return `A ticket that is ${status} has no stage`;
+  if (ticket.type !== "code") return `Ticket ${ticket.id} is of the type ${ticket.type}, which has no stages`;
+  return void 0;
+};
+
+// src/rpc/method.worktree-create.ts
+var PARAMS21 = external_exports.object({
+  taskId: external_exports.number().int().positive().describe("Identifier of the task"),
+  ticketId: external_exports.number().int().positive().describe("Identifier of the ticket within its task")
+});
+var worktreeCreateMethod = {
+  name: "worktreeCreate",
+  description: "Starts the work on a ticket of the atomic workflow: makes the worktree of its task and its own worktree where they do not exist, sets it in-progress, and returns the paths and branches of both worktrees with the ticket. Before it makes the branch of the ticket, it rebases the task branch onto the local base branch. On a conflict of that rebase, resolve and add the files in the worktree of the task that the error names, then call it again.",
+  agent: true,
+  params: PARAMS21,
+  handle: async ({ taskId, ticketId }, context) => {
+    const { task, ticket } = await openTicket(taskId, ticketId, context);
+    if (hasLanded(ticket.status))
+      throw new RpcError(RpcErrorCode.INVALID_REQUEST, `The work of ticket ${ticketId} landed already`);
+    const pending = pendingDependencies(task, ticket);
+    if (pending.length > 0)
+      throw new RpcError(
+        RpcErrorCode.INVALID_REQUEST,
+        `Ticket ${ticketId} depends on tickets ${pending.join(", ")}, whose work has not landed yet`
+      );
+    const claimed = claimTickets(taskId, [ticketId], lastingHolder(context), context);
+    try {
+      return await start2(task, ticket, context);
+    } catch (error62) {
+      releaseTickets(taskId, claimed, context);
+      throw error62;
+    }
+  }
+};
+var start2 = async (task, ticket, context) => {
+  const worktrees = await worktreeCall(() => context.worktrees.create(task, ticket, task.baseBranch));
+  if (task.baseBranch === null) await context.tasks.setBaseBranch(task.id, worktrees.baseBranch);
+  const progress = { status: "in-progress", stage: ticket.stage, blockedReason: null };
+  await context.tasks.setTicketProgress(task.id, ticket.id, progress);
+  return { worktrees, ticket: { ...ticket, ...progress } };
+};
+
+// src/rpc/method.worktree-delete.ts
+var PARAMS22 = external_exports.object({
+  taskId: external_exports.number().int().positive().describe("Identifier of the task"),
+  ticketId: external_exports.number().int().positive().optional().describe("Identifier of the ticket whose worktree and branch to delete. Without it, deletes those of the task"),
+  force: external_exports.boolean().default(false).describe("Whether to delete branches whose commits have not landed, and worktrees with uncommitted changes")
+});
+var NOT_STARTED = { status: "not-started", stage: null, blockedReason: null };
+var worktreeDeleteMethod = {
+  name: "worktreeDelete",
+  description: "Deletes the worktree and the branch of a ticket of the atomic workflow, or without a ticket, every worktree and branch of the task. Refuses to lose work that has not landed unless forced.",
+  agent: true,
+  params: PARAMS22,
+  handle: async ({ taskId, ticketId, force }, context) => {
+    const task = await taskGetMethod.handle({ task: taskId }, context);
+    if (ticketId === void 0) return deleteTask(task, force, context);
+    return deleteTicket(task, ticketId, force, context);
+  }
+};
+var deleteTicket = async (task, ticketId, force, context) => {
+  const ticket = task.tickets.find(({ id }) => id === ticketId);
+  if (ticket === void 0)
+    throw new RpcError(RpcErrorCode.INVALID_PARAMS, `Task ${task.id} has no ticket ${ticketId}`);
+  return endWork(task.id, [ticketId], context, async () => {
+    const deleted = await worktreeCall(() => context.worktrees.deleteTicket(task, ticket, force));
+    if (ticket.status === "in-progress" || ticket.status === "blocked")
+      await context.tasks.setTicketProgress(task.id, ticketId, NOT_STARTED);
+    return deleted;
+  });
+};
+var deleteTask = async (task, force, context) => {
+  const ticketIds = task.tickets.map(({ id }) => id);
+  return endWork(task.id, ticketIds, context, async () => {
+    const deleted = await worktreeCall(() => context.worktrees.deleteTask(task, task.baseBranch, force));
+    if (!force) return deleted;
+    for (const id of ticketIds) await context.tasks.setTicketProgress(task.id, id, NOT_STARTED);
+    await context.tasks.setBaseBranch(task.id, null);
+    return deleted;
+  });
+};
+
+// src/rpc/method.worktree-merge.ts
+var SUMMARY_LINE = /^(feat|fix|chore|refactor|docs|test|perf|build|ci|style|revert)(\([^()\r\n]+\))?!?: \S/;
+var PARAMS23 = external_exports.object({
+  taskId: external_exports.number().int().positive().describe("Identifier of the task"),
+  ticketId: external_exports.number().int().positive().optional().describe(
+    "Identifier of the ticket to land on the task branch. Without it, lands the task branch on the base branch once every ticket of the task is done"
+  ),
+  message: external_exports.string().trim().regex(SUMMARY_LINE, 'Must start with a summary line such as "feat: ...", "fix(scope): ..." or "chore: ..."').optional().describe(
+    'Message of the one commit of the ticket: a summary line of the conventional commits, such as "feat: ..." or "fix: ...", then optionally a blank line and a body. Only with a ticket, and needed with one'
+  )
+});
+var worktreeMergeMethod = {
+  name: "worktreeMerge",
+  description: "With a ticket, squashes the commits of the worktree of a ticket of the atomic workflow into one commit with the message, rebases it onto the task branch, moves the task branch forward to it, and sets the ticket needs-review. Without a ticket, once every ticket of the task is done, rebases the task branch onto its base branch, moves the base branch forward to it, deletes the worktrees and branches of the task, and sets the task done. On a conflict, resolve and add the files in the worktree that the error names, then call it again.",
+  agent: true,
+  params: PARAMS23,
+  handle: async ({ taskId, ticketId, message }, context) => {
+    if (ticketId === void 0) {
+      if (message !== void 0)
+        throw new RpcError(RpcErrorCode.INVALID_PARAMS, "Only the merge of a ticket takes a message");
+      return mergeTask(taskId, context);
+    }
+    if (message === void 0) throw new RpcError(RpcErrorCode.INVALID_PARAMS, "The merge of a ticket needs a message");
+    return mergeTicket(taskId, ticketId, message, context);
+  }
+};
+var mergeTicket = async (taskId, ticketId, message, context) => {
+  const { task, ticket } = await openTicket(taskId, ticketId, context);
+  if (ticket.status !== "in-progress" && ticket.status !== "blocked")
+    throw new RpcError(
+      RpcErrorCode.INVALID_REQUEST,
+      `Ticket ${ticketId} is ${ticket.status}, and only a ticket in progress or blocked can merge`
+    );
+  const claimed = claimTickets(taskId, [ticketId], callHolder(context), context);
+  try {
+    const merged = await worktreeCall(() => context.worktrees.merge(task, ticket, message));
+    const progress = { status: "needs-review", stage: null, blockedReason: null };
+    await context.tasks.setTicketProgress(taskId, ticketId, progress);
+    releaseTickets(taskId, [ticketId], context);
+    return { ...merged, ticket: { ...ticket, ...progress } };
+  } catch (error62) {
+    if (context.caller === void 0) releaseTickets(taskId, claimed, context);
+    throw error62;
+  }
+};
+var mergeTask = async (taskId, context) => {
+  const { tickets } = await taskGetMethod.handle({ task: taskId }, context);
+  return endWork(
+    taskId,
+    tickets.map(({ id }) => id),
+    context,
+    async () => {
+      const task = await taskGetMethod.handle({ task: taskId }, context);
+      const baseBranch = checkMergeable(task);
+      const merged = await worktreeCall(() => context.worktrees.mergeTask(task, baseBranch));
+      await context.tasks.setStatus(taskId, "done");
+      return { ...merged, task: { ...task, status: "done" } };
+    }
+  );
+};
+var checkMergeable = (task) => {
+  if (task.status === "done")
+    throw new RpcError(RpcErrorCode.INVALID_REQUEST, `Task ${task.id} is done, and its branch landed already`);
+  if (task.status !== "complete")
+    throw new RpcError(RpcErrorCode.INVALID_REQUEST, `The plan of task ${task.id} is not complete. Complete it first`);
+  const open3 = task.tickets.filter(({ status }) => status !== "done").map(({ id }) => id);
+  if (open3.length > 0)
+    throw new RpcError(
+      RpcErrorCode.INVALID_REQUEST,
+      `${open3.length === 1 ? "Ticket" : "Tickets"} ${open3.join(", ")} of task ${task.id} ${open3.length === 1 ? "is" : "are"} not done, so the task branch cannot land`
+    );
+  if (task.baseBranch === null)
+    throw new RpcError(RpcErrorCode.INVALID_REQUEST, `Task ${task.id} has no base branch to land its task branch on`);
+  return task.baseBranch;
+};
+
 // src/rpc/method.subagent-start.ts
 import { randomUUID } from "node:crypto";
 
 // src/rpc/session-method.subagent-follow.ts
-var PARAMS19 = external_exports.object({
+var PARAMS24 = external_exports.object({
   sessionId: external_exports.string().min(1).describe("Identifier of the session of the subagent"),
   parentId: external_exports.string().min(1).describe("Identifier of the orchestrator session that the subagent runs inside")
 });
@@ -20499,14 +20947,14 @@ var subagentFollowMethod = {
   name: "subagentFollow",
   description: "Logs the transcript of a subagent of the session.",
   agent: false,
-  params: PARAMS19,
+  params: PARAMS24,
   handle: async ({ sessionId, parentId }, { followSubagent }) => followSubagent(sessionId, parentId)
 };
 
 // src/rpc/method.subagent-start.ts
 var ATTACH_TIMEOUT = 6e4;
 var AGENT_TYPE = "atomic-workflow:worker";
-var PARAMS20 = external_exports.object({
+var PARAMS25 = external_exports.object({
   prompt: external_exports.string().min(1).optional().describe("First command of the subagent, none when left out"),
   parentId: external_exports.string().optional().describe("Session id of the orchestrator, the one that attached last when left out")
 });
@@ -20514,7 +20962,7 @@ var subagentStartMethod = {
   name: "subagentStart",
   description: "Starts a subagent inside an orchestrator session, by default the one that attached last, and returns its session id.",
   agent: false,
-  params: PARAMS20,
+  params: PARAMS25,
   handle: async ({ prompt, parentId: pickedId }, context) => {
     const { sessions, sessionConnections, subagents, inboxes } = context;
     const parentId = pickedId ?? sessionConnections.list().at(-1);
@@ -20561,14 +21009,14 @@ var spawnMessage = (sessionId, commandLine) => {
 };
 
 // src/rpc/method.subagent-stop.ts
-var PARAMS21 = external_exports.object({
+var PARAMS26 = external_exports.object({
   sessionId: external_exports.string().describe("Session id of the subagent to stop")
 });
 var subagentStopMethod = {
   name: "subagentStop",
   description: "Stops a subagent that subagentStart started.",
   agent: false,
-  params: PARAMS21,
+  params: PARAMS26,
   handle: async ({ sessionId }, { subagents, inboxes }) => {
     if (!subagents.stop(sessionId))
       throw new RpcError(RpcErrorCode.INVALID_PARAMS, `No subagent ${sessionId} is started`);
@@ -20597,7 +21045,12 @@ var Methods = [
   goalDeleteMethod,
   designSaveMethod,
   ticketsSaveMethod,
-  taskSetStatusMethod
+  taskSetStatusMethod,
+  ticketNextMethod,
+  ticketSetStatusMethod,
+  worktreeCreateMethod,
+  worktreeMergeMethod,
+  worktreeDeleteMethod
 ];
 
 // src/rpc/rpc-connection.ndjson.ts
@@ -20606,7 +21059,7 @@ var ndjsonOpenRpcConnection = (stream, handle) => {
   const connection = { stream, pending: /* @__PURE__ */ new Map(), nextId: 1 };
   stream.on("error", () => {
   });
-  const closed = new Promise((resolve2) => stream.once("close", () => resolve2()));
+  const closed = new Promise((resolve4) => stream.once("close", () => resolve4()));
   void closed.then(() => rejectPending(connection));
   createInterface({ input: stream, crlfDelay: Number.POSITIVE_INFINITY }).on("line", (line) => {
     void receive(connection, handle, line);
@@ -20621,7 +21074,7 @@ var rejectPending = (connection) => {
   for (const request2 of connection.pending.values()) request2.reject(new Error("The connection closed"));
 };
 var request = (connection, method, params, signal) => {
-  return new Promise((resolve2, reject) => {
+  return new Promise((resolve4, reject) => {
     if (!connection.stream.writable) return reject(new Error("The connection is closed"));
     if (signal?.aborted) return reject(abortError(method, signal.reason));
     const id = connection.nextId;
@@ -20635,7 +21088,7 @@ var request = (connection, method, params, signal) => {
     connection.pending.set(id, {
       resolve: (result) => {
         finish();
-        resolve2(result);
+        resolve4(result);
       },
       reject: (error62) => {
         finish();
@@ -20764,16 +21217,18 @@ var sqliteSessionStore = (database) => {
 };
 
 // src/storage/task-store.sqlite.ts
+var COMPLETED = `('needs-review', 'done')`;
 var sqliteTaskStore = (database) => {
   const insertTask = database.prepare(
     `INSERT INTO task (slug, status, created_at) VALUES (:slug, 'plan-goals', :createdAt) RETURNING id`
   );
   const selectTask = database.prepare(
-    `SELECT id, slug, status, created_at AS createdAt, design FROM task WHERE id = :id`
+    `SELECT id, slug, status, created_at AS createdAt, design, base_branch AS baseBranch FROM task WHERE id = :id`
   );
   const selectTasks = database.prepare(
-    `SELECT id, slug, status, created_at AS createdAt, 0 AS completedTickets,
-      (SELECT COUNT(*) FROM ticket WHERE task_id = task.id) AS uncompletedTickets
+    `SELECT id, slug, status, created_at AS createdAt,
+      (SELECT COUNT(*) FROM ticket WHERE task_id = task.id AND status IN ${COMPLETED}) AS completedTickets,
+      (SELECT COUNT(*) FROM ticket WHERE task_id = task.id) AS totalTickets
     FROM task ORDER BY id`
   );
   const removeTaskGoals = database.prepare(`DELETE FROM goal WHERE task_id = :taskId`);
@@ -20792,15 +21247,19 @@ var sqliteTaskStore = (database) => {
   const negateLaterGoals = database.prepare(`UPDATE goal SET id = -id WHERE task_id = :taskId AND id > :goalId`);
   const lowerNegatedGoals = database.prepare(`UPDATE goal SET id = -id - 1 WHERE task_id = :taskId AND id < 0`);
   const updateDesign = database.prepare(`UPDATE task SET design = :design WHERE id = :taskId`);
-  const insertTicket = database.prepare(
-    `INSERT INTO ticket (task_id, id, mode, complexity, slug, summary, description)
-    VALUES (:taskId, :id, :mode, :complexity, :slug, :summary, :description)`
+  const upsertTicket = database.prepare(
+    `INSERT INTO ticket (task_id, id, mode, type, complexity, slug, summary, description, fixes)
+    VALUES (:taskId, :id, :mode, :type, :complexity, :slug, :summary, :description, :fixes)
+    ON CONFLICT (task_id, id) DO UPDATE SET mode = excluded.mode, type = excluded.type,
+      complexity = excluded.complexity, slug = excluded.slug, summary = excluded.summary,
+      description = excluded.description, fixes = excluded.fixes`
   );
   const insertDependency = database.prepare(
     `INSERT INTO ticket_dependency (task_id, ticket_id, depends_on_id) VALUES (:taskId, :ticketId, :dependsOnId)`
   );
   const selectTickets = database.prepare(
-    `SELECT id, mode, complexity, slug, summary, description,
+    `SELECT id, mode, type, complexity, slug, summary, description, fixes, status, stage,
+      blocked_reason AS blockedReason,
       (SELECT json_group_array(depends_on_id) FROM (
         SELECT depends_on_id FROM ticket_dependency
         WHERE task_id = ticket.task_id AND ticket_id = ticket.id ORDER BY depends_on_id
@@ -20809,7 +21268,13 @@ var sqliteTaskStore = (database) => {
   );
   const removeDependencies = database.prepare(`DELETE FROM ticket_dependency WHERE task_id = :taskId`);
   const removeTickets = database.prepare(`DELETE FROM ticket WHERE task_id = :taskId`);
+  const removeLaterTickets = database.prepare(`DELETE FROM ticket WHERE task_id = :taskId AND id > :count`);
   const updateStatus = database.prepare(`UPDATE task SET status = :status WHERE id = :taskId`);
+  const updateBaseBranch = database.prepare(`UPDATE task SET base_branch = :branch WHERE id = :taskId`);
+  const updateTicketProgress = database.prepare(
+    `UPDATE ticket SET status = :status, stage = :stage, blocked_reason = :blockedReason
+    WHERE task_id = :taskId AND id = :ticketId`
+  );
   const get = (id) => {
     const row = selectTask.get({ id });
     if (row === void 0) return void 0;
@@ -20817,9 +21282,10 @@ var sqliteTaskStore = (database) => {
     return { ...row, goals, tickets: getTickets(id) };
   };
   const getTickets = (taskId) => selectTickets.all({ taskId }).map((row) => ({ ...row, dependsOn: JSON.parse(row.dependsOn) }));
-  const insertTickets = (taskId, tickets) => {
-    tickets.forEach(({ mode, complexity, slug, summary, description }, index) => {
-      insertTicket.run({ taskId, id: index + 1, mode, complexity, slug, summary, description });
+  const storeTickets = (taskId, tickets) => {
+    removeLaterTickets.run({ taskId, count: tickets.length });
+    tickets.forEach(({ mode, type, complexity, slug, summary, description, fixes }, index) => {
+      upsertTicket.run({ taskId, id: index + 1, mode, type, complexity, slug, summary, description, fixes });
     });
     tickets.forEach(({ dependsOn }, index) => {
       for (const dependsOnId of dependsOn) insertDependency.run({ taskId, ticketId: index + 1, dependsOnId });
@@ -20880,8 +21346,7 @@ var sqliteTaskStore = (database) => {
       database.exec("BEGIN IMMEDIATE");
       try {
         removeDependencies.run({ taskId });
-        removeTickets.run({ taskId });
-        insertTickets(taskId, tickets);
+        storeTickets(taskId, tickets);
         database.exec("COMMIT");
       } catch (error62) {
         database.exec("ROLLBACK");
@@ -20890,7 +21355,11 @@ var sqliteTaskStore = (database) => {
     },
     setStatus: async (taskId, status) => {
       updateStatus.run({ taskId, status });
-    }
+    },
+    setBaseBranch: async (taskId, branch) => {
+      updateBaseBranch.run({ taskId, branch });
+    },
+    setTicketProgress: async (taskId, ticketId, { status, stage, blockedReason }) => updateTicketProgress.run({ taskId, ticketId, status, stage, blockedReason }).changes > 0
   };
 };
 
@@ -20996,7 +21465,59 @@ var MIGRATIONS = [
   INSERT INTO ticket_new (task_id, id, mode, complexity, slug, summary, description)
     SELECT task_id, id, 'unattended', complexity, slug, summary, description FROM ticket;
   DROP TABLE ticket;
-  ALTER TABLE ticket_new RENAME TO ticket;`
+  ALTER TABLE ticket_new RENAME TO ticket;`,
+  `ALTER TABLE task ADD COLUMN base_branch TEXT;
+  ALTER TABLE ticket ADD COLUMN type TEXT NOT NULL DEFAULT 'code' CHECK (type IN ('code', 'other'));
+  ALTER TABLE ticket ADD COLUMN status TEXT NOT NULL DEFAULT 'not-started'
+    CHECK (status IN ('not-started', 'in-progress', 'needs-review', 'blocked', 'done'));
+  ALTER TABLE ticket ADD COLUMN stage TEXT CHECK (stage IN ('prototype', 'refactor', 'tests'));
+  ALTER TABLE ticket ADD COLUMN blocked_reason TEXT;`,
+  `CREATE TABLE task_new (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    slug TEXT NOT NULL,
+    status TEXT NOT NULL CHECK (status IN ('plan-goals', 'plan-design', 'plan-tickets', 'complete', 'done')),
+    created_at INTEGER NOT NULL,
+    design TEXT,
+    base_branch TEXT
+  ) STRICT;
+  INSERT INTO task_new (id, slug, status, created_at, design, base_branch)
+    SELECT id, slug, status, created_at, design, base_branch FROM task;
+  DELETE FROM sqlite_sequence WHERE name = 'task_new';
+  INSERT INTO sqlite_sequence (name, seq) SELECT 'task_new', seq FROM sqlite_sequence WHERE name = 'task';
+  DROP TABLE task;
+  ALTER TABLE task_new RENAME TO task;`,
+  // Step 9 rebuilds the table `ticket`, since SQLite cannot change the check of a column. It turns each `moderate`
+  // ticket into a `simple` one. The stage `refactor` now comes last, and only a `complex` ticket runs it, so a ticket
+  // in it moves to the stage that now does its work: `tests` for a `complex` ticket, `prototype` for a `simple` one.
+  `CREATE TABLE ticket_new (
+    task_id INTEGER NOT NULL REFERENCES task (id),
+    id INTEGER NOT NULL,
+    mode TEXT NOT NULL CHECK (mode IN ('unattended', 'attended', 'manual')),
+    complexity TEXT CHECK (complexity IN ('simple', 'complex')),
+    slug TEXT NOT NULL,
+    summary TEXT NOT NULL,
+    description TEXT NOT NULL,
+    type TEXT NOT NULL DEFAULT 'code' CHECK (type IN ('code', 'other')),
+    status TEXT NOT NULL DEFAULT 'not-started'
+      CHECK (status IN ('not-started', 'in-progress', 'needs-review', 'blocked', 'done')),
+    stage TEXT CHECK (stage IN ('prototype', 'tests', 'refactor')),
+    blocked_reason TEXT,
+    PRIMARY KEY (task_id, id),
+    CHECK ((mode = 'manual') = (complexity IS NULL))
+  ) STRICT;
+  INSERT INTO ticket_new
+    (task_id, id, mode, complexity, slug, summary, description, type, status, stage, blocked_reason)
+    SELECT task_id, id, mode, CASE complexity WHEN 'moderate' THEN 'simple' ELSE complexity END, slug, summary,
+      description, type, status,
+      CASE WHEN stage = 'refactor' AND complexity = 'complex' THEN 'tests'
+        WHEN stage = 'refactor' THEN 'prototype' ELSE stage END,
+      blocked_reason
+    FROM ticket;
+  DROP TABLE ticket;
+  ALTER TABLE ticket_new RENAME TO ticket;`,
+  // Step 10 adds the ticket that a ticket fixes. The ticket depends on it too, so the foreign key of its row in
+  // `ticket_dependency` checks that it exists.
+  `ALTER TABLE ticket ADD COLUMN fixes INTEGER CHECK (fixes < id);`
 ];
 var sqliteOpenStorage = async (path) => {
   const directory = dirname(path);
@@ -21309,17 +21830,17 @@ var respond = (response, status, type, body) => {
   response.end(body);
 };
 var listen = (server) => {
-  return new Promise((resolve2, reject) => {
+  return new Promise((resolve4, reject) => {
     server.once("error", reject);
     server.listen(0, HOST, () => {
       server.off("error", reject);
-      resolve2();
+      resolve4();
     });
   });
 };
 var close2 = (server) => {
-  return new Promise((resolve2, reject) => {
-    server.close((error62) => error62 === void 0 ? resolve2() : reject(error62));
+  return new Promise((resolve4, reject) => {
+    server.close((error62) => error62 === void 0 ? resolve4() : reject(error62));
     server.closeAllConnections();
   });
 };
@@ -21327,10 +21848,691 @@ var close2 = (server) => {
 // src/web/start-web-server.ts
 var StartWebServer = httpStartWebServer;
 
+// src/worktree/copy-ignored.disk.ts
+import { execFile as execFile2 } from "node:child_process";
+import { constants } from "node:fs";
+import { copyFile, lstat, mkdir as mkdir2, readdir, readlink, stat, symlink } from "node:fs/promises";
+import { dirname as dirname2, isAbsolute, join as join3, relative, resolve as resolve2, sep } from "node:path";
+import { promisify as promisify2 } from "node:util";
+var execFileAsync2 = promisify2(execFile2);
+var STORAGE_PATH = ".agents/atomic-workflow";
+var LIST_IGNORED = [
+  "ls-files",
+  "-z",
+  "--others",
+  "--ignored",
+  "--exclude-standard",
+  "--directory"
+];
+var OPERATION_LIMIT = 16;
+var NAMED_FAILURE_COUNT = 10;
+var COPY_FLAGS = constants.COPYFILE_FICLONE | constants.COPYFILE_EXCL;
+var diskCopyIgnored = async (checkout, destination) => {
+  const entries = await listIgnored(checkout);
+  if (entries === void 0) return { count: 1, first: [{ path: ".", code: "GIT_FAILED" }] };
+  const run = {
+    checkout: resolve2(checkout),
+    destination: resolve2(destination),
+    limit: createLimit(OPERATION_LIMIT),
+    failures: []
+  };
+  await Promise.all(entries.map((entry) => copyEntry(run, entry)));
+  if (run.failures.length === 0) return void 0;
+  return { count: run.failures.length, first: run.failures.slice(0, NAMED_FAILURE_COUNT) };
+};
+var listIgnored = async (checkout) => {
+  try {
+    const { stdout } = await execFileAsync2("git", LIST_IGNORED, {
+      cwd: checkout,
+      windowsHide: true,
+      maxBuffer: 64 * 1024 * 1024
+    });
+    return stdout.split("\0").filter((entry) => entry !== "").map((entry) => entry.replace(/\/$/, ""));
+  } catch {
+    return void 0;
+  }
+};
+var createLimit = (size) => {
+  let running = 0;
+  const waiting = [];
+  return async (operation) => {
+    if (running < size) running += 1;
+    else await new Promise((resume) => waiting.push(resume));
+    try {
+      return await operation();
+    } finally {
+      const next = waiting.shift();
+      if (next === void 0) running -= 1;
+      else next();
+    }
+  };
+};
+var copyEntry = async (run, path) => {
+  if (isStorage(path)) return;
+  if (!await makeDirectory(run, path, dirname2(join3(run.destination, path)))) return;
+  await copyPath(run, path);
+};
+var isStorage = (path) => path === STORAGE_PATH || path.startsWith(`${STORAGE_PATH}/`);
+var makeDirectory = async (run, path, directory) => {
+  const made = await attempt(run, path, async () => {
+    await mkdir2(directory, { recursive: true });
+    return true;
+  });
+  return made === true;
+};
+var attempt = async (run, path, operation, ignoredCodes = []) => {
+  try {
+    return await run.limit(operation);
+  } catch (error62) {
+    const code = codeOf(error62);
+    if (!ignoredCodes.includes(code)) run.failures.push({ path, code });
+    return void 0;
+  }
+};
+var codeOf = (error62) => {
+  if (error62 instanceof Error && "code" in error62 && typeof error62.code === "string") return error62.code;
+  return "UNKNOWN";
+};
+var copyPath = async (run, path) => {
+  if (isStorage(path)) return;
+  const source = join3(run.checkout, path);
+  const target = join3(run.destination, path);
+  const stats = await attempt(run, path, () => lstat(source));
+  if (stats === void 0) return;
+  if (stats.isSymbolicLink()) await copyLink(run, path, source, target);
+  else if (stats.isDirectory()) await copyDirectory(run, path, source, target);
+  else if (stats.isFile()) await attempt(run, path, () => copyFile(source, target, COPY_FLAGS), ["EEXIST"]);
+};
+var copyDirectory = async (run, path, source, target) => {
+  if (!await makeDirectory(run, path, target)) return;
+  const names = await attempt(run, path, () => readdir(source));
+  if (names === void 0) return;
+  await Promise.all(names.map((name) => copyPath(run, `${path}/${name}`)));
+};
+var copyLink = async (run, path, source, target) => {
+  const text2 = await attempt(run, path, () => readlink(source));
+  if (text2 === void 0) return;
+  const resolved = resolve2(dirname2(source), text2);
+  const inside = insideCheckout(run, resolved);
+  const junction = process.platform === "win32" && await isDirectoryOrMissing(run, resolved);
+  const linkTarget = junction ? absoluteTarget(run, resolved, inside) : linkText(run, text2, resolved, inside);
+  const type = junction ? "junction" : "file";
+  await attempt(run, path, () => symlink(linkTarget, target, type), ["EEXIST"]);
+};
+var insideCheckout = (run, resolved) => {
+  const path = relative(run.checkout, resolved);
+  if (isAbsolute(path) || path === ".." || path.startsWith(`..${sep}`)) return void 0;
+  return path;
+};
+var isDirectoryOrMissing = async (run, resolved) => {
+  try {
+    return (await run.limit(() => stat(resolved))).isDirectory();
+  } catch {
+    return true;
+  }
+};
+var absoluteTarget = (run, resolved, inside) => inside === void 0 ? resolved : join3(run.destination, inside);
+var linkText = (run, text2, resolved, inside) => {
+  if (!isAbsolute(text2) && inside !== void 0) return text2;
+  return absoluteTarget(run, resolved, inside);
+};
+
+// src/worktree/copy-ignored.ts
+var CopyIgnored = diskCopyIgnored;
+
+// src/worktree/worktrees.git.ts
+import { execFile as execFile3 } from "node:child_process";
+import { createHash } from "node:crypto";
+import { access, mkdir as mkdir3, readFile, rm as rm2 } from "node:fs/promises";
+import { basename, dirname as dirname3, isAbsolute as isAbsolute2, join as join4, relative as relative2, resolve as resolve3, sep as sep2 } from "node:path";
+import { promisify as promisify3 } from "node:util";
+var execFileAsync3 = promisify3(execFile3);
+var BRANCH_PREFIX = "atomic-workflow/";
+var TASK_BRANCH_NAME = "main";
+var FORK_POINT_PREFIX = "refs/atomic-workflow/fork-points/";
+var BRANCH_REF_PREFIX = "refs/heads/";
+var MERGE_AGAIN = "merge again";
+var CREATE_AGAIN = "create the worktree of the ticket again";
+var WORKTREES_DIRECTORY = join4(".atomic-workflow", "worktrees");
+var REPOSITORY_KEY_LENGTH = 8;
+var NO_HOOKS = ["-c", "core.hooksPath=/dev/null"];
+var REBASE_OPTIONS = ["--no-autosquash", "--no-autostash", "--no-update-refs"];
+var QUOTED_LINE_COUNT = 5;
+var NAMED_FAILURE_COUNT2 = 10;
+var REMOVAL_RETRY_COUNT = 10;
+var REMOVAL_RETRY_INTERVAL = 200;
+var WORKTREE_LINE = "worktree ";
+var BRANCH_LINE = "branch refs/heads/";
+var SYNCED = { synced: true, warnings: [] };
+var NOT_SYNCED = { synced: false, warnings: [] };
+var gitCreateWorktrees = (dependencies) => {
+  const queue = createQueue();
+  return {
+    create: (task, ticket, baseBranch) => queue(() => create(dependencies, task, ticket, baseBranch)),
+    merge: (task, ticket, message) => queue(() => merge2(dependencies, task, ticket, message)),
+    mergeTask: (task, baseBranch) => queue(() => mergeTask2(dependencies, task, baseBranch)),
+    deleteTicket: (task, ticket, force) => queue(() => deleteTicket2(dependencies, task, ticket, force)),
+    deleteTask: (task, baseBranch, force) => queue(() => deleteTask2(dependencies, task, baseBranch, force))
+  };
+};
+var createQueue = () => {
+  let last = Promise.resolve();
+  return (operation) => {
+    const result = last.then(operation);
+    last = result.catch(() => void 0);
+    return result;
+  };
+};
+var layoutOf = async ({ directory, home }) => {
+  const checkout = await mainCheckout(directory);
+  return { checkout, root: join4(home, WORKTREES_DIRECTORY, `${basename(checkout)}-${repositoryKey(checkout)}`) };
+};
+var mainCheckout = async (directory) => {
+  const [first] = await listWorktrees(directory);
+  if (first === void 0) throw new Error(`Git listed no worktree for ${directory}`);
+  return first.path;
+};
+var repositoryKey = (checkout) => {
+  const normalized2 = resolve3(checkout);
+  const key = process.platform === "win32" ? normalized2.toLowerCase() : normalized2;
+  return createHash("sha256").update(key).digest("hex").slice(0, REPOSITORY_KEY_LENGTH);
+};
+var taskName = (task) => `${task.id}-${task.slug}`;
+var taskDirectory = (layout, task) => join4(layout.root, taskName(task));
+var taskBranchOf = (task) => `${BRANCH_PREFIX}${taskName(task)}/${TASK_BRANCH_NAME}`;
+var taskPlaceOf = (layout, task) => ({
+  path: join4(taskDirectory(layout, task), TASK_BRANCH_NAME),
+  branch: taskBranchOf(task)
+});
+var ticketPlaceOf = (layout, task, ticket) => ({
+  path: join4(taskDirectory(layout, task), `${ticket.id}-${ticket.slug}`),
+  branch: `${BRANCH_PREFIX}${taskName(task)}/${ticket.id}-${ticket.slug}`
+});
+var shown = (place) => ({ ...place, path: forwardSlashes(place.path) });
+var forwardSlashes = (path) => path.replaceAll("\\", "/");
+var create = async (dependencies, task, ticket, baseBranch) => {
+  const layout = await layoutOf(dependencies);
+  const taskPlace = taskPlaceOf(layout, task);
+  const ticketPlace = ticketPlaceOf(layout, task, ticket);
+  const base = baseBranch ?? await checkedOutBranch(layout.checkout);
+  const taskBranchCreated = !await branchExists(layout.checkout, taskPlace.branch);
+  const uncommittedChanges = taskBranchCreated && (await changes(layout.checkout, false)).length > 0;
+  if (taskBranchCreated) await makeBranch(layout.checkout, taskPlace.branch, base);
+  await gitOutput(layout.checkout, ["worktree", "prune"]);
+  const taskFailures = await ensureWorktree(dependencies, layout, taskPlace, true);
+  const ticketBranchCreated = !await branchExists(layout.checkout, ticketPlace.branch);
+  const sync = await syncTaskBranch(dependencies, layout, task, base, ticketBranchCreated);
+  if (ticketBranchCreated) await makeTicketBranch(layout.checkout, ticketPlace.branch, taskPlace.branch);
+  const ticketFailures = await ensureWorktree(dependencies, layout, ticketPlace, true);
+  return {
+    task: shown(taskPlace),
+    ticket: shown(ticketPlace),
+    baseBranch: base,
+    taskBranchCreated,
+    ticketBranchCreated,
+    taskBranchSynced: sync.synced,
+    uncommittedChanges,
+    copyFailures: joinFailures(taskFailures, ticketFailures),
+    warnings: sync.warnings
+  };
+};
+var checkedOutBranch = async (checkout) => {
+  const output2 = await runGit(checkout, ["symbolic-ref", "--quiet", "--short", "HEAD"]);
+  if (output2.exitCode === 0) return output2.stdout.trim();
+  throw new WorktreeError(
+    "not-allowed",
+    `The main checkout ${forwardSlashes(checkout)} has no branch checked out, so the task branch has no base. Check out the branch to base the task on, then try again`
+  );
+};
+var makeBranch = async (checkout, branch, start3) => {
+  const output2 = await runGit(checkout, ["branch", "--no-track", branch, start3]);
+  if (output2.exitCode === 0) return;
+  throw new WorktreeError("not-allowed", `Git refused to make the branch ${branch} at ${start3}: ${lastLines(output2)}`);
+};
+var makeTicketBranch = async (checkout, branch, taskBranch) => {
+  const taskTip = await gitOutput(checkout, ["rev-parse", `refs/heads/${taskBranch}`]);
+  await makeBranch(checkout, branch, taskTip);
+  await setForkPoint(checkout, branch, taskTip);
+};
+var syncTaskBranch = async (dependencies, layout, task, baseBranch, start3) => {
+  const place = taskPlaceOf(layout, task);
+  const rebase = await stoppedRebase(place.path);
+  if (rebase !== void 0) return resumeSync(layout, place, baseBranch, rebase, start3);
+  if (!start3) return NOT_SYNCED;
+  if (!await branchExists(layout.checkout, baseBranch))
+    return skippedSync(`The base branch ${baseBranch} does not exist`, baseBranch);
+  const baseRef = `refs/heads/${baseBranch}`;
+  const taskRef = `refs/heads/${place.branch}`;
+  if (await isAncestor(layout.checkout, baseRef, taskRef)) return NOT_SYNCED;
+  const cause = await syncBlocker(layout, task, place);
+  if (cause !== void 0) return skippedSync(cause, baseBranch);
+  if (!await isAncestor(layout.checkout, taskRef, baseRef)) {
+    await rebaseOnto(dependencies, layout, place, baseBranch, CREATE_AGAIN);
+    return SYNCED;
+  }
+  const taskTip = await gitOutput(layout.checkout, ["rev-parse", taskRef]);
+  await forwardBranch(layout, place.branch, taskTip, await gitOutput(layout.checkout, ["rev-parse", baseRef]));
+  return SYNCED;
+};
+var skippedSync = (cause, baseBranch) => ({
+  synced: false,
+  warnings: [`${cause}, so the task branch was not synced with ${baseBranch}`]
+});
+var resumeSync = async (layout, place, baseBranch, rebase, start3) => {
+  const sync = rebase.branch === place.branch && await isAncestor(layout.checkout, rebase.onto, `refs/heads/${baseBranch}`);
+  if (!sync && !start3) return NOT_SYNCED;
+  if (!sync) {
+    throw new WorktreeError(
+      "not-allowed",
+      `The worktree ${forwardSlashes(place.path)} of the task branch has a stopped rebase that is no sync of ${place.branch} with ${baseBranch}. Finish or abort it there, then try again`
+    );
+  }
+  const files = await conflictFiles(place.path);
+  if (!start3 && files.length > 0)
+    return skippedSync(
+      `The sync in ${forwardSlashes(place.path)} stopped on a conflict in ${files.join(", ")}`,
+      baseBranch
+    );
+  await continueRebase(place, baseBranch, CREATE_AGAIN);
+  return SYNCED;
+};
+var syncBlocker = async (layout, task, place) => {
+  if ((await changes(place.path, true)).length > 0)
+    return `The worktree ${forwardSlashes(place.path)} of the task branch has changes that no commit holds`;
+  const unforked = [];
+  for (const branch of await taskBranches(layout.checkout, task)) {
+    if (branch !== place.branch && await forkPointOf(layout.checkout, branch) === void 0) unforked.push(branch);
+  }
+  if (unforked.length === 0) return void 0;
+  return `The ticket branches ${unforked.join(", ")} have no fork point, since they were made before fork points were recorded, and a rebase of the task branch would break their squash`;
+};
+var ensureWorktree = async (dependencies, layout, place, copy) => {
+  const listed = await listWorktrees(layout.checkout);
+  const existing = listed.find((worktree) => samePath(worktree.path, place.path));
+  if (existing !== void 0) {
+    if ((existing.branch ?? (await stoppedRebase(place.path))?.branch) === place.branch) return void 0;
+    throw new WorktreeError(
+      "not-allowed",
+      `The worktree ${forwardSlashes(place.path)} has ${existing.branch ?? "no branch"} checked out in place of ${place.branch}. Check out ${place.branch} there, then try again`
+    );
+  }
+  const holder = listed.find((worktree) => worktree.branch === place.branch);
+  if (holder !== void 0) {
+    throw new WorktreeError(
+      "not-allowed",
+      `The branch ${place.branch} is checked out in ${forwardSlashes(holder.path)}. Check out another branch there, then try again`
+    );
+  }
+  await mkdir3(dirname3(place.path), { recursive: true });
+  const output2 = await runGit(layout.checkout, ["worktree", "add", "--quiet", place.path, place.branch]);
+  if (output2.exitCode !== 0) {
+    throw new WorktreeError(
+      "not-allowed",
+      `Git refused to make the worktree ${forwardSlashes(place.path)} of ${place.branch}: ${lastLines(output2)}`
+    );
+  }
+  return copy ? dependencies.copyIgnored(layout.checkout, place.path) : void 0;
+};
+var joinFailures = (first, second) => {
+  if (first === void 0) return second ?? null;
+  if (second === void 0) return first;
+  return { count: first.count + second.count, first: [...first.first, ...second.first].slice(0, NAMED_FAILURE_COUNT2) };
+};
+var merge2 = async (dependencies, task, ticket, message) => {
+  const layout = await layoutOf(dependencies);
+  const taskPlace = taskPlaceOf(layout, task);
+  const place = ticketPlaceOf(layout, task, ticket);
+  await checkListed(layout, place);
+  await checkNotRebasing(taskPlace);
+  const rebase = await stoppedRebase(place.path);
+  if (rebase === void 0) await squashOnto(place, taskPlace.branch, message);
+  else {
+    await continueRebase(place, taskPlace.branch, MERGE_AGAIN);
+    await setForkPoint(place.path, place.branch, rebase.onto);
+  }
+  const commit = await land(layout, taskPlace.branch, place);
+  await setForkPoint(place.path, place.branch, await gitOutput(place.path, ["rev-parse", "HEAD"]));
+  return { taskBranch: taskPlace.branch, commit };
+};
+var checkListed = async (layout, place) => {
+  const listed = (await listWorktrees(layout.checkout)).find((worktree) => samePath(worktree.path, place.path));
+  if (listed?.branch === place.branch) return;
+  if (listed !== void 0 && listed.branch === void 0 && await isRebasing(place.path)) return;
+  throw new WorktreeError(
+    "not-allowed",
+    `No worktree of ${place.branch} exists at ${forwardSlashes(place.path)}. Create the worktree of the ticket first`
+  );
+};
+var checkNotRebasing = async (place) => {
+  if (!await exists(place.path) || !await isRebasing(place.path)) return;
+  throw new WorktreeError(
+    "not-allowed",
+    `The worktree ${forwardSlashes(place.path)} of the task branch ${place.branch} has a stopped rebase, so the task branch cannot move. Resolve the conflicting files there, run git add on them there, and create the worktree of a ticket again, which ends the rebase. Then merge again`
+  );
+};
+var squashOnto = async (place, taskBranch, message) => {
+  await checkClean(place.path);
+  const taskTip = await gitOutput(place.path, ["rev-parse", `refs/heads/${taskBranch}`]);
+  const head = await gitOutput(place.path, ["rev-parse", "HEAD"]);
+  const base = await forkPointOrMergeBase(place, taskTip, head);
+  if (head === base) return;
+  await gitOutput(place.path, ["reset", "--quiet", "--soft", base]);
+  if (!await hasStagedChanges(place.path)) return;
+  await gitOutput(place.path, [...NO_HOOKS, "commit", "--quiet", "--no-verify", "-m", message]);
+  if (base === taskTip) return;
+  const output2 = await runGit(place.path, [...NO_HOOKS, "rebase", ...REBASE_OPTIONS, "--onto", taskTip, base]);
+  await checkRebaseEnded(place, taskBranch, output2, MERGE_AGAIN);
+  await setForkPoint(place.path, place.branch, taskTip);
+};
+var forkPointOrMergeBase = async (place, taskTip, head) => {
+  const forkPoint = await forkPointOf(place.path, place.branch);
+  if (forkPoint !== void 0 && await isAncestor(place.path, forkPoint, head)) return forkPoint;
+  return gitOutput(place.path, ["merge-base", taskTip, head]);
+};
+var checkClean = async (path) => {
+  const lines = await changes(path, true);
+  if (lines.length === 0) return;
+  throw new WorktreeError(
+    "not-allowed",
+    `The worktree ${forwardSlashes(path)} has changes that no commit holds: ${lines.slice(0, QUOTED_LINE_COUNT).join(", ")}. Commit or discard them, then try again`
+  );
+};
+var changes = async (path, untracked) => {
+  const option = untracked ? "--untracked-files=all" : "--untracked-files=no";
+  const stdout = await gitOutput(path, ["status", "--porcelain", option]);
+  return stdout.split("\n").filter((line) => line.trim() !== "");
+};
+var hasStagedChanges = async (path) => {
+  const output2 = await runGit(path, ["diff", "--cached", "--quiet"]);
+  return output2.exitCode !== 0;
+};
+var continueRebase = async (place, target, retry) => {
+  const files = await conflictFiles(place.path);
+  if (files.length > 0) throw conflict(place, target, files, retry);
+  const output2 = await runGit(place.path, [...NO_HOOKS, "rebase", "--continue"]);
+  await checkRebaseEnded(place, target, output2, retry);
+};
+var checkRebaseEnded = async (place, target, output2, retry) => {
+  if (await isRebasing(place.path)) {
+    const files = await conflictFiles(place.path);
+    if (files.length > 0) throw conflict(place, target, files, retry);
+    throw new WorktreeError(
+      "not-allowed",
+      `Git stopped the rebase onto ${target} in ${forwardSlashes(place.path)}: ${lastLines(output2)}. Run git status there to see what the rebase waits for`
+    );
+  }
+  if (output2.exitCode !== 0) throw new Error(`Git rebase failed in ${place.path}: ${lastLines(output2)}`);
+};
+var conflict = (place, target, files, retry) => new WorktreeError(
+  "conflict",
+  `The rebase of ${place.branch} onto ${target} stopped on a conflict in ${files.join(", ")}. Resolve the files in ${forwardSlashes(place.path)}, run git add on them there, then ${retry}`,
+  files
+);
+var isRebasing = async (path) => await rebaseDirectory(path) !== void 0;
+var stoppedRebase = async (path) => {
+  const directory = await rebaseDirectory(path);
+  if (directory === void 0) return void 0;
+  const headName = (await readFile(join4(directory, "head-name"), "utf8")).trim();
+  const onto = (await readFile(join4(directory, "onto"), "utf8")).trim();
+  const branch = headName.startsWith(BRANCH_REF_PREFIX) ? headName.slice(BRANCH_REF_PREFIX.length) : void 0;
+  return { branch, onto };
+};
+var rebaseDirectory = async (path) => {
+  for (const name of ["rebase-merge", "rebase-apply"]) {
+    const directory = await gitOutput(path, ["rev-parse", "--path-format=absolute", "--git-path", name]);
+    if (await exists(directory)) return directory;
+  }
+  return void 0;
+};
+var conflictFiles = async (path) => {
+  const stdout = await gitOutput(path, ["diff", "--name-only", "--diff-filter=U"]);
+  return stdout.split("\n").filter((line) => line !== "");
+};
+var land = async (layout, target, place) => {
+  const targetTip = await gitOutput(layout.checkout, ["rev-parse", `refs/heads/${target}`]);
+  const tip = await gitOutput(layout.checkout, ["rev-parse", `refs/heads/${place.branch}`]);
+  if (await isAncestor(layout.checkout, tip, targetTip)) return null;
+  if (!await isAncestor(layout.checkout, targetTip, tip)) {
+    throw new WorktreeError(
+      "not-allowed",
+      `The branch ${place.branch} does not hold the tip of ${target}, so ${target} cannot move to it. Merge again`
+    );
+  }
+  await forwardBranch(layout, target, targetTip, tip);
+  return tip;
+};
+var forwardBranch = async (layout, branch, oldCommit, newCommit) => {
+  const holder = (await listWorktrees(layout.checkout)).find((worktree) => worktree.branch === branch);
+  const output2 = holder === void 0 ? await runGit(layout.checkout, ["update-ref", `refs/heads/${branch}`, newCommit, oldCommit]) : await runGit(holder.path, ["merge", "--ff-only", "--quiet", newCommit]);
+  if (output2.exitCode === 0) return;
+  throw new WorktreeError(
+    "not-allowed",
+    `Git refused to move ${branch} forward to ${newCommit}: ${lastLines(output2)}. Remove the cause, then merge again`
+  );
+};
+var mergeTask2 = async (dependencies, task, baseBranch) => {
+  const layout = await layoutOf(dependencies);
+  const place = taskPlaceOf(layout, task);
+  for (const branch of [place.branch, baseBranch]) await checkBranchExists(layout.checkout, branch);
+  const branches = await taskBranches(layout.checkout, task);
+  await checkLanded(
+    layout.checkout,
+    branches.filter((branch) => branch !== place.branch),
+    place.branch
+  );
+  const worktrees = await taskWorktrees(layout, task, branches);
+  const rebasing = worktrees.some((worktree) => samePath(worktree.path, place.path) && worktree.branch === void 0) && await isRebasing(place.path);
+  for (const worktree of worktrees) {
+    if (!rebasing || !samePath(worktree.path, place.path)) await checkClean(worktree.path);
+  }
+  if (rebasing) await continueRebase(place, baseBranch, MERGE_AGAIN);
+  else await rebaseOnto(dependencies, layout, place, baseBranch, MERGE_AGAIN);
+  const commit = await land(layout, baseBranch, place);
+  const deleted = await remove(layout, await taskWorktrees(layout, task, branches), branches, [
+    taskDirectory(layout, task)
+  ]);
+  return { baseBranch, commit, deleted };
+};
+var checkBranchExists = async (checkout, branch) => {
+  if (await branchExists(checkout, branch)) return;
+  throw new WorktreeError("not-allowed", `The branch ${branch} does not exist, so the task branch cannot land`);
+};
+var rebaseOnto = async (dependencies, layout, place, baseBranch, retry) => {
+  const baseRef = `refs/heads/${baseBranch}`;
+  const taskRef = `refs/heads/${place.branch}`;
+  if (await isAncestor(layout.checkout, baseRef, taskRef)) return;
+  if (await isAncestor(layout.checkout, taskRef, baseRef)) return;
+  await gitOutput(layout.checkout, ["worktree", "prune"]);
+  await ensureWorktree(dependencies, layout, place, false);
+  const baseTip = await gitOutput(layout.checkout, ["rev-parse", baseRef]);
+  const output2 = await runGit(place.path, [...NO_HOOKS, "rebase", ...REBASE_OPTIONS, baseTip]);
+  await checkRebaseEnded(place, baseBranch, output2, retry);
+};
+var deleteTicket2 = async (dependencies, task, ticket, force) => {
+  const layout = await layoutOf(dependencies);
+  const place = ticketPlaceOf(layout, task, ticket);
+  const worktrees = (await listWorktrees(layout.checkout)).filter(
+    (worktree) => samePath(worktree.path, place.path) || worktree.branch === place.branch
+  );
+  const branches = await branchExists(layout.checkout, place.branch) ? [place.branch] : [];
+  if (!force) {
+    await checkLanded(layout.checkout, branches, taskBranchOf(task));
+    for (const worktree of worktrees) await checkClean(worktree.path);
+  }
+  return remove(layout, worktrees, branches, []);
+};
+var deleteTask2 = async (dependencies, task, baseBranch, force) => {
+  const layout = await layoutOf(dependencies);
+  const taskBranch = taskBranchOf(task);
+  const branches = await taskBranches(layout.checkout, task);
+  const worktrees = await taskWorktrees(layout, task, branches);
+  if (!force) {
+    await checkTaskLanded(layout.checkout, branches, taskBranch, baseBranch);
+    await checkLanded(
+      layout.checkout,
+      branches.filter((branch) => branch !== taskBranch),
+      taskBranch
+    );
+    for (const worktree of worktrees) await checkClean(worktree.path);
+  }
+  return remove(layout, worktrees, branches, [taskDirectory(layout, task)]);
+};
+var checkTaskLanded = async (checkout, branches, taskBranch, baseBranch) => {
+  if (!branches.includes(taskBranch)) return;
+  if (baseBranch !== null && await branchExists(checkout, baseBranch)) {
+    await checkLanded(checkout, [taskBranch], baseBranch);
+    return;
+  }
+  throw new WorktreeError(
+    "not-allowed",
+    `The task branch ${taskBranch} has no base branch to compare it with, so its work may be lost. Delete it with force to delete it anyway`
+  );
+};
+var checkLanded = async (checkout, branches, target) => {
+  const lacking = [];
+  for (const branch of branches) {
+    const landed = await isAncestor(checkout, `refs/heads/${branch}`, `refs/heads/${target}`);
+    if (!landed) lacking.push(branch);
+  }
+  if (lacking.length === 0) return;
+  throw new WorktreeError(
+    "not-allowed",
+    `The branches ${lacking.join(", ")} hold commits that ${target} lacks, so their work would be lost. Merge them first, or delete them with force`
+  );
+};
+var taskBranches = async (checkout, task) => {
+  const stdout = await gitOutput(checkout, [
+    "for-each-ref",
+    "--format=%(refname:short)",
+    `refs/heads/${BRANCH_PREFIX}${taskName(task)}/`
+  ]);
+  return stdout.split("\n").filter((line) => line !== "");
+};
+var taskWorktrees = async (layout, task, branches) => {
+  const directory = taskDirectory(layout, task);
+  return (await listWorktrees(layout.checkout)).filter(
+    (worktree) => isBelow(directory, worktree.path) || branches.includes(worktree.branch ?? "")
+  );
+};
+var isBelow = (directory, path) => {
+  const inside = relative2(normalized(directory), normalized(path));
+  return !isAbsolute2(inside) && inside !== ".." && !inside.startsWith(`..${sep2}`);
+};
+var remove = async (layout, worktrees, branches, directories) => {
+  const warnings = [];
+  const removedWorktrees = [];
+  for (const worktree of worktrees) {
+    if (await removeWorktree(layout, worktree.path, warnings)) removedWorktrees.push(forwardSlashes(worktree.path));
+  }
+  await runGit(layout.checkout, ["worktree", "prune"]);
+  const removedBranches = [];
+  for (const branch of branches) {
+    if (await removeBranch(layout, branch, warnings)) removedBranches.push(branch);
+  }
+  for (const directory of directories) await removeDirectory(directory, warnings);
+  return { worktrees: removedWorktrees, branches: removedBranches, warnings };
+};
+var removeBranch = async (layout, branch, warnings) => {
+  const output2 = await runGit(layout.checkout, ["branch", "--quiet", "-D", branch]);
+  if (output2.exitCode !== 0) {
+    warnings.push(`The branch ${branch} could not be deleted: ${lastLines(output2)}`);
+    return false;
+  }
+  const forkPoint = await runGit(layout.checkout, ["update-ref", "-d", forkPointRefOf(branch)]);
+  if (forkPoint.exitCode !== 0)
+    warnings.push(`The fork point of the branch ${branch} could not be deleted: ${lastLines(forkPoint)}`);
+  return true;
+};
+var removeWorktree = async (layout, path, warnings) => {
+  const output2 = await runGit(layout.checkout, ["worktree", "remove", "--force", "--force", path]);
+  if (output2.exitCode === 0 && !await exists(path)) return true;
+  return removeDirectory(path, warnings);
+};
+var removeDirectory = async (path, warnings) => {
+  try {
+    await rm2(path, {
+      recursive: true,
+      force: true,
+      maxRetries: REMOVAL_RETRY_COUNT,
+      retryDelay: REMOVAL_RETRY_INTERVAL
+    });
+    return true;
+  } catch (error62) {
+    const reason = error62 instanceof Error ? error62.message : String(error62);
+    warnings.push(`The directory ${forwardSlashes(path)} could not be deleted: ${reason}`);
+    return false;
+  }
+};
+var branchExists = async (directory, branch) => {
+  const output2 = await runGit(directory, ["rev-parse", "--verify", "--quiet", `refs/heads/${branch}`]);
+  return output2.exitCode === 0;
+};
+var isAncestor = async (directory, ancestor, descendant) => {
+  const output2 = await runGit(directory, ["merge-base", "--is-ancestor", ancestor, descendant]);
+  return output2.exitCode === 0;
+};
+var forkPointRefOf = (branch) => `${FORK_POINT_PREFIX}${branch.slice(BRANCH_PREFIX.length)}`;
+var forkPointOf = async (directory, branch) => {
+  const output2 = await runGit(directory, ["rev-parse", "--verify", "--quiet", `${forkPointRefOf(branch)}^{commit}`]);
+  return output2.exitCode === 0 ? output2.stdout.trim() : void 0;
+};
+var setForkPoint = async (directory, branch, commit) => {
+  await gitOutput(directory, ["update-ref", forkPointRefOf(branch), commit]);
+};
+var listWorktrees = async (directory) => {
+  const stdout = await gitOutput(directory, ["worktree", "list", "--porcelain"]);
+  return stdout.split(/\r?\n\r?\n/).map((block) => block.split(/\r?\n/)).filter((lines) => lines[0]?.startsWith(WORKTREE_LINE)).map((lines) => ({
+    path: resolve3(lines[0].slice(WORKTREE_LINE.length)),
+    branch: lines.find((line) => line.startsWith(BRANCH_LINE))?.slice(BRANCH_LINE.length)
+  }));
+};
+var samePath = (first, second) => normalized(first) === normalized(second);
+var normalized = (path) => {
+  const absolute = resolve3(path);
+  return process.platform === "win32" ? absolute.toLowerCase() : absolute;
+};
+var exists = async (path) => {
+  try {
+    await access(path);
+    return true;
+  } catch {
+    return false;
+  }
+};
+var lastLines = (output2) => {
+  const text2 = `${output2.stderr}
+${output2.stdout}`;
+  const lines = text2.split(/\r?\n/).filter((line) => line.trim() !== "");
+  return lines.slice(-QUOTED_LINE_COUNT).join(" ") || `exit code ${output2.exitCode}`;
+};
+var gitOutput = async (directory, commandLine) => {
+  const output2 = await runGit(directory, commandLine);
+  if (output2.exitCode === 0) return output2.stdout.trim();
+  throw new Error(`Git ${commandLine.join(" ")} failed in ${directory}: ${lastLines(output2)}`);
+};
+var runGit = async (directory, commandLine) => {
+  try {
+    const { stdout, stderr } = await execFileAsync3("git", commandLine, {
+      cwd: directory,
+      windowsHide: true,
+      maxBuffer: 64 * 1024 * 1024,
+      env: { ...process.env, GIT_EDITOR: "true", GIT_TERMINAL_PROMPT: "0" }
+    });
+    return { exitCode: 0, stdout, stderr };
+  } catch (error62) {
+    if (!isExitError(error62)) throw error62;
+    return { exitCode: error62.code, stdout: error62.stdout, stderr: error62.stderr };
+  }
+};
+var isExitError = (error62) => error62 instanceof Error && "code" in error62 && typeof error62.code === "number";
+
+// src/worktree/worktrees.ts
+var CreateWorktrees = gitCreateWorktrees;
+
 // src/repository-server.main.ts
-var AWAIT_COMMAND = join3(
+var AWAIT_COMMAND = join5(
   import.meta.dirname,
-  basename(import.meta.filename).replace("repository-server", "await-command")
+  basename2(import.meta.filename).replace("repository-server", "await-command")
 );
 var main = async () => {
   const { values } = parseArgs({ options: { address: { type: "string" }, directory: { type: "string" } } });
@@ -21338,12 +22540,12 @@ var main = async () => {
   if (values.directory === void 0) throw new Error("The argument --directory <directory> is missing");
   const storage = await OpenStorage(await DatabasePath(values.directory));
   try {
-    await serve2(values.address, storage);
+    await serve2(values.address, values.directory, storage);
   } finally {
     storage.close();
   }
 };
-var serve2 = async (address, storage) => {
+var serve2 = async (address, directory, storage) => {
   const context = {
     sessions: storage.sessions,
     messageLog: storage.messageLog,
@@ -21351,6 +22553,9 @@ var serve2 = async (address, storage) => {
     sessionConnections: CreateSessionConnections(),
     subagents: CreateSubagents(),
     inboxes: CreateInboxes(),
+    worktrees: CreateWorktrees({ directory, home: homedir(), copyIgnored: CopyIgnored }),
+    ticketClaims: CreateTicketClaims(),
+    caller: void 0,
     awaitCommandLine: (sessionId) => AwaitCommandLine(AWAIT_COMMAND, sessionId)
   };
   const webServer = await StartWebServer((message) => Dispatch(Methods, context, message));

@@ -14,7 +14,7 @@ const PARAMS = z.object({});
 export const taskListMethod: Method<typeof PARAMS, { readonly tasks: readonly TaskSummary[] }> = {
   name: 'taskList',
   description:
-    'Returns every task of the atomic workflow with its slug, its status, its creation time and its numbers of completed and uncompleted tickets.',
+    'Returns every task of the atomic workflow with its slug, its status, its creation time and its number of completed tickets, whose work landed, and its total number of tickets.',
   agent: true,
   params: PARAMS,
   handle: async (_params, { tasks }) => ({ tasks: await tasks.list() }),
