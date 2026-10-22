@@ -470,6 +470,67 @@ Rejected:
 - Reading the `SKILL.md` of each stage and following it. The stage skills would get no arguments, and their
   `allowed-tools` would not apply.
 
+## Phase 15
+
+`/atomic-workflow:tasks` lists the tasks of the repository, and `/atomic-workflow:tasks-delete <task id | task slug>`
+deletes one of them.
+
+- `taskList` returns every task without its plan: its id, slug, status, creation time, and its numbers of completed
+  and uncompleted tickets. Tickets have no completion yet, so each ticket counts as uncompleted.
+- `taskDelete` deletes a task with its goals, its design and its tickets, in any status. Ids of deleted tasks are not
+  reused.
+- Agents see both methods as tools, since the skills call them.
+- `/atomic-workflow:tasks-delete` takes an id, a slug, or both as `/atomic-workflow:tasks` prints them. Slugs are not
+  unique, so a slug that several tasks share asks for the id.
+- `PROTOCOL_VERSION` is 12, since the session server offers tools that an older repository server lacks.
+
+## Phase 16
+
+A ticket says who does its work, so a ticket can be any work: code, research, moving files, a debugging cycle, or
+steps that only the user can take, such as paying for a hosting service.
+
+- A ticket has a mode: `unattended` for an agent alone from start to finish, `attended` for an agent that needs the
+  user between turns, and `manual` for the user, whom an agent guides and whose work it checks. The mode will decide
+  which tickets run in parallel and which ones wait for the user.
+- A `manual` ticket has no complexity, since no agent does it, and every other ticket has one. `ticketsSave` and a
+  `CHECK` of the table both enforce it.
+- A ticket is done when its acceptance criteria hold. It ends in a commit only if it changes the repository.
+- A description may have a section `## Outputs`, which names each result that a later ticket reads and where it goes,
+  such as the file of the findings of a research ticket. A secret goes to an environment variable or a secret store,
+  and `## Outputs` names only where it goes.
+- The planner orders each `manual` ticket as early as its dependencies allow, so the user does their part first.
+- Step 6 of the schema rebuilds the table `ticket` with the column `mode`, and gives each existing ticket the mode
+  `unattended`.
+- `PROTOCOL_VERSION` is 13, since `ticketsSave` takes parameters that an older repository server lacks.
+
+Rejected:
+
+- A kind of work, such as `research`, `code` or `debug`. It changes nothing in how a ticket runs, and the description
+  already says what the work is. It joins the ticket once a kind changes how a ticket runs.
+- Values of a `manual` ticket, such as tokens, in the database. It is plain text on disk, and the web UI and the
+  methods reach it.
+
+## Phase 17
+
+The design of a task reads like a section of this README instead of a list of decisions, so that whoever implements
+the task, and whoever reviews its pull request, can read it with no other context.
+
+- The design opens with a title and a paragraph in plain words: what changes for the people who use the result, and
+  why. `## Goals` lists the goals. One section per area of the work states its choices concretely, with their
+  reasons. `## Rejected` and `## Objections` close it.
+- The design describes the result, never the conversation that produced it.
+- The user names a section by its heading to change it. Sections replace the numbered decisions.
+- An objection that the user overrode goes to `## Objections` of the design. A ticket quotes the sections of the
+  design that it implements in `## Design`, in place of `## Decisions`.
+- Only the instructions of the agent change. The design stays one Markdown text.
+
+Rejected:
+
+- A list of decisions, each with its choice, its reason and its rejected alternatives. It reads like a log, and a
+  reader has to put the plan together from it.
+- The mapping from goals to decisions in the design. The agent checks that every goal has a section that meets it, and
+  the reader sees the goals and the sections side by side.
+
 ## Layout
 
 ```
@@ -480,6 +541,8 @@ plugin/                           the plugin, and the local marketplace that hol
   hooks/hooks.json                the hook that resumes the messages of a session after `/clear`
   skills/atomic-workflow/SKILL.md
   skills/plan/SKILL.md            every stage of planning, in order
+  skills/tasks/SKILL.md           the list of the tasks
+  skills/tasks-delete/SKILL.md    the deletion of a task
   skills/plan-goals/SKILL.md      the first stage of planning, which settles the goals of a task
   skills/plan-design/SKILL.md     the second stage of planning, which settles the design of a task
   skills/plan-tickets/SKILL.md    the last stage of planning, which splits the design of a task into tickets

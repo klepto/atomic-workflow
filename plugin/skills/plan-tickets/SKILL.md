@@ -23,7 +23,7 @@ Follow the start of planning with the stage `plan-tickets`. Then:
   list, and ask about the split.
 
 Read the code yourself, in this session, with Read, Grep and Glob, since this skill may run inside a subagent, which
-cannot start one. Reading is done when you can name the files that each ticket touches.
+cannot start one. Reading is done when you can name the files that each ticket in the mode `unattended` or `attended` touches.
 
 Ask about the split with: "Would you like any changes to the ticket split, or do you accept it?"
 

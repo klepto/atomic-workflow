@@ -13,6 +13,8 @@ import { messageDeliverMethod } from './method.message-deliver.ts';
 import { echoMethod } from './method.echo.ts';
 import { subagentEndMethod } from './method.subagent-end.ts';
 import { taskGetMethod } from './method.task-get.ts';
+import { taskListMethod } from './method.task-list.ts';
+import { taskDeleteMethod } from './method.task-delete.ts';
 import { sessionListMethod } from './method.session-list.ts';
 import { messageListMethod } from './method.message-list.ts';
 import { messageLogMethod } from './method.message-log.ts';
@@ -113,7 +115,9 @@ export const Methods: readonly Method[] = [
   inboxAwaitCommandMethod,
   inboxAwaitMethod,
   taskGetMethod,
+  taskListMethod,
   taskCreateMethod,
+  taskDeleteMethod,
   goalSaveMethod,
   goalDeleteMethod,
   designSaveMethod,

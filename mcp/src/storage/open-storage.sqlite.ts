@@ -107,6 +107,21 @@ const MIGRATIONS: readonly string[] = [
     SELECT task_id, ROW_NUMBER() OVER (PARTITION BY task_id ORDER BY id), summary, details, source FROM goal;
   DROP TABLE goal;
   ALTER TABLE goal_new RENAME TO goal;`,
+  `CREATE TABLE ticket_new (
+    task_id INTEGER NOT NULL REFERENCES task (id),
+    id INTEGER NOT NULL,
+    mode TEXT NOT NULL CHECK (mode IN ('unattended', 'attended', 'manual')),
+    complexity TEXT CHECK (complexity IN ('simple', 'moderate', 'complex')),
+    slug TEXT NOT NULL,
+    summary TEXT NOT NULL,
+    description TEXT NOT NULL,
+    PRIMARY KEY (task_id, id),
+    CHECK ((mode = 'manual') = (complexity IS NULL))
+  ) STRICT;
+  INSERT INTO ticket_new (task_id, id, mode, complexity, slug, summary, description)
+    SELECT task_id, id, 'unattended', complexity, slug, summary, description FROM ticket;
+  DROP TABLE ticket;
+  ALTER TABLE ticket_new RENAME TO ticket;`,
 ];
 
 /**

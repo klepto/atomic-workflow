@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { TICKET_COMPLEXITIES, type Task } from '../storage/task-store.ts';
+import { TICKET_COMPLEXITIES, TICKET_MODES, type Task } from '../storage/task-store.ts';
 import { taskGetMethod } from './method.task-get.ts';
 import type { Method } from './method.ts';
 import { openTask } from './open-task.ts';
@@ -14,10 +14,17 @@ const PARAMS = z.object({
   tickets: z
     .array(
       z.object({
+        mode: z
+          .enum(TICKET_MODES)
+          .describe(
+            'Who does the work: unattended for an agent alone from start to finish, attended for an agent that needs the user between turns, manual for the user, whom an agent guides and whose work it checks',
+          ),
         complexity: z
           .enum(TICKET_COMPLEXITIES)
+          .nullable()
+          .default(null)
           .describe(
-            'simple for mechanical work that follows an existing pattern, moderate for several files with small decisions, complex for cross-cutting work, tricky logic or real judgement',
+            'simple for mechanical work that follows an existing pattern, moderate for several files with small decisions, complex for cross-cutting work, tricky logic or real judgement. null for a manual ticket, and only for one',
           ),
         slug: SLUG.describe('Short name of the ticket: exactly three lowercase words joined by hyphens'),
         summary: z
@@ -43,8 +50,9 @@ const PARAMS = z.object({
 
 /**
  * `Method` named `ticketsSave`, which replaces the tickets of a task that is not complete, numbers them from 1 in
- * their order, and returns the task. A task that does not exist, and a ticket that depends on itself, on a later
- * ticket or on one ticket twice, fail with invalid parameters. A complete task fails with an invalid request.
+ * their order, and returns the task. A task that does not exist, a ticket that depends on itself, on a later ticket
+ * or on one ticket twice, and a ticket with a complexity that does not fit its mode, fail with invalid parameters. A
+ * complete task fails with an invalid request.
  */
 export const ticketsSaveMethod: Method<typeof PARAMS, Task> = {
   name: 'ticketsSave',
@@ -61,6 +69,12 @@ export const ticketsSaveMethod: Method<typeof PARAMS, Task> = {
       throw new RpcError(
         RpcErrorCode.INVALID_PARAMS,
         `Ticket ${invalid + 1} must depend on earlier tickets, each once`,
+      );
+    const misfit = tickets.findIndex(({ mode, complexity }) => (mode === 'manual') !== (complexity === null));
+    if (misfit !== -1)
+      throw new RpcError(
+        RpcErrorCode.INVALID_PARAMS,
+        `Ticket ${misfit + 1} must have a complexity, unless its mode is manual, which has none`,
       );
     await context.tasks.setTickets(taskId, tickets);
     return taskGetMethod.handle({ taskId }, context);

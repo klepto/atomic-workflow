@@ -7,8 +7,8 @@ allowed-tools: mcp__plugin_atomic-workflow_atomic-workflow__activate, mcp__plugi
 
 # Plan design
 
-Draft the design of a task, with each decision the best choice you can defend. Then revise it with the user until
-they are satisfied. The user changes a decision only by asking for a change after reading the whole design.
+Draft the design of a task, with each choice the best one you can defend. Then revise it with the user until they
+are satisfied. The user changes a choice only by asking for a change after reading the whole design.
 
 Before anything else, read `../../references/planning.md`, relative to the base directory of this skill. It holds the
 rules that every stage of planning shares: start, cascade, pushback, and the format of each part of the plan.
@@ -30,8 +30,8 @@ Do the research yourself, in this session, with Read, Grep, Glob, WebSearch and 
 inside a subagent, which cannot start one. Read the code and the documents of the repository that the goals touch.
 Search the web for the facts the repository cannot give: libraries, APIs, versions, known pitfalls.
 
-Research is done when every goal has a decision that covers it, and every decision rests on a fact you checked, not
-on a guess.
+Research is done when every goal has a section of the design that meets it, and every choice rests on a fact you
+checked, not on a guess.
 
 ## Finish
 

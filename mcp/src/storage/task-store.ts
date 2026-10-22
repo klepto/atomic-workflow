@@ -57,6 +57,18 @@ export interface Goal extends NewGoal {
 }
 
 /**
+ * Modes of a ticket, which say who does its work: `unattended` for an agent alone from start to finish, `attended`
+ * for an agent that needs the user between turns, and `manual` for the user, whom an agent guides and whose work it
+ * checks.
+ */
+export const TICKET_MODES = ['unattended', 'attended', 'manual'] as const;
+
+/**
+ * Mode of a ticket, one of `TICKET_MODES`.
+ */
+export type TicketMode = (typeof TICKET_MODES)[number];
+
+/**
  * Complexities of a ticket: `simple` for mechanical work that follows an existing pattern, `moderate` for work across
  * several files with small decisions inside the design, and `complex` for cross-cutting work, tricky logic or real
  * judgement.
@@ -73,9 +85,14 @@ export type TicketComplexity = (typeof TICKET_COMPLEXITIES)[number];
  */
 export interface NewTicket {
   /**
-   * Complexity of the work of the ticket.
+   * Who does the work of the ticket.
    */
-  readonly complexity: TicketComplexity;
+  readonly mode: TicketMode;
+
+  /**
+   * Complexity of the work of the ticket, or `null` for a ticket in the mode `manual`, which no agent does.
+   */
+  readonly complexity: TicketComplexity | null;
 
   /**
    * Short name of the ticket in kebab case.
@@ -99,7 +116,7 @@ export interface NewTicket {
 }
 
 /**
- * Ticket of a task: one unit of work that an agent does in one session.
+ * Ticket of a task: one unit of work, done in one session.
  */
 export interface Ticket extends NewTicket {
   /**
@@ -158,7 +175,7 @@ export interface Task {
   readonly goals: readonly Goal[];
 
   /**
-   * Design of the task in Markdown: the decisions that implement its goals, or `null` before the first draft.
+   * Design of the task in Markdown: the document of what gets built and why, or `null` before the first draft.
    */
   readonly design: string | null;
 
@@ -169,7 +186,42 @@ export interface Task {
 }
 
 /**
- * Store of the tasks of a repository. A task stays stored for good.
+ * Task of a repository as it appears in a list of tasks, without its plan.
+ */
+export interface TaskSummary {
+  /**
+   * Identifier of the task.
+   */
+  readonly id: number;
+
+  /**
+   * Short name of the task in kebab case.
+   */
+  readonly slug: string;
+
+  /**
+   * Status of the task.
+   */
+  readonly status: TaskStatus;
+
+  /**
+   * Time when the task was created, in ms since the epoch.
+   */
+  readonly createdAt: number;
+
+  /**
+   * Number of the tickets of the task that are completed.
+   */
+  readonly completedTickets: number;
+
+  /**
+   * Number of the tickets of the task that are not completed.
+   */
+  readonly uncompletedTickets: number;
+}
+
+/**
+ * Store of the tasks of a repository. A task stays stored until it is deleted.
  */
 export interface TaskStore {
   /**
@@ -181,6 +233,17 @@ export interface TaskStore {
    * Returns the task with the identifier `id`. If no such task exists, returns `undefined` instead.
    */
   get(id: number): Promise<Task | undefined>;
+
+  /**
+   * Returns every task, in the order of their identifiers.
+   */
+  list(): Promise<TaskSummary[]>;
+
+  /**
+   * Deletes the task `id` with its goals and its tickets, and returns `true`. If no such task exists, returns `false`
+   * instead.
+   */
+  delete(id: number): Promise<boolean>;
 
   /**
    * Adds `goal` to the end of the goals of the task `taskId`, with the next identifier.
@@ -207,7 +270,8 @@ export interface TaskStore {
 
   /**
    * Replaces the tickets of the task `taskId` with `tickets`, and numbers them from 1 in their order.
-   * If no such task exists, or a ticket depends on a ticket that `tickets` lacks, rejects.
+   * If no such task exists, a ticket depends on a ticket that `tickets` lacks, or a ticket has a complexity that does
+   * not fit its mode, rejects.
    */
   setTickets(taskId: number, tickets: readonly NewTicket[]): Promise<void>;
 
