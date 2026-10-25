@@ -1,9 +1,11 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { text } from 'node:stream/consumers';
+import type { ChangeFeed } from '../changes/change-feed.ts';
 import type { RpcHandler } from '../rpc/message.ts';
 import { RpcError, RpcErrorCode } from '../rpc/rpc-error.ts';
 import type { StartWebServerFunction } from './start-web-server.ts';
+import type { CreateStaticFilesFunction, StaticAnswer, StaticFile, StaticFiles } from './static-files.ts';
 
 /**
  * Host that the web server listens on. Only processes of the local machine reach it.
@@ -22,272 +24,144 @@ const RPC_PATH = '/rpc';
 const RPC_TYPE = 'application/json';
 
 /**
- * Number of the latest messages that the page shows when it opens.
+ * Path that streams the changes of the change feed as Server-Sent Events, one stream per `GET` request.
  */
-const LATEST_LIMIT = 100;
+const EVENTS_PATH = '/events';
 
 /**
- * Time in ms between two checks of the page for messages that were logged since the last one.
+ * Text of the answer to a path of the web app while its directory has no `index.html`.
  */
-const REFRESH_INTERVAL = 2_000;
+const NOT_BUILT = 'The web app is not built. Run npm run build in web/.';
 
 /**
- * Page that the web server serves at its root. Above the log, a form delivers a message to an attached session, the
- * latest attached orchestrator session unless another session is picked. The list of sessions shows each subagent
- * below its orchestrator session. A second button of the form starts a subagent inside a picked orchestrator session
- * instead, with the message as its first command if one is typed, and picks the new subagent. The log shows the
- * latest messages of the orchestrator sessions, or of the picked subagent only, newest first, and adds the messages
- * that are logged later every `REFRESH_INTERVAL` ms. The list of sessions is refreshed with the log. Content is set as
- * text, never as HTML.
+ * What the web server answers its requests with.
  */
-const PAGE = `<!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>atomic-workflow</title>
-<style>
-  :root { color-scheme: light dark; --muted: #888; --line: #8884; --user: #2a7ae2; --agent: #2e9d5b; }
-  body { margin: 0 auto; max-width: 56rem; padding: 1.5rem; font: 15px/1.5 system-ui, sans-serif; }
-  h1 { font-size: 1.25rem; margin: 0 0 1rem; }
-  #status { color: var(--muted); }
-  article { border-top: 1px solid var(--line); padding: 0.75rem 0; }
-  header { display: flex; gap: 0.75rem; align-items: baseline; font-size: 0.85rem; color: var(--muted); }
-  .sender { font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; }
-  .user .sender { color: var(--user); }
-  .agent .sender { color: var(--agent); }
-  .session { font-family: ui-monospace, monospace; }
-  .content { margin: 0.25rem 0 0; white-space: pre-wrap; overflow-wrap: anywhere; }
-  form { display: grid; gap: 0.5rem; margin: 0 0 1.5rem; }
-  form .row { display: flex; gap: 0.75rem; align-items: center; }
-  select, textarea, button { font: inherit; }
-  select { font-family: ui-monospace, monospace; }
-  textarea { box-sizing: border-box; width: 100%; min-height: 5rem; padding: 0.5rem; resize: vertical; }
-  #delivery { color: var(--muted); font-size: 0.85rem; }
-</style>
-</head>
-<body>
-<h1>Send a message</h1>
-<form id="send">
-  <textarea id="content" placeholder="Message to the session. Ctrl+Enter sends." required></textarea>
-  <div class="row">
-    <select id="target" title="Attached session" disabled></select>
-    <button id="submit" type="submit" disabled>Send</button>
-    <button id="spawn" type="button" title="Starts a subagent inside the session, with the message as its first command" disabled>Start subagent</button>
-    <span id="delivery"></span>
-  </div>
-</form>
-<h1>Message log</h1>
-<p id="status">Loading…</p>
-<main id="messages"></main>
-<script>
-const list = document.getElementById('messages');
-const status = document.getElementById('status');
-const form = document.getElementById('send');
-const content = document.getElementById('content');
-const target = document.getElementById('target');
-const submit = document.getElementById('submit');
-const spawn = document.getElementById('spawn');
-const delivery = document.getElementById('delivery');
-let sessions = [];
-let view;
-let last;
-let busy = false;
+interface Routes {
+  /**
+   * Answers the JSON-RPC 2.0 messages to `RPC_PATH`.
+   */
+  readonly handle: RpcHandler;
 
-const picked = () => sessions.find((session) => session.sessionId === target.value);
+  /**
+   * Feed whose changes `EVENTS_PATH` streams.
+   */
+  readonly changes: ChangeFeed;
 
-const enableButtons = () => {
-  submit.disabled = target.disabled || busy;
-  spawn.disabled = target.disabled || busy || picked()?.role !== 'orchestrator';
-};
+  /**
+   * Files of the web app, which every other path answers with.
+   */
+  readonly staticFiles: StaticFiles;
+}
 
-const call = async (method, params) => {
-  const request = { jsonrpc: '2.0', id: 1, method, params };
-  const response = await fetch('${RPC_PATH}', {
-    method: 'POST',
-    headers: { 'content-type': '${RPC_TYPE}' },
-    body: JSON.stringify(request),
-  });
-  const answer = await response.json();
-  if (answer.error) throw new Error(answer.error.message);
-  return answer.result;
-};
+/**
+ * Returns a `StartWebServerFunction` that serves over HTTP on a port that the system picks, and reads the files of
+ * the web app with the `StaticFiles` that `createStaticFiles` returns for the directory of its options.
+ *
+ * The web server answers a JSON-RPC 2.0 message in the body of a `POST` to `/rpc` with the response in the body of
+ * its answer. A message must come as JSON, so a web page of another origin cannot send one. A `GET` of `/events`
+ * opens a stream of Server-Sent Events, which sends `event: <resource>` with empty data for each change of the change
+ * feed of its options, until the client closes it or the web server stops. A `GET` of any other path answers with the
+ * file of the web app that the path names, or with `index.html` when it names none. Only requests to the host and port
+ * of its URL are answered, at every path, so a host name that resolves to the local host does not reach it.
+ */
+export const httpStartWebServer =
+  (createStaticFiles: CreateStaticFilesFunction): StartWebServerFunction =>
+  async (handle, options) => {
+    const routes: Routes = {
+      handle,
+      changes: options.changes,
+      staticFiles: createStaticFiles({ directory: options.directory }),
+    };
+    const server = createServer((request, response) => void serve(routes, request, response));
+    await listen(server);
+    const { port } = server.address() as AddressInfo;
+    return { url: `http://${HOST}:${port}/`, close: () => close(server) };
+  };
 
-const element = (tag, className, text) => {
-  const node = document.createElement(tag);
-  node.className = className;
-  node.textContent = text;
-  return node;
-};
-
-const render = (message) => {
-  const session = element('span', 'session', message.sessionId.slice(0, 8));
-  session.title = message.sessionId;
-  const header = document.createElement('header');
-  header.append(
-    element('span', 'sender', message.sender),
-    element('time', 'time', new Date(message.timestamp).toLocaleString()),
-    session,
-  );
-  const article = element('article', message.sender, '');
-  article.append(header, element('p', 'content', message.content));
-  return article;
-};
-
-const option = (session) => {
-  const label = session.sessionId.slice(0, 8);
-  const node = element('option', '', session.role === 'subagent' ? '  ↳ subagent ' + label : label);
-  node.value = session.sessionId;
-  node.title = session.sessionId;
-  return node;
-};
-
-const options = (attached) => {
-  const orchestrators = attached.filter((session) => session.role === 'orchestrator');
-  const subagents = attached.filter((session) => session.role === 'subagent');
-  const orphans = subagents.filter((subagent) => !orchestrators.some((session) => session.sessionId === subagent.parentId));
-  return [
-    ...orchestrators.slice().reverse().flatMap((orchestrator) => [
-      option(orchestrator),
-      ...subagents.filter((subagent) => subagent.parentId === orchestrator.sessionId).map(option),
-    ]),
-    ...orphans.map(option),
-  ];
-};
-
-const showTargets = (attached) => {
-  const previous = target.value;
-  const latest = attached.filter((session) => session.role === 'orchestrator').at(-1) ?? attached.at(-1);
-  sessions = attached;
-  target.replaceChildren(...options(attached));
-  target.value = attached.some((session) => session.sessionId === previous) ? previous : (latest?.sessionId ?? '');
-  target.disabled = attached.length === 0;
-  enableButtons();
-  if (attached.length === 0) target.replaceChildren(element('option', '', 'No attached session'));
-};
-
-const refreshTargets = async () => {
+/**
+ * Answers `request` with `response`, as `route` does. A failure of `route` is answered with `500` and its message, or
+ * ends the connection once the answer has begun, so it does not end the process.
+ */
+const serve = async (routes: Routes, request: IncomingMessage, response: ServerResponse): Promise<void> => {
   try {
-    const { sessions } = await call('sessionList', { attached: true });
-    showTargets(sessions);
-  } catch (error) {
-    showTargets([]);
-    delivery.textContent = 'Could not load the attached sessions: ' + error.message;
+    await route(routes, request, response);
+  } catch (failure) {
+    if (response.headersSent) return void response.destroy();
+    respond(response, 500, 'text/plain', failure instanceof Error ? failure.message : String(failure));
   }
 };
 
-const send = async () => {
-  if (busy || target.disabled || content.value.trim() === '') return;
-  busy = true;
-  enableButtons();
-  delivery.textContent = 'Sending…';
-  try {
-    await call('messageDeliver', { sessionId: target.value, content: content.value });
-    content.value = '';
-    delivery.textContent = 'Delivered at ' + new Date().toLocaleTimeString() + '.';
-  } catch (error) {
-    delivery.textContent = 'Could not deliver the message: ' + error.message;
-  } finally {
-    busy = false;
-    enableButtons();
-  }
-};
-
-const startSubagent = async () => {
-  if (busy || target.disabled) return;
-  busy = true;
-  enableButtons();
-  delivery.textContent = 'Starting a subagent…';
-  try {
-    const prompt = content.value.trim() === '' ? undefined : content.value;
-    const { sessionId } = await call('subagentStart', { parentId: target.value, prompt });
-    content.value = '';
-    await refreshTargets();
-    target.value = sessionId;
-    enableButtons();
-    delivery.textContent = 'Started the subagent ' + sessionId.slice(0, 8) + ' at ' + new Date().toLocaleTimeString() + '.';
-  } catch (error) {
-    delivery.textContent = 'Could not start a subagent: ' + error.message;
-  } finally {
-    busy = false;
-    enableButtons();
-  }
-};
-
-spawn.addEventListener('click', startSubagent);
-
-target.addEventListener('change', enableButtons);
-
-form.addEventListener('submit', (event) => {
-  event.preventDefault();
-  send();
-});
-
-content.addEventListener('keydown', (event) => {
-  if (event.key !== 'Enter' || !(event.ctrlKey || event.metaKey)) return;
-  event.preventDefault();
-  send();
-});
-
-const viewOf = (session) => {
-  return session?.role === 'subagent' ? { sessionId: session.sessionId } : { role: 'orchestrator' };
-};
-
-const refresh = async () => {
-  await refreshTargets();
-  try {
-    const shown = viewOf(picked());
-    const key = JSON.stringify(shown);
-    if (key !== view) {
-      view = key;
-      last = undefined;
-      list.replaceChildren();
-    }
-    const params = last === undefined ? { ...shown, limit: ${LATEST_LIMIT} } : { ...shown, after: last, limit: 1000 };
-    const { messages } = await call('messageList', params);
-    for (const message of messages) list.prepend(render(message));
-    last = messages.length > 0 ? messages[messages.length - 1].id : (last ?? 0);
-    status.textContent = list.childElementCount === 0 ? 'No messages yet.' : '';
-  } catch (error) {
-    status.textContent = 'Could not load the messages: ' + error.message;
-  }
-  setTimeout(refresh, ${REFRESH_INTERVAL});
-};
-
-refresh();
-</script>
-</body>
-</html>
-`;
-
 /**
- * `StartWebServerFunction` that serves over HTTP on a port that the system picks. It serves the page at `/`, and
- * answers a JSON-RPC 2.0 message in the body of a `POST` to `/rpc` with the response in the body of its answer. Only
- * requests to the host and port of its URL are answered, so a host name that resolves to the local host does not
- * reach it, and a message must come as JSON, so a web page of another origin cannot send one.
+ * Answers `request` with `response`, by its host, its path and its method: `421` to another host than the one of the
+ * web server, the answer of `handle` of `routes` at `RPC_PATH`, `405` to any method other than `GET` at every other
+ * path, the stream of the change feed of `routes` to a `GET` of `EVENTS_PATH`, and the answer of the static files of
+ * `routes` to a `GET` of any other path.
  */
-export const httpStartWebServer: StartWebServerFunction = async (handle) => {
-  const server = createServer((request, response) => void route(handle, request, response));
-  await listen(server);
-  const { port } = server.address() as AddressInfo;
-  return { url: `http://${HOST}:${port}/`, close: () => close(server) };
-};
-
-/**
- * Answers `request` with `response`, by its path and method.
- */
-const route = async (handle: RpcHandler, request: IncomingMessage, response: ServerResponse): Promise<void> => {
+const route = async (routes: Routes, request: IncomingMessage, response: ServerResponse): Promise<void> => {
   const { pathname } = new URL(request.url ?? '/', `http://${HOST}`);
   if (request.headers.host !== `${HOST}:${request.socket.localPort}`)
     return void respond(response, 421, 'text/plain', 'Unknown host');
-  if (pathname === '/' && request.method === 'GET') return void respond(response, 200, 'text/html', PAGE);
-  if (pathname !== RPC_PATH) return void respond(response, 404, 'text/plain', 'Not found');
+  if (pathname === RPC_PATH) return routeRpc(routes.handle, request, response);
+  if (request.method !== 'GET') return void respond(response, 405, 'text/plain', 'Only GET is allowed');
+  if (pathname === EVENTS_PATH) return streamEvents(routes.changes, response);
+  // The path as it was sent, since the path of the URL already has its `..` and its `%2e%2e` resolved.
+  respondStatic(response, await routes.staticFiles.find(sentPath(request.url ?? '/')));
+};
+
+/**
+ * Answers `request` to `RPC_PATH` with `response`: `405` to any method other than `POST`, `415` to a body that is not
+ * declared as `RPC_TYPE`, and else the response of `handle` to the message of the body.
+ */
+const routeRpc = async (handle: RpcHandler, request: IncomingMessage, response: ServerResponse): Promise<void> => {
   if (request.method !== 'POST') return void respond(response, 405, 'text/plain', 'Only POST is allowed');
   if (request.headers['content-type']?.split(';')[0]?.trim() !== RPC_TYPE)
     return void respond(response, 415, 'text/plain', `Only ${RPC_TYPE} is allowed`);
   const answer = await call(handle, await text(request));
   if (answer === undefined) return void respond(response, 204);
   respond(response, 200, 'application/json', JSON.stringify(answer));
+};
+
+/**
+ * Answers a `GET` of `EVENTS_PATH` with `response`, a stream of Server-Sent Events: `200` with the headers sent at
+ * once, so the client opens the stream, then `event: <resource>` with empty data for each change of `changes`. The
+ * subscription to `changes` ends when the response closes, which `close` of the web server brings about as well.
+ */
+const streamEvents = (changes: ChangeFeed, response: ServerResponse): void => {
+  response.setHeader('content-type', 'text/event-stream');
+  response.setHeader('cache-control', 'no-store');
+  response.writeHead(200);
+  response.flushHeaders();
+  const unsubscribe = changes.subscribe((resource) => void response.write(`event: ${resource}\ndata:\n\n`));
+  response.once('close', unsubscribe);
+};
+
+/**
+ * Returns the path of `url`, the path and query of a request, as it was sent: without its query, and not decoded.
+ */
+const sentPath = (url: string): string => {
+  const queryStart = url.indexOf('?');
+  return queryStart === -1 ? url : url.slice(0, queryStart);
+};
+
+/**
+ * Ends `response` with `staticAnswer`: `200` with the file of a `file` or a `fallback`, `400` with the message of a
+ * `refused`, and `503` with `NOT_BUILT` for a `missing`.
+ */
+const respondStatic = (response: ServerResponse, staticAnswer: StaticAnswer): void => {
+  if (staticAnswer.kind === 'refused') return respond(response, 400, 'text/plain', staticAnswer.message);
+  if (staticAnswer.kind === 'missing') return respond(response, 503, 'text/plain', NOT_BUILT);
+  respondFile(response, staticAnswer.file);
+};
+
+/**
+ * Ends `response` with the status `200` and `file`: its bytes, its content type as it is, and its cache rule as
+ * `Cache-Control` when it has one.
+ */
+const respondFile = (response: ServerResponse, file: StaticFile): void => {
+  response.setHeader('content-type', file.contentType);
+  if (file.cacheControl !== undefined) response.setHeader('cache-control', file.cacheControl);
+  response.writeHead(200);
+  response.end(file.content);
 };
 
 /**

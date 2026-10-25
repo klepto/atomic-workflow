@@ -19729,7 +19729,7 @@ import { createConnection } from "node:net";
 import { setTimeout as sleep } from "node:timers/promises";
 
 // src/attachment/hello.ts
-var PROTOCOL_VERSION = 19;
+var PROTOCOL_VERSION = 20;
 var HELLO_METHOD = "hello";
 var HELLO_PARAMS = external_exports.object({
   protocol: external_exports.number().int(),

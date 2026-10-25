@@ -28,6 +28,39 @@ export interface TranscriptMessage {
 }
 
 /**
+ * Skill that the agent of a session can run, as its transcript lists it.
+ */
+export interface TranscriptSkill {
+  /**
+   * Name of the skill, with the name of its plugin before a colon for the skill of a plugin, such as
+   * `atomic-workflow:plan`.
+   */
+  readonly name: string;
+
+  /**
+   * What the skill does and when to use it, as the agent lists it.
+   */
+  readonly description: string;
+}
+
+/**
+ * List of skills that a transcript holds: every skill that the session can run, or the skills that were added or
+ * changed since the last list.
+ */
+export interface SkillListing {
+  /**
+   * Whether the list holds every skill of the session, so that it replaces the skills known so far. A list that is not
+   * initial adds its skills to them, and replaces each one of the same name.
+   */
+  readonly initial: boolean;
+
+  /**
+   * Skills of the list, in the order that the agent lists them.
+   */
+  readonly skills: readonly TranscriptSkill[];
+}
+
+/**
  * Transcript of one session of an agent: a file that the agent appends one line of JSON to for each entry of the
  * session.
  */
@@ -52,6 +85,12 @@ export interface Transcript {
    * kind of entry, or is not valid, returns `undefined` instead.
    */
   parse(line: string): TranscriptMessage | undefined;
+
+  /**
+   * Returns the list of skills that the line `line` of the transcript holds. If the line holds another kind of entry,
+   * or is not valid, returns `undefined` instead.
+   */
+  parseSkills(line: string): SkillListing | undefined;
 
   /**
    * Resolves when the session of the transcript ends, such as when Claude Code moves on to a new session after

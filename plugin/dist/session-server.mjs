@@ -7199,7 +7199,7 @@ var require_dist = __commonJS({
 });
 
 // src/session-server.main.ts
-import { basename, join as join3 } from "node:path";
+import { basename as basename2, join as join3 } from "node:path";
 
 // node_modules/zod/v3/helpers/util.js
 var util;
@@ -36596,7 +36596,7 @@ import { createConnection } from "node:net";
 import { setTimeout as sleep } from "node:timers/promises";
 
 // src/attachment/hello.ts
-var PROTOCOL_VERSION = 19;
+var PROTOCOL_VERSION = 20;
 var HELLO_METHOD = "hello";
 var HELLO_PARAMS = external_exports.object({
   protocol: external_exports.number().int(),
@@ -37177,8 +37177,19 @@ var messageLogMethod = {
   }
 };
 
+// src/rpc/method.repository-get.ts
+import { basename } from "node:path";
+var PARAMS14 = external_exports.object({});
+var repositoryGetMethod = {
+  name: "repositoryGet",
+  description: "Returns the repository of the atomic workflow: the absolute path of its main worktree, and its name, the last segment of that path.",
+  agent: false,
+  params: PARAMS14,
+  handle: async (_params, { mainWorktree }) => ({ name: basename(mainWorktree), directory: mainWorktree })
+};
+
 // src/rpc/method.session-register.ts
-var PARAMS14 = external_exports.object({
+var PARAMS15 = external_exports.object({
   sessionId: external_exports.string().min(1).describe("Identifier of the session, as the agent gives it"),
   agent: external_exports.enum(AGENTS).describe("Agent that the session runs in: claude or codex"),
   directory: external_exports.string().min(1).describe("Absolute path of the directory of the project of the session"),
@@ -37190,12 +37201,49 @@ var sessionRegisterMethod = {
   name: "sessionRegister",
   description: "Registers a session of an agent in the repository, so that its messages can be logged.",
   agent: false,
-  params: PARAMS14,
+  params: PARAMS15,
   handle: ({ sessionId, agent, directory, startedAt = Date.now(), role, parentId = null }, { sessions }) => sessions.register({ id: sessionId, agent, directory, startedAt, role, parentId })
 };
 
+// src/rpc/session-method.skill-list.ts
+var PARAMS16 = external_exports.object({
+  sessionId: external_exports.string().min(1).describe("Identifier of the session that the agent runs now")
+});
+var skillListSessionMethod = {
+  name: "skillList",
+  description: "Returns the skills that the agent of the session can run.",
+  agent: false,
+  params: PARAMS16,
+  handle: async ({ sessionId }, { listSkills: listSkills2 }) => ({ skills: listSkills2(sessionId) })
+};
+
+// src/rpc/method.skill-list.ts
+var ACTIVATION_SKILL = "atomic-workflow:atomic-workflow";
+var PARAMS17 = external_exports.object({
+  sessionId: external_exports.string().min(1).describe("Identifier of the attached session or subagent")
+});
+var skillListMethod = {
+  name: "skillList",
+  description: "Returns the skills that an attached session or subagent of the repository can run.",
+  agent: false,
+  params: PARAMS17,
+  handle: async ({ sessionId }, context) => {
+    const orchestratorId = orchestratorOf(context, sessionId);
+    const connection = orchestratorId === void 0 ? void 0 : context.sessionConnections.get(orchestratorId);
+    if (orchestratorId === void 0 || connection === void 0)
+      throw new RpcError(RpcErrorCode.INVALID_PARAMS, `No session ${sessionId} is attached`);
+    const params = { sessionId: orchestratorId };
+    const { skills } = await connection.request(skillListSessionMethod.name, params);
+    return { skills: skills.filter(({ name }) => name !== ACTIVATION_SKILL) };
+  }
+};
+var orchestratorOf = ({ sessionConnections, subagents }, sessionId) => {
+  if (sessionConnections.get(sessionId) !== void 0) return sessionId;
+  return subagents.list().find((subagent) => subagent.sessionId === sessionId)?.parentId;
+};
+
 // src/rpc/method.design-save.ts
-var PARAMS15 = external_exports.object({
+var PARAMS18 = external_exports.object({
   taskId: external_exports.number().int().positive().describe("Identifier of the task"),
   design: external_exports.string().trim().min(1).describe("Whole design of the task in Markdown, which replaces the stored one")
 });
@@ -37203,7 +37251,7 @@ var designSaveMethod = {
   name: "designSave",
   description: "Replaces the design of a task of the atomic workflow with a whole new draft of it, and returns the task. The design of a complete task can change too, until the task is done.",
   agent: true,
-  params: PARAMS15,
+  params: PARAMS18,
   handle: async ({ taskId, design }, context) => {
     await openAmendableTask(taskId, context);
     await context.tasks.setDesign(taskId, design);
@@ -37212,7 +37260,7 @@ var designSaveMethod = {
 };
 
 // src/rpc/method.goal-save.ts
-var PARAMS16 = external_exports.object({
+var PARAMS19 = external_exports.object({
   taskId: external_exports.number().int().positive().describe("Identifier of the task"),
   goalId: external_exports.number().int().positive().optional().describe("Number of the goal to edit within the task, counted from 1, a new goal when left out"),
   summary: external_exports.string().trim().min(1).regex(/^[^\r\n]*$/, "Must be one line").describe("Summary of the goal, on one line"),
@@ -37223,7 +37271,7 @@ var goalSaveMethod = {
   name: "goalSave",
   description: "Adds a goal that the user approved to a task of the atomic workflow, or edits one of its goals, and returns the task.",
   agent: true,
-  params: PARAMS16,
+  params: PARAMS19,
   handle: async ({ taskId, goalId, summary, details = null, source }, context) => {
     await openTask(taskId, context);
     if (goalId === void 0) {
@@ -37236,7 +37284,7 @@ var goalSaveMethod = {
 };
 
 // src/rpc/method.tickets-save.ts
-var PARAMS17 = external_exports.object({
+var PARAMS20 = external_exports.object({
   taskId: external_exports.number().int().positive().describe("Identifier of the task"),
   tickets: external_exports.array(
     external_exports.object({
@@ -37265,7 +37313,7 @@ var ticketsSaveMethod = {
   name: "ticketsSave",
   description: "Replaces the tickets of a task of the atomic workflow with a whole new list of them, and returns the task. On a complete task, each ticket whose work started must stay as stored.",
   agent: true,
-  params: PARAMS17,
+  params: PARAMS20,
   handle: async ({ taskId, tickets }, context) => {
     const stored = await openAmendableTask(taskId, context);
     checkShape(tickets);
@@ -37327,7 +37375,7 @@ var checkFixes = (task, tickets) => {
 };
 
 // src/rpc/method.task-set-status.ts
-var PARAMS18 = external_exports.object({
+var PARAMS21 = external_exports.object({
   taskId: external_exports.number().int().positive().describe("Identifier of the task"),
   status: external_exports.enum(TASK_STATUSES).exclude(["done"]).describe("Status to set: the stage of planning the user works on, or complete")
 });
@@ -37335,7 +37383,7 @@ var taskSetStatusMethod = {
   name: "taskSetStatus",
   description: "Sets the status of a task of the atomic workflow to the stage of planning the user works on, or to complete once the user is satisfied with the whole plan, and returns the task.",
   agent: true,
-  params: PARAMS18,
+  params: PARAMS21,
   handle: async ({ taskId, status }, context) => {
     const task = await openTask(taskId, context);
     const missing = missingPart(task, status);
@@ -37354,14 +37402,14 @@ var missingPart = (task, status) => {
 };
 
 // src/rpc/method.ticket-next.ts
-var PARAMS19 = external_exports.object({
+var PARAMS22 = external_exports.object({
   taskId: external_exports.number().int().positive().describe("Identifier of the task")
 });
 var ticketNextMethod = {
   name: "ticketNext",
   description: "Returns the next ticket to work on of a task of the atomic workflow whose plan is complete: the first ready ticket in progress, else the first ready ticket not started, or null. Also returns every ticket that can be picked, with its mode, and each ticket whose work has not landed and that cannot be picked, with its cause: elsewhere, blocked or dependencies.",
   agent: true,
-  params: PARAMS19,
+  params: PARAMS22,
   handle: async ({ taskId }, context) => {
     const task = await openCompleteTask(taskId, context);
     const open4 = task.tickets.filter(({ status }) => !hasLanded(status));
@@ -37386,7 +37434,7 @@ var causeOf = (task, ticket, context) => {
 var isElsewhere = (task, ticket, context) => context.ticketClaims.isHeldByOther(task.id, ticket.id, callHolder(context));
 
 // src/rpc/method.ticket-set-status.ts
-var PARAMS20 = external_exports.object({
+var PARAMS23 = external_exports.object({
   taskId: external_exports.number().int().positive().describe("Identifier of the task"),
   ticketId: external_exports.number().int().positive().describe("Identifier of the ticket within its task"),
   status: external_exports.enum(["not-started", "in-progress", "blocked", "done"]).describe(
@@ -37401,7 +37449,7 @@ var ticketSetStatusMethod = {
   name: "ticketSetStatus",
   description: "Sets the status of a ticket of the atomic workflow, with the stage of its work and the reason that it is blocked, and returns the ticket.",
   agent: true,
-  params: PARAMS20,
+  params: PARAMS23,
   handle: async ({ taskId, ticketId, status, stage, reason }, context) => {
     const { ticket } = await openTicket(taskId, ticketId, context);
     const refusal = refusalOf(ticket, status, stage, reason);
@@ -37447,7 +37495,7 @@ var refusalOf = (ticket, status, stage, reason) => {
 };
 
 // src/rpc/method.worktree-create.ts
-var PARAMS21 = external_exports.object({
+var PARAMS24 = external_exports.object({
   taskId: external_exports.number().int().positive().describe("Identifier of the task"),
   ticketId: external_exports.number().int().positive().describe("Identifier of the ticket within its task")
 });
@@ -37455,7 +37503,7 @@ var worktreeCreateMethod = {
   name: "worktreeCreate",
   description: "Starts the work on a ticket of the atomic workflow: makes the worktree of its task and its own worktree where they do not exist, sets it in-progress, and returns the paths and branches of both worktrees with the ticket. Before it makes the branch of the ticket, it rebases the task branch onto the local base branch. On a conflict of that rebase, resolve and add the files in the worktree of the task that the error names, then call it again.",
   agent: true,
-  params: PARAMS21,
+  params: PARAMS24,
   handle: async ({ taskId, ticketId }, context) => {
     const { task, ticket } = await openTicket(taskId, ticketId, context);
     if (hasLanded(ticket.status))
@@ -37484,7 +37532,7 @@ var start = async (task, ticket, context) => {
 };
 
 // src/rpc/method.worktree-delete.ts
-var PARAMS22 = external_exports.object({
+var PARAMS25 = external_exports.object({
   taskId: external_exports.number().int().positive().describe("Identifier of the task"),
   ticketId: external_exports.number().int().positive().optional().describe("Identifier of the ticket whose worktree and branch to delete. Without it, deletes those of the task"),
   force: external_exports.boolean().default(false).describe("Whether to delete branches whose commits have not landed, and worktrees with uncommitted changes")
@@ -37494,7 +37542,7 @@ var worktreeDeleteMethod = {
   name: "worktreeDelete",
   description: "Deletes the worktree and the branch of a ticket of the atomic workflow, or without a ticket, every worktree and branch of the task. Refuses to lose work that has not landed unless forced.",
   agent: true,
-  params: PARAMS22,
+  params: PARAMS25,
   handle: async ({ taskId, ticketId, force }, context) => {
     const task = await taskGetMethod.handle({ task: taskId }, context);
     if (ticketId === void 0) return deleteTask(task, force, context);
@@ -37525,7 +37573,7 @@ var deleteTask = async (task, force, context) => {
 
 // src/rpc/method.worktree-merge.ts
 var SUMMARY_LINE = /^(feat|fix|chore|refactor|docs|test|perf|build|ci|style|revert)(\([^()\r\n]+\))?!?: \S/;
-var PARAMS23 = external_exports.object({
+var PARAMS26 = external_exports.object({
   taskId: external_exports.number().int().positive().describe("Identifier of the task"),
   ticketId: external_exports.number().int().positive().optional().describe(
     "Identifier of the ticket to land on the task branch. Without it, lands the task branch on the base branch once every ticket of the task is done"
@@ -37538,7 +37586,7 @@ var worktreeMergeMethod = {
   name: "worktreeMerge",
   description: "With a ticket, squashes the commits of the worktree of a ticket of the atomic workflow into one commit with the message, rebases it onto the task branch, moves the task branch forward to it, and sets the ticket needs-review. Without a ticket, once every ticket of the task is done, rebases the task branch onto its base branch, moves the base branch forward to it, deletes the worktrees and branches of the task, and sets the task done. On a conflict, resolve and add the files in the worktree that the error names, then call it again.",
   agent: true,
-  params: PARAMS23,
+  params: PARAMS26,
   handle: async ({ taskId, ticketId, message }, context) => {
     if (ticketId === void 0) {
       if (message !== void 0)
@@ -37603,7 +37651,7 @@ var checkMergeable = (task) => {
 import { randomUUID } from "node:crypto";
 
 // src/rpc/session-method.subagent-follow.ts
-var PARAMS24 = external_exports.object({
+var PARAMS27 = external_exports.object({
   sessionId: external_exports.string().min(1).describe("Identifier of the session of the subagent"),
   parentId: external_exports.string().min(1).describe("Identifier of the orchestrator session that the subagent runs inside")
 });
@@ -37611,14 +37659,14 @@ var subagentFollowMethod = {
   name: "subagentFollow",
   description: "Logs the transcript of a subagent of the session.",
   agent: false,
-  params: PARAMS24,
+  params: PARAMS27,
   handle: async ({ sessionId, parentId }, { followSubagent: followSubagent2 }) => followSubagent2(sessionId, parentId)
 };
 
 // src/rpc/method.subagent-start.ts
 var ATTACH_TIMEOUT = 6e4;
 var AGENT_TYPE = "atomic-workflow:worker";
-var PARAMS25 = external_exports.object({
+var PARAMS28 = external_exports.object({
   prompt: external_exports.string().min(1).optional().describe("First command of the subagent, none when left out"),
   parentId: external_exports.string().optional().describe("Session id of the orchestrator, the one that attached last when left out")
 });
@@ -37626,7 +37674,7 @@ var subagentStartMethod = {
   name: "subagentStart",
   description: "Starts a subagent inside an orchestrator session, by default the one that attached last, and returns its session id.",
   agent: false,
-  params: PARAMS25,
+  params: PARAMS28,
   handle: async ({ prompt, parentId: pickedId }, context) => {
     const { sessions, sessionConnections, subagents, inboxes } = context;
     const parentId = pickedId ?? sessionConnections.list().at(-1);
@@ -37673,14 +37721,14 @@ var spawnMessage = (sessionId, commandLine) => {
 };
 
 // src/rpc/method.subagent-stop.ts
-var PARAMS26 = external_exports.object({
+var PARAMS29 = external_exports.object({
   sessionId: external_exports.string().describe("Session id of the subagent to stop")
 });
 var subagentStopMethod = {
   name: "subagentStop",
   description: "Stops a subagent that subagentStart started.",
   agent: false,
-  params: PARAMS26,
+  params: PARAMS29,
   handle: async ({ sessionId }, { subagents, inboxes }) => {
     if (!subagents.stop(sessionId))
       throw new RpcError(RpcErrorCode.INVALID_PARAMS, `No subagent ${sessionId} is started`);
@@ -37691,6 +37739,7 @@ var subagentStopMethod = {
 // src/rpc/method.ts
 var Methods = [
   echoMethod,
+  repositoryGetMethod,
   sessionRegisterMethod,
   messageLogMethod,
   messageListMethod,
@@ -37699,6 +37748,7 @@ var Methods = [
   subagentStartMethod,
   subagentStopMethod,
   subagentEndMethod,
+  skillListMethod,
   inboxAwaitCommandMethod,
   inboxAwaitMethod,
   taskGetMethod,
@@ -37800,7 +37850,10 @@ var send = (connection, message) => {
 var OpenRpcConnection = ndjsonOpenRpcConnection;
 
 // src/rpc/session-method.ts
-var SessionMethods = [subagentFollowMethod];
+var SessionMethods = [
+  subagentFollowMethod,
+  skillListSessionMethod
+];
 
 // src/transcript/find-transcript.claude.ts
 import { access, open as open2, readdir, readFile } from "node:fs/promises";
@@ -37818,6 +37871,17 @@ var ENTRY = external_exports.object({
     content: external_exports.union([external_exports.string(), external_exports.array(external_exports.object({ type: external_exports.string(), text: external_exports.string().optional() }))])
   })
 });
+var SKILL_LISTING = external_exports.object({
+  type: external_exports.literal("attachment"),
+  isSidechain: external_exports.boolean().optional(),
+  attachment: external_exports.object({
+    type: external_exports.literal("skill_listing"),
+    content: external_exports.string(),
+    isInitial: external_exports.boolean().optional(),
+    names: external_exports.array(external_exports.string())
+  })
+});
+var SKILL_LISTING_MARK = '"skill_listing"';
 var SENDERS = /* @__PURE__ */ new Map([
   ["user", "user"],
   ["assistant", "agent"]
@@ -37858,6 +37922,7 @@ var claudeFindTranscript = async (environment, parentProcessId) => {
     sessionId,
     path,
     parse: entryParser(false),
+    parseSkills: (line) => parseSkillListing(line, false),
     waitForEnd: (signal) => waitForEnd(sessionFile, sessionId, signal)
   };
 };
@@ -37906,6 +37971,7 @@ var claudeFindSubagentTranscript = async (parent, sessionId, signal) => {
         sessionId,
         path,
         parse: entryParser(true),
+        parseSkills: (line) => parseSkillListing(line, true),
         waitForEnd: (signal2) => waitForStop(path.replace(/\.jsonl$/, ".meta.json"), signal2)
       };
     if (signal.aborted || Date.now() >= deadline) return void 0;
@@ -37959,6 +38025,30 @@ var textOf = (content) => {
   if (typeof content === "string") return content;
   return content.filter((block) => block.type === "text").map((block) => block.text ?? "").join("\n\n");
 };
+var parseSkillListing = (line, sidechain) => {
+  if (!line.includes(SKILL_LISTING_MARK)) return void 0;
+  const entry = SKILL_LISTING.safeParse(parseJson(line));
+  if (!entry.success || (entry.data.isSidechain ?? false) !== sidechain) return void 0;
+  const { content, isInitial = false, names } = entry.data.attachment;
+  const descriptions = descriptionsOf(content, names);
+  return {
+    initial: isInitial,
+    skills: names.map((name) => ({ name, description: descriptions.get(name) ?? "" }))
+  };
+};
+var descriptionsOf = (content, names) => {
+  const descriptions = /* @__PURE__ */ new Map();
+  let current;
+  for (const line of content.split("\n")) {
+    const name = startedSkill(line, names);
+    if (name !== void 0) current = { name, description: line.slice(name.length + 3).trim() };
+    else if (current !== void 0) current = { ...current, description: `${current.description}
+${line}` };
+    if (current !== void 0) descriptions.set(current.name, current.description);
+  }
+  return descriptions;
+};
+var startedSkill = (line, names) => names.filter((name) => line.startsWith(`- ${name}:`)).reduce((longest, name) => name.length > (longest?.length ?? -1) ? name : longest, void 0);
 
 // src/transcript/find-transcript.ts
 var FindTranscript = claudeFindTranscript;
@@ -38049,11 +38139,11 @@ var TailFile = pollTailFile;
 var SERVER_NAME = "atomic-workflow";
 var REPOSITORY_SERVER = join3(
   import.meta.dirname,
-  basename(import.meta.filename).replace("session-server", "repository-server")
+  basename2(import.meta.filename).replace("session-server", "repository-server")
 );
 var AWAIT_COMMAND = join3(
   import.meta.dirname,
-  basename(import.meta.filename).replace("session-server", "await-command")
+  basename2(import.meta.filename).replace("session-server", "await-command")
 );
 var main = async () => {
   const server = new McpServer({ name: SERVER_NAME, version: "0.0.0" });
@@ -38074,10 +38164,12 @@ var main = async () => {
     },
     server,
     context: {
-      followSubagent: (sessionId, parentId) => followSubagent(session, sessionId, parentId)
+      followSubagent: (sessionId, parentId) => followSubagent(session, sessionId, parentId),
+      listSkills: (sessionId) => listSkills(session, sessionId)
     },
     attachment: void 0,
-    transcript: void 0
+    transcript: void 0,
+    skills: /* @__PURE__ */ new Map()
   };
   server.registerTool(
     "activate",
@@ -38129,6 +38221,7 @@ var attach = async (session) => {
   void attachment2.connection.closed.then(() => {
     session.attachment = void 0;
     session.transcript = void 0;
+    session.skills = /* @__PURE__ */ new Map();
     logging.abort();
     for (const tool of tools) tool.remove();
   });
@@ -38152,11 +38245,29 @@ var followCurrentSession = async (session, connection, signal, onBound) => {
   const transcript = await findTranscript(session.environment, session.parentProcessId);
   if (transcript === void 0) return false;
   session.transcript = transcript;
+  session.skills = /* @__PURE__ */ new Map();
   const params = { sessionId: transcript.sessionId };
   await connection.request(BIND_SESSION_METHOD, params, signal);
   onBound();
-  await logTranscript(transcript, session.directory, connection, signal, { tailFile });
+  await logTranscript(watchSkills(session, transcript), session.directory, connection, signal, { tailFile });
   return true;
+};
+var watchSkills = (session, transcript) => ({
+  ...transcript,
+  parse: (line) => {
+    const listing = transcript.parseSkills(line);
+    if (listing !== void 0 && session.transcript === transcript) keepSkills(session, listing);
+    return transcript.parse(line);
+  }
+});
+var keepSkills = (session, listing) => {
+  if (listing.initial) session.skills = /* @__PURE__ */ new Map();
+  for (const skill of listing.skills) session.skills.set(skill.name, skill);
+};
+var listSkills = (session, sessionId) => {
+  if (session.transcript?.sessionId !== sessionId)
+    throw new Error(`The session ${sessionId} is not the current session`);
+  return [...session.skills.values()];
 };
 var followSubagent = (session, sessionId, parentId) => {
   const parent = session.transcript;

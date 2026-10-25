@@ -21,7 +21,9 @@ import { taskDeleteMethod } from './method.task-delete.ts';
 import { sessionListMethod } from './method.session-list.ts';
 import { messageListMethod } from './method.message-list.ts';
 import { messageLogMethod } from './method.message-log.ts';
+import { repositoryGetMethod } from './method.repository-get.ts';
 import { sessionRegisterMethod } from './method.session-register.ts';
+import { skillListMethod } from './method.skill-list.ts';
 import { designSaveMethod } from './method.design-save.ts';
 import { goalSaveMethod } from './method.goal-save.ts';
 import { ticketsSaveMethod } from './method.tickets-save.ts';
@@ -79,6 +81,12 @@ export interface MethodContext {
   readonly ticketClaims: TicketClaims;
 
   /**
+   * Absolute path of the main worktree of the repository, the same for every worktree that the repository server
+   * starts in.
+   */
+  readonly mainWorktree: string;
+
+  /**
    * Connection that the request came over, or `undefined` for a request without one, such as a request to the web
    * server.
    */
@@ -128,6 +136,7 @@ export interface Method<Params extends z.ZodObject = z.ZodObject, Result = unkno
  */
 export const Methods: readonly Method[] = [
   echoMethod,
+  repositoryGetMethod,
   sessionRegisterMethod,
   messageLogMethod,
   messageListMethod,
@@ -136,6 +145,7 @@ export const Methods: readonly Method[] = [
   subagentStartMethod,
   subagentStopMethod,
   subagentEndMethod,
+  skillListMethod,
   inboxAwaitCommandMethod,
   inboxAwaitMethod,
   taskGetMethod,

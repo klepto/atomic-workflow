@@ -18,7 +18,9 @@ import {
   type FindSubagentTranscriptFunction,
   FindTranscript,
   type FindTranscriptFunction,
+  type SkillListing,
   type Transcript,
+  type TranscriptSkill,
 } from './transcript/find-transcript.ts';
 import { LogTranscript, type LogTranscriptFunction } from './transcript/log-transcript.ts';
 import { TailFile, type TailFileFunction } from './transcript/tail-file.ts';
@@ -141,6 +143,12 @@ interface Session {
    * Transcript of the session that the agent runs now, while it is logged, or `undefined` while none is.
    */
   transcript: Transcript | undefined;
+
+  /**
+   * Skills that the agent of the session of `transcript` can run, as the transcript lists them so far, by name in the
+   * order of the list. Empty while no transcript is logged.
+   */
+  skills: Map<string, TranscriptSkill>;
 }
 
 /**
@@ -169,9 +177,11 @@ const main = async (): Promise<void> => {
     server,
     context: {
       followSubagent: (sessionId, parentId) => followSubagent(session, sessionId, parentId),
+      listSkills: (sessionId) => listSkills(session, sessionId),
     },
     attachment: undefined,
     transcript: undefined,
+    skills: new Map(),
   };
   server.registerTool(
     'activate',
@@ -246,6 +256,7 @@ const attach = async (session: Session): Promise<Attachment> => {
   void attachment.connection.closed.then(() => {
     session.attachment = undefined;
     session.transcript = undefined;
+    session.skills = new Map();
     logging.abort();
     for (const tool of tools) tool.remove();
   });
@@ -280,8 +291,8 @@ const followSessions = async (
 
 /**
  * Binds the session that the agent of `session` runs now to `connection`, calls `onBound`, and logs its transcript
- * over `connection`, until that session ends or `signal` aborts, and returns `true`. If the agent has no known
- * transcript, returns `false` instead.
+ * over `connection`, until that session ends or `signal` aborts, and returns `true`. While it logs, it keeps the
+ * skills that the transcript lists in `session`. If the agent has no known transcript, returns `false` instead.
  */
 const followCurrentSession = async (
   session: Session,
@@ -293,11 +304,45 @@ const followCurrentSession = async (
   const transcript = await findTranscript(session.environment, session.parentProcessId);
   if (transcript === undefined) return false;
   session.transcript = transcript;
+  session.skills = new Map();
   const params: BindSessionParams = { sessionId: transcript.sessionId };
   await connection.request(BIND_SESSION_METHOD, params, signal);
   onBound();
-  await logTranscript(transcript, session.directory, connection, signal, { tailFile });
+  await logTranscript(watchSkills(session, transcript), session.directory, connection, signal, { tailFile });
   return true;
+};
+
+/**
+ * Returns `transcript` with a `parse` that also keeps each list of skills of a line in `session`, while `transcript`
+ * is the transcript of `session`. An initial list replaces the skills known so far, and a later list adds its skills
+ * to them, in place of the ones of the same name.
+ */
+const watchSkills = (session: Session, transcript: Transcript): Transcript => ({
+  ...transcript,
+  parse: (line) => {
+    const listing = transcript.parseSkills(line);
+    if (listing !== undefined && session.transcript === transcript) keepSkills(session, listing);
+    return transcript.parse(line);
+  },
+});
+
+/**
+ * Keeps the skills of `listing` in `session`: an initial list in place of the skills known so far, and a later list
+ * on top of them.
+ */
+const keepSkills = (session: Session, listing: SkillListing): void => {
+  if (listing.initial) session.skills = new Map();
+  for (const skill of listing.skills) session.skills.set(skill.name, skill);
+};
+
+/**
+ * Returns the skills that the agent of `session` can run, as the transcript of the session `sessionId` lists them so
+ * far. If `sessionId` is not the session that the agent runs now, throws.
+ */
+const listSkills = (session: Session, sessionId: string): readonly TranscriptSkill[] => {
+  if (session.transcript?.sessionId !== sessionId)
+    throw new Error(`The session ${sessionId} is not the current session`);
+  return [...session.skills.values()];
 };
 
 /**

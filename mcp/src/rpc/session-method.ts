@@ -1,5 +1,7 @@
 import type { z } from 'zod';
+import type { TranscriptSkill } from '../transcript/find-transcript.ts';
 import type { Method } from './method.ts';
+import { skillListSessionMethod } from './session-method.skill-list.ts';
 import { subagentFollowMethod } from './session-method.subagent-follow.ts';
 
 /**
@@ -12,9 +14,18 @@ export interface SessionMethodContext {
    * error. If `parentId` is not the session that the agent runs now, throws.
    */
   followSubagent(sessionId: string, parentId: string): void;
+
+  /**
+   * Returns the skills that the agent of the session `sessionId` can run, as its transcript lists them so far, in the
+   * order of the list. If `sessionId` is not the session that the agent runs now, throws.
+   */
+  listSkills(sessionId: string): readonly TranscriptSkill[];
 }
 
 /**
  * Methods that the repository server can call on a session server.
  */
-export const SessionMethods: readonly Method<z.ZodObject, unknown, SessionMethodContext>[] = [subagentFollowMethod];
+export const SessionMethods: readonly Method<z.ZodObject, unknown, SessionMethodContext>[] = [
+  subagentFollowMethod,
+  skillListSessionMethod,
+];

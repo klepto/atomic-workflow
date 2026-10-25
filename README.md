@@ -874,6 +874,117 @@ Rejected:
   move the task branch under it for no use.
 - A fetch of the base branch. The user decides when the local base branch moves.
 
+## Phase 25
+
+The page of the web server is a React app in `web/` with the look of the old app, `C:/_dev/atomic-workflow-plugin/web`,
+built into `plugin/dist/web/`. The inline page of the web server is gone.
+
+- The web server serves the files of `plugin/dist/web/` at every path but `/rpc`. `/rpc` keeps its rules: `POST` only,
+  with `Content-Type: application/json`. The host check applies to every path, and answers `421` to another host.
+- `static-files.ts` and `static-files.directory.ts` in `mcp/src/web/` are ports of the static files of the old app.
+  They find the file of a path in one directory. They refuse a path with a broken percent code, `\`, `:` or NUL, or a
+  path that leaves the directory, also through `%2e%2e`. The web server answers a refused path with `400`. A path that
+  names no file gets `index.html`, so the app answers its own paths.
+- `index.html` gets `Cache-Control: no-cache`, and a file below `assets/` gets `public, max-age=31536000, immutable`,
+  since its name holds a hash of its content. The content type comes from the extension of the file, and a file with
+  an unknown extension is a download.
+- A directory without `index.html` answers `503` with `The web app is not built. Run npm run build in web/.` Any method
+  other than `GET` on a path other than `/rpc` answers `405`.
+- `StartWebServer` takes the directory of the web app in its options. The repository server finds it from its own
+  location, as it finds `await-command`: `web` beside the bundle `repository-server.mjs`, or `../../plugin/dist/web`
+  from `mcp/src/` when it runs from the sources.
+- The repository server has a change feed, `change-feed.ts` in `mcp/src/changes/`, which names each changed resource:
+  `sessions`, the set of attached sessions, `messages`, the message log, or `tasks`, the tasks with their goals,
+  design and tickets. Every write goes through this one process, so it sees each change as it happens, and reads
+  nothing again to find it.
+- The feed coalesces. A `publish` marks its resource, and 50 ms later the feed calls each listener once per marked
+  resource. A burst of writes, such as `ticketsSave`, so sends one event per resource.
+- `publish-changes.ts` wraps the services that hold the state, so that each one publishes its changes, and no method
+  and no store changes. `MessageLogStore.append` publishes `messages`, and each write of `TaskStore` publishes
+  `tasks`, once it resolves. `SessionConnections.bind` publishes `sessions`, and again when the bound connection
+  closes. `Subagents.attach` and `Subagents.stop` publish `sessions`, and `Subagents.start` publishes `sessions` when
+  its connection closes, since that stops the subagent. `MethodContext` holds the wrapped services. An event can come
+  for a change that a reader does not see, such as a close of a connection whose binding moved, and the reader then
+  reads the same data again.
+- `GET /events` of the web server streams the feed as Server-Sent Events. It answers `200` with `Content-Type:
+  text/event-stream` and `Cache-Control: no-store`, sends its headers at once, and writes `event: <resource>` with
+  empty data for each change. The subscription ends when the request closes, and `close()` of the web server ends
+  every stream, since it closes every connection. `StartWebServer` takes the feed in its options, beside the
+  directory of the web app.
+- A new RPC method, `repositoryGet`, returns the main worktree of the repository as `directory`, and its last segment
+  as `name`, such as `atomic-workflow-mcp`. It has no parameters, only reads, and has `agent: false`, so no session
+  server offers it as a tool. The page calls it at load for the name in its header.
+- `MainWorktree` in `mcp/src/worktree/main-worktree.ts` takes the main worktree from `git worktree list --porcelain`,
+  which lists it first. The code moved out of `database-path.git.ts`, which now puts the database file below the main
+  worktree of `MainWorktree`, so the database and the name come from the same worktree. The repository server finds
+  the main worktree once at start, and `MethodContext` holds it as `mainWorktree`. The repository server can start in
+  any worktree, so the directory that it starts in does not give the name.
+- `PROTOCOL_VERSION` stays 19. No session server calls `repositoryGet`, and the page reaches it on the same repository
+  server that serves the page.
+
+Rejected:
+
+- A feed that reads the database at an interval, as the old app did. The old app needed it because other processes
+  wrote its store. Here every write goes through the repository server.
+- A list of changed resources on each method, which dispatch publishes. It misses changes that no method makes, such
+  as a session that goes away when its connection closes.
+- Events that carry the changed data. The page reads every resource through its RPC method, so the data has one shape
+  and one source.
+
+## Phase 26
+
+A slash in the composer of the web app opens a menu of the skills of the atomic workflow that the session can run, by
+their names without `atomic-workflow:`. A skill sent from the chat of the orchestrator runs in a new subagent, and a
+skill sent from the chat of a subagent runs in that subagent.
+
+- Claude Code writes the skills that the model can run into the transcript, as an entry of the type `attachment`
+  whose `attachment.type` is `skill_listing`: every skill at the start of a session, with `isInitial`, and later the
+  skills that were added or changed. `names` holds the names, and `content` one line `- <name>: <description>` per
+  skill. `Transcript.parseSkills` reads a line of the transcript as such a list, and the session server keeps the
+  skills of its current session while it logs the transcript: an initial list replaces them, and a later list adds to
+  them by name. The format is internal to Claude Code, so only these fields are read.
+- `skillList` is a new method of the session server, beside `subagentFollow`, which returns the skills of its current
+  session. `skillList` of the repository server takes the session id of an attached session or subagent, and asks the
+  session server of the orchestrator over its connection. A subagent runs in the process of its orchestrator, so it
+  gets the skills of its orchestrator. The result leaves out `atomic-workflow:atomic-workflow`: every session that the
+  page reaches is attached already, and the skill run inside a subagent would take over the wait of its orchestrator.
+  It has `agent: false`.
+- The page reads the skills of the open chat when the chat opens, and again each time the menu opens, and keeps the
+  ones whose name starts with `atomic-workflow:`. The command of a skill is its name without that prefix, such as
+  `plan`. The menu opens while the whole text of the composer is a slash and a word without whitespace, and lists the
+  skills whose command holds the word, the ones whose command starts with it first. Each option shows the command and
+  the first line of the description, and the foot of the menu shows the whole description of the highlighted skill
+  and where it runs. ArrowDown and ArrowUp move the highlight, Tab and Enter put `/<command> ` into the composer, and
+  Escape closes the menu. While no skill matches, the menu says so, and Enter sends the text as a message.
+- A text that starts with a slash and the command or the whole name of a skill of the session runs that skill. The
+  page sends it with the whole name in place of the command, such as `/atomic-workflow:plan 3` for `/plan 3`, since a
+  short name such as `/plan` may be a built-in command of Claude Code. In the chat of the orchestrator, the page calls
+  `subagentStart` with the text as the prompt, and opens the chat of the subagent once it attaches. In the chat of a
+  subagent, the page delivers the text as any other message. A slash and any other word, such as `/compact`, is a
+  message.
+- The agent `worker` runs a message that starts with a slash and the name of a skill with the Skill tool, with the
+  rest of the message as its arguments. Its definition no longer names its tools, so it gets every tool of its session,
+  the Skill tool and the tools of the MCP server among them, which the skills need. A subagent cannot start subagents,
+  so a skill that starts them, such as `/atomic-workflow:implement-all`, cannot run its waves inside one.
+- A skill with `disable-model-invocation` is not in the list, since the model cannot run it, and neither is a built-in
+  command of Claude Code.
+- `PROTOCOL_VERSION` is 20, since the repository server calls `skillList` on the session server, which an older session
+  server lacks.
+
+```
+node src/cli.main.ts skillList '{"sessionId":"<session id>"}'
+```
+
+Rejected:
+
+- A scan of the skill directories of Claude Code: the personal, project and plugin skills, the enabled plugins of
+  every settings file, and the plugins of `--plugin-dir`. It repeats rules that Claude Code owns and changes, and the
+  skills synced from claude.ai and the directories of `--plugin-dir` are not visible from outside the process.
+- The skills of the transcript of the subagent. The process is the same, so the list is the same, and the agent
+  `worker` may never write one.
+- A skill typed into the chat of the orchestrator that runs in the orchestrator. Its work would fill the context of the
+  orchestrator, while a subagent keeps it in a chat of its own.
+
 ## Layout
 
 ```
@@ -901,16 +1012,19 @@ plugin/                           the plugin, and the local marketplace that hol
   references/planning.md          the rules that every stage of planning shares
   references/implementation.md    the rules that every stage of the implementation shares
   agents/worker.md                the subagent that carries out the messages of the repository server
-  dist/                           bundles, built by `npm run build` and committed
+  dist/                           bundles, built by `npm run build` and committed, with the web app in `dist/web/`
 mcp/                              the MCP project: sources, configs and build
   src/                            sources of both servers and the command line tool
     session-server.main.ts        entry point of the session server
     repository-server.main.ts     entry point of the repository server
     cli.main.ts                   entry point of the command line tool, which calls one method
+    web-url.main.ts               entry point of the command line tool that prints the URL of the web server
     await-command.main.ts         entry point of the command line tool that waits for the messages of a session
     session-start.main.ts         entry point of the hook that resumes the messages of a session after `/clear`
     attachment/                   the pipe between clients and the repository server: address, attach, serve,
                                   hello, the connections of the bound sessions, the subagents and the inboxes
+    changes/                      the feed of the changes of the repository server, and the wrappers of the services
+                                  that publish to it
     rpc/                          JSON-RPC 2.0: messages, connection, dispatch, and the methods
     launch/                       start of a process outside the process tree of the caller
     storage/                      persistent data: the stores, their SQLite implementations and the database file
@@ -918,6 +1032,11 @@ mcp/                              the MCP project: sources, configs and build
     web/                          the web server of the repository server
     worktree/                     the branches and worktrees of the tasks, and the copy of the ignored files
   scripts/build.main.ts           builds plugin/dist/
+web/                              the web app of the repository server: a React project, its configs and build
+  src/                            sources of the page: the shell, the header, the data over `/rpc` and `/events`, and
+                                  the components and themes of the old app
+  index.html                      entry point of the page
+  vite.config.ts                  builds plugin/dist/web/, and proxies `/rpc` and `/events` in development
 ```
 
 ## Development
@@ -926,3 +1045,10 @@ mcp/                              the MCP project: sources, configs and build
 - `npm run build` bundles `plugin/dist/`. `npm run typecheck` and `npx biome ci` check the sources.
 - `claude --plugin-dir ./plugin` runs a session with the plugin loaded from the working copy.
 - `node src/cli.main.ts echo '{"message":"Hi"}'` calls a method on the running repository server of the repository.
+- `node src/web-url.main.ts` prints the URL of the web server of the running repository server of the repository.
+- For the web app, run `npm` and `npx` in `web/`. `npm ci` installs its packages.
+- `npm run build` builds the web app into `plugin/dist/web/`. `npm run typecheck` and `npx biome ci` check its sources.
+- `npm run dev` serves the web app with live reload, and proxies `/rpc` and `/events` to the web server of the running
+  repository server of the repository, whose URL `mcp/src/web-url.main.ts` prints. The dev server finds the URL at the
+  first request and logs it, and finds it again when the repository server restarted on another port.
+  `ATOMIC_WORKFLOW_URL=<URL of a web server>` proxies to that web server instead.
