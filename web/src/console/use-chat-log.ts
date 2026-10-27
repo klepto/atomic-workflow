@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { call } from '@/api/rpc.ts';
 import type { LoggedMessage } from '@/api/types.ts';
+import type { ChatLogQuery } from '@/chats/chat-list.ts';
 
 /**
  * The number of the latest messages that the first read of a chat takes.
@@ -43,14 +44,16 @@ const EMPTY_LOG: ChatLog = { entries: [], loaded: false, failure: null };
 const messageOf = (error: unknown) => (error instanceof Error ? error.message : String(error));
 
 /**
- * Returns the messages of the session `sessionId`, read again each time the counter `messages` changes. The first
- * read takes the latest 100 messages. Each later read takes the messages after the greatest id it holds, at most
+ * Returns the messages that `query` selects, read again each time the counter `messages` changes. The first read takes
+ * the latest 100 messages. Each later read takes the messages after the greatest id it holds, at most
  * 1000. Reads never overlap: a change of the counter during a read leads to one more read after it. A failed read
- * keeps the messages, and a failed first read stays a first read. The hook holds the messages of one session: use it
- * with a `key` per session, so that another session starts with an empty log.
+ * keeps the messages, and a failed first read stays a first read. The hook holds the messages of one chat: use it with
+ * a `key` per chat, so that another chat starts with an empty log.
  */
-export const useChatLog = (sessionId: string, messages: number): ChatLog => {
+export const useChatLog = (query: ChatLogQuery, messages: number): ChatLog => {
   const [log, setLog] = useState<ChatLog>(EMPTY_LOG);
+  // The hook holds the messages of one chat, so the query that it mounted with stays its query.
+  const [selection] = useState(query);
   const greatestId = useRef<number | undefined>(undefined);
   const running = useRef(false);
   const queued = useRef(false);
@@ -65,7 +68,7 @@ export const useChatLog = (sessionId: string, messages: number): ChatLog => {
     try {
       const result = await call<{ messages: readonly LoggedMessage[] }>(
         'messageList',
-        after === undefined ? { sessionId, limit: FIRST_LIMIT } : { sessionId, after, limit: LATER_LIMIT },
+        after === undefined ? { ...selection, limit: FIRST_LIMIT } : { ...selection, after, limit: LATER_LIMIT },
       );
       if (!mounted.current) {
         return;
@@ -82,7 +85,7 @@ export const useChatLog = (sessionId: string, messages: number): ChatLog => {
         setLog((current) => ({ ...current, failure: messageOf(error) }));
       }
     }
-  }, [sessionId]);
+  }, [selection]);
 
   /**
    * Reads the chat, or queues one more read while a read runs.

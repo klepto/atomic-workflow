@@ -4,6 +4,7 @@ import { parseArgs } from 'node:util';
 import { AwaitCommandLine } from './attachment/await-command-line.ts';
 import { CreateInboxes } from './attachment/inboxes.ts';
 import { ServeRepository } from './attachment/serve-repository.ts';
+import { CreateSessionActivity } from './attachment/session-activity.ts';
 import { CreateSessionConnections } from './attachment/session-connections.ts';
 import { CreateSubagents } from './attachment/subagents.ts';
 import { CreateTicketClaims } from './attachment/ticket-claims.ts';
@@ -67,17 +68,20 @@ const serve = async (address: string, directory: string, mainWorktree: string, s
     {
       messageLog: storage.messageLog,
       tasks: storage.tasks,
+      sessions: storage.sessions,
       sessionConnections: CreateSessionConnections(),
       subagents: CreateSubagents(),
+      activity: CreateSessionActivity(),
     },
     changes,
   );
   const context: MethodContext = {
-    sessions: storage.sessions,
+    sessions: published.sessions,
     messageLog: published.messageLog,
     tasks: published.tasks,
     sessionConnections: published.sessionConnections,
     subagents: published.subagents,
+    activity: published.activity,
     inboxes: CreateInboxes(),
     worktrees: CreateWorktrees({ directory, home: homedir(), copyIgnored: CopyIgnored }),
     ticketClaims: CreateTicketClaims(),

@@ -52,6 +52,11 @@ export interface RegisteredSession {
    * Identifier of the orchestrator session that a subagent runs inside, or `null` for an orchestrator session.
    */
   readonly parentId: string | null;
+
+  /**
+   * Identifier of the task that the session works on, or `null` for a session that was started for no task.
+   */
+  readonly taskId: number | null;
 }
 
 /**
@@ -73,4 +78,10 @@ export interface SessionStore {
    * Returns every registered session, in the order of its start.
    */
   list(): Promise<RegisteredSession[]>;
+
+  /**
+   * Sets the task that the session `id` works on to `taskId`, and returns `true`. A session that works on a task
+   * already keeps it. If no such session is registered, or it works on a task already, returns `false` instead.
+   */
+  setTask(id: string, taskId: number): Promise<boolean>;
 }

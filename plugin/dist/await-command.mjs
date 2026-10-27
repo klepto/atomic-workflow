@@ -19729,7 +19729,7 @@ function date4(params) {
 }
 
 // src/attachment/hello.ts
-var PROTOCOL_VERSION = 20;
+var PROTOCOL_VERSION = 21;
 var HELLO_METHOD = "hello";
 var HELLO_PARAMS = external_exports.object({
   protocol: external_exports.number().int(),

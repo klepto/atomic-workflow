@@ -1,3 +1,4 @@
+import type { ActivityStatus } from '../attachment/session-activity.ts';
 import type { MessageSender } from '../storage/message-log-store.ts';
 import type { Agent } from '../storage/session-store.ts';
 import { claudeFindSubagentTranscript, claudeFindTranscript } from './find-transcript.claude.ts';
@@ -23,6 +24,21 @@ export interface TranscriptMessage {
 
   /**
    * Time of the message, in ms since the epoch.
+   */
+  readonly timestamp: number;
+}
+
+/**
+ * Status of the agent of a session that an entry of its transcript shows.
+ */
+export interface TranscriptActivity {
+  /**
+   * Status of the agent from the time of the entry on: `working` while a turn runs, and `idle` once a turn ended.
+   */
+  readonly status: Extract<ActivityStatus, 'idle' | 'working'>;
+
+  /**
+   * Time of the entry, in ms since the epoch.
    */
   readonly timestamp: number;
 }
@@ -93,6 +109,19 @@ export interface Transcript {
   parseSkills(line: string): SkillListing | undefined;
 
   /**
+   * Returns the status of the agent that the line `line` of the transcript shows. If the line shows no status, such as
+   * an entry that the agent writes after its turn, or is not valid, returns `undefined` instead.
+   */
+  parseActivity(line: string): TranscriptActivity | undefined;
+
+  /**
+   * Returns the id of the task that the line `line` of the transcript holds as the result of a call to the tool
+   * `taskCreate` or `taskGet` of the MCP server `atomic-workflow`, which an earlier line of the transcript made. If the
+   * line holds no such result, or the call failed, returns `undefined` instead. The lines must be passed in their order.
+   */
+  parseTask(line: string): number | undefined;
+
+  /**
    * Resolves when the session of the transcript ends, such as when Claude Code moves on to a new session after
    * `/clear`, or when a subagent is stopped. The transcript grows no more after that. Also resolves when `signal` aborts.
    * If the agent cannot be asked for its session, rejects.
@@ -118,12 +147,15 @@ export const FindTranscript: FindTranscriptFunction = claudeFindTranscript;
 /**
  * Function that returns the transcript of the subagent with the session id `sessionId`, which runs inside the session
  * of the transcript `parent`, and whose prompt names `sessionId`. It waits a few seconds for the transcript to appear.
- * If no such transcript appears, or `signal` aborts first, returns `undefined` instead.
+ * With `oneShot`, the subagent is one that the agent starts after the call and that carries out its prompt only: the
+ * search waits a few minutes, and the session of the transcript also ends once the subagent finishes. If no such
+ * transcript appears, or `signal` aborts first, returns `undefined` instead.
  */
 export type FindSubagentTranscriptFunction = (
   parent: Transcript,
   sessionId: string,
   signal: AbortSignal,
+  oneShot: boolean,
 ) => Promise<Transcript | undefined>;
 
 /**

@@ -2,7 +2,7 @@
 name: implement-all
 description: Implements every ticket of a task whose plan is complete that an agent can do alone, with the ready tickets in parallel subagents, and lands each one on the task branch as one commit, in the order of their ids.
 argument-hint: "<task id | task slug>"
-allowed-tools: Agent, mcp__plugin_atomic-workflow_atomic-workflow__activate, mcp__plugin_atomic-workflow_atomic-workflow__taskGet, mcp__plugin_atomic-workflow_atomic-workflow__ticketNext, mcp__plugin_atomic-workflow_atomic-workflow__worktreeCreate, mcp__plugin_atomic-workflow_atomic-workflow__worktreeMerge, mcp__plugin_atomic-workflow_atomic-workflow__worktreeDelete, mcp__plugin_atomic-workflow_atomic-workflow__ticketSetStatus, Bash, PowerShell, Read, Edit, Grep, Glob
+allowed-tools: Agent, mcp__plugin_atomic-workflow_atomic-workflow__activate, mcp__plugin_atomic-workflow_atomic-workflow__taskGet, mcp__plugin_atomic-workflow_atomic-workflow__ticketNext, mcp__plugin_atomic-workflow_atomic-workflow__worktreeCreate, mcp__plugin_atomic-workflow_atomic-workflow__worktreeMerge, mcp__plugin_atomic-workflow_atomic-workflow__worktreeDelete, mcp__plugin_atomic-workflow_atomic-workflow__ticketSetStatus, mcp__plugin_atomic-workflow_atomic-workflow__subagentCreate, Bash, PowerShell, Read, Edit, Grep, Glob
 ---
 
 # Implement all
@@ -49,18 +49,23 @@ each ticket that a subagent starts, and can land it.
      true, each file of `copyFailures`, and each line of `warnings`.
 
    If no ticket of the wave is left, start the next wave at step 1.
-6. Start one subagent for each ticket of the wave with the Agent tool, all in one message, so that they run in
+6. Call `subagentCreate` with the task id once for each ticket of the wave, one at a time, in the order of their ids,
+   and remember the `sessionId` that it returns for the ticket. So the chat of each subagent shows under the task in
+   the web app. If a call fails, print its message, and stop the run, since no subagent of the wave has started yet.
+7. Start one subagent for each ticket of the wave with the Agent tool, all in one message, so that they run in
    parallel. Use the `subagent_type` `general-purpose`, since it has every tool that the work needs: Skill, the tools
    of the MCP server `atomic-workflow`, Bash, Read, Edit and Write. Do not set `run_in_background`. Use the
-   description `Implement ticket <ticket id>-<ticket slug>`, and exactly this prompt:
+   description `Implement ticket <ticket id>-<ticket slug>`, and exactly this prompt, with the session id of the
+   ticket on its first line:
 
    ```
+   Your session id is <session id>.
    Invoke the skill `atomic-workflow:implement` with the Skill tool and the arguments `<task id> <ticket id> --no-land`.
    Follow it to its end. Make the report that ends it your final reply, word for word.
    ```
 
-7. Once every subagent of the wave has ended, follow `## Land the wave`.
-8. Start the next wave at step 1.
+8. Once every subagent of the wave has ended, follow `## Land the wave`.
+9. Start the next wave at step 1.
 
 A ticket in the mode `attended` or `manual` runs in no wave, since it needs the user. The waves still run every
 ticket in the mode `unattended` that does not depend on it, since the user is not needed for those. Only the tickets

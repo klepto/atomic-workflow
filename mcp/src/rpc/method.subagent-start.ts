@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import { messageDeliverMethod } from './method.message-deliver.ts';
+import { taskGetMethod } from './method.task-get.ts';
 import type { Method, MethodContext } from './method.ts';
 import { RpcError, RpcErrorCode } from './rpc-error.ts';
 import { subagentFollowMethod } from './session-method.subagent-follow.ts';
@@ -21,15 +22,17 @@ const AGENT_TYPE = 'atomic-workflow:worker';
 const PARAMS = z.object({
   prompt: z.string().min(1).optional().describe('First command of the subagent, none when left out'),
   parentId: z.string().optional().describe('Session id of the orchestrator, the one that attached last when left out'),
+  taskId: z.number().int().positive().optional().describe('Identifier of the task that the subagent works on'),
 });
 
 /**
  * `Method` named `subagentStart`, which starts a subagent inside the orchestrator session `parentId`, or inside the
  * one that was bound last if no `parentId` is given, and returns the session id of the subagent once it has attached.
  * The orchestrator spawns the subagent on a message in its inbox, and the subagent then waits for its messages with
- * the command line of `awaitCommandLine`, in the background. The prompt is the first message of the subagent. Without
- * that attached orchestrator session, fails with an invalid request. A subagent that does not attach within
- * `ATTACH_TIMEOUT` ms is stopped, and fails the method.
+ * the command line of `awaitCommandLine`, in the background. The prompt is the first message of the subagent. The
+ * subagent works on the task `taskId`, or on no task if no `taskId` is given. A task that does not exist fails with
+ * invalid parameters. Without that attached orchestrator session, fails with an invalid request. A subagent that does
+ * not attach within `ATTACH_TIMEOUT` ms is stopped, and fails the method.
  */
 export const subagentStartMethod: Method<typeof PARAMS, { readonly sessionId: string }> = {
   name: 'subagentStart',
@@ -37,8 +40,9 @@ export const subagentStartMethod: Method<typeof PARAMS, { readonly sessionId: st
     'Starts a subagent inside an orchestrator session, by default the one that attached last, and returns its session id.',
   agent: false,
   params: PARAMS,
-  handle: async ({ prompt, parentId: pickedId }, context) => {
+  handle: async ({ prompt, parentId: pickedId, taskId }, context) => {
     const { sessions, sessionConnections, subagents, inboxes } = context;
+    if (taskId !== undefined) await taskGetMethod.handle({ task: taskId }, context);
     const parentId = pickedId ?? sessionConnections.list().at(-1);
     const connection = parentId === undefined ? undefined : sessionConnections.get(parentId);
     const parent = parentId === undefined ? undefined : await sessions.get(parentId);
@@ -46,7 +50,15 @@ export const subagentStartMethod: Method<typeof PARAMS, { readonly sessionId: st
       throw new RpcError(RpcErrorCode.INVALID_REQUEST, 'No orchestrator session is attached');
     const sessionId = randomUUID();
     const { agent, directory } = parent;
-    await sessions.register({ id: sessionId, agent, directory, startedAt: Date.now(), role: 'subagent', parentId });
+    await sessions.register({
+      id: sessionId,
+      agent,
+      directory,
+      startedAt: Date.now(),
+      role: 'subagent',
+      parentId,
+      taskId: taskId ?? null,
+    });
     subagents.start(sessionId, parentId, connection);
     inboxes.open(sessionId, connection.closed);
     if (prompt !== undefined) await messageDeliverMethod.handle({ sessionId, content: prompt }, context);

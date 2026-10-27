@@ -10,10 +10,11 @@ import { subagentFollowMethod } from './session-method.subagent-follow.ts';
 export interface SessionMethodContext {
   /**
    * Starts to log the transcript of the subagent `sessionId`, which runs inside the session `parentId`, until the
-   * subagent is stopped or the connection to the repository server closes. A failure of the log goes to the standard
-   * error. If `parentId` is not the session that the agent runs now, throws.
+   * subagent is stopped or the connection to the repository server closes. A one-shot subagent, which the agent starts
+   * after the call, is also logged until it finishes its prompt. A failure of the log goes to the standard error. If
+   * `parentId` is not the session that the agent runs now, throws.
    */
-  followSubagent(sessionId: string, parentId: string): void;
+  followSubagent(sessionId: string, parentId: string, oneShot: boolean): void;
 
   /**
    * Returns the skills that the agent of the session `sessionId` can run, as its transcript lists them so far, in the

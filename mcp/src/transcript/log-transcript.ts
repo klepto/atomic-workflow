@@ -16,9 +16,10 @@ export interface LogTranscriptDependencies {
 /**
  * Function that registers the session of `transcript`, with the directory of its project `directory`, over
  * `connection` to the repository server, and then logs each message of the transcript there, the ones that it holds
- * already and the ones that the agent appends later. It resolves when `signal` aborts, or when the session of the
- * transcript ends and its last messages are logged. A message that the repository server has logged already is not
- * logged twice.
+ * already and the ones that the agent appends later. It also reports to the repository server whether the agent works or
+ * is idle, as the entries that the agent appends after the start of the log show. It resolves when `signal` aborts, or
+ * when the session of the transcript ends and its last messages are logged. A message that the repository server has
+ * logged already is not logged twice.
  * If the transcript cannot be read, or the repository server fails a request, rejects.
  */
 export type LogTranscriptFunction = (

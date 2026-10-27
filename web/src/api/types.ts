@@ -1,5 +1,5 @@
 /**
- * A session of the repository in the result of `sessionList`, as `ListedSession` of
+ * A session of the repository in the result of `sessionList`, attached or not, as `ListedSession` of
  * `mcp/src/rpc/method.session-list.ts` declares it.
  */
 export interface ListedSession {
@@ -20,9 +20,20 @@ export interface ListedSession {
   parentId: string | null;
 
   /**
+   * Identifier of the task that the session works on, or `null` for a session that was started for no task.
+   */
+  taskId: number | null;
+
+  /**
    * Whether the session is attached, so it can take a message of `messageDeliver` now.
    */
   attached: boolean;
+
+  /**
+   * Status of the session: `ended` for a session that is not attached, and for an attached one whether its agent is
+   * `idle`, `working`, or `waiting` for the user. It is `SessionStatus` of `mcp/src/rpc/method.session-list.ts`.
+   */
+  status: 'ended' | 'idle' | 'working' | 'waiting';
 }
 
 /**
@@ -115,8 +126,8 @@ export interface Repository {
 
 /**
  * Name of an event of the stream at `/events`: the resource that changed, `ChangedResource` of
- * `mcp/src/changes/change-feed.ts`. `sessions` is the set of attached sessions, `messages` the message log, and `tasks`
- * the tasks with their goals, design and tickets.
+ * `mcp/src/changes/change-feed.ts`. `sessions` is the set of attached sessions with the status of each, `messages` the
+ * message log, and `tasks` the tasks with their goals, design and tickets.
  */
 export type ChangeEvent = 'sessions' | 'messages' | 'tasks';
 

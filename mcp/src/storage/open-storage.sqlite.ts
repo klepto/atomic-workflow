@@ -174,6 +174,8 @@ const MIGRATIONS: readonly string[] = [
   // Step 10 adds the ticket that a ticket fixes. The ticket depends on it too, so the foreign key of its row in
   // `ticket_dependency` checks that it exists.
   `ALTER TABLE ticket ADD COLUMN fixes INTEGER CHECK (fixes < id);`,
+  // Step 11 adds the task that a session works on. It has no foreign key, so a task with sessions can still be deleted.
+  `ALTER TABLE session ADD COLUMN task_id INTEGER;`,
 ];
 
 /**

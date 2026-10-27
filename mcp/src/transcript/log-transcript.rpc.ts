@@ -1,14 +1,18 @@
 import type { z } from 'zod';
 import { messageLogMethod } from '../rpc/method.message-log.ts';
+import { sessionActivityReportMethod } from '../rpc/method.session-activity-report.ts';
 import { sessionRegisterMethod } from '../rpc/method.session-register.ts';
+import { sessionTaskSetMethod } from '../rpc/method.session-task-set.ts';
 import type { RpcConnection } from '../rpc/rpc-connection.ts';
-import type { Transcript } from './find-transcript.ts';
+import type { Transcript, TranscriptActivity } from './find-transcript.ts';
 import type { LogTranscriptFunction } from './log-transcript.ts';
 
 /**
  * `LogTranscriptFunction` that calls `sessionRegister` once and then `messageLog` for each message, one after the
- * other, so the log keeps the order of the transcript. The end of the session stops the tail of the transcript, which
- * reads the file once more before it resolves.
+ * other, so the log keeps the order of the transcript. For each result of `taskCreate` or `taskGet` in the transcript,
+ * it calls `sessionTaskSet` with its task. After the messages of each read of the transcript, it calls
+ * `sessionActivityReport` once with the last status that the read shows. The end of the session stops the tail of the
+ * transcript, which reads the file once more before it resolves.
  */
 export const rpcLogTranscript: LogTranscriptFunction = async (
   transcript,
@@ -23,6 +27,7 @@ export const rpcLogTranscript: LogTranscriptFunction = async (
     directory,
   };
   await connection.request(sessionRegisterMethod.name, session, signal);
+  const since = Date.now();
   const ended = new AbortController();
   const following = AbortSignal.any([signal, ended.signal]);
   const stop = (): void => ended.abort();
@@ -30,24 +35,66 @@ export const rpcLogTranscript: LogTranscriptFunction = async (
   await Promise.all([
     transcript.waitForEnd(following).finally(stop),
     dependencies
-      .tailFile(transcript.path, (lines) => logLines(transcript, connection, lines, signal), following)
+      .tailFile(transcript.path, (lines) => logLines(transcript, connection, lines, since, signal), following)
       .finally(stop),
   ]);
 };
 
 /**
- * Logs each message that the lines `lines` of `transcript` hold over `connection`, in order.
+ * Logs each message that the lines `lines` of `transcript` hold over `connection`, in order, with the task of each
+ * result of a tool that holds one, and then reports the last
+ * status of the agent that the lines show from the time `since` on. The lines that the transcript held before the log
+ * began show the past, not the status now.
  */
 const logLines = async (
   transcript: Transcript,
   connection: RpcConnection,
   lines: readonly string[],
+  since: number,
   signal: AbortSignal,
 ): Promise<void> => {
   for (const line of lines) {
+    await reportTask(transcript, connection, line, signal);
     const message = transcript.parse(line);
     if (message === undefined) continue;
     const params: z.input<typeof messageLogMethod.params> = { sessionId: transcript.sessionId, ...message };
     await connection.request(messageLogMethod.name, params, signal);
   }
+  const activity = lastActivity(transcript, lines, since);
+  if (activity === undefined) return;
+  const params: z.input<typeof sessionActivityReportMethod.params> = {
+    sessionId: transcript.sessionId,
+    status: activity.status,
+    at: activity.timestamp,
+  };
+  await connection.request(sessionActivityReportMethod.name, params, signal);
 };
+
+/**
+ * Tells the repository server over `connection` the task that the line `line` of `transcript` holds as the result of
+ * a tool, if it holds one, as the task that the session of the transcript works on.
+ */
+const reportTask = async (
+  transcript: Transcript,
+  connection: RpcConnection,
+  line: string,
+  signal: AbortSignal,
+): Promise<void> => {
+  const taskId = transcript.parseTask(line);
+  if (taskId === undefined) return;
+  const params: z.input<typeof sessionTaskSetMethod.params> = { sessionId: transcript.sessionId, taskId };
+  await connection.request(sessionTaskSetMethod.name, params, signal);
+};
+
+/**
+ * Returns the status of the agent that the last line of `lines` with a status shows, among the lines of `transcript`
+ * from the time `since` on. If no such line shows a status, returns `undefined` instead.
+ */
+const lastActivity = (
+  transcript: Transcript,
+  lines: readonly string[],
+  since: number,
+): TranscriptActivity | undefined =>
+  lines
+    .map((line) => transcript.parseActivity(line))
+    .findLast((activity) => activity !== undefined && activity.timestamp >= since);

@@ -1,6 +1,8 @@
+import type { SessionActivity } from '../attachment/session-activity.ts';
 import type { SessionConnections } from '../attachment/session-connections.ts';
 import type { Subagents } from '../attachment/subagents.ts';
 import type { MessageLogStore } from '../storage/message-log-store.ts';
+import type { SessionStore } from '../storage/session-store.ts';
 import type { TaskStore } from '../storage/task-store.ts';
 import type { ChangedResource, ChangeFeed } from './change-feed.ts';
 import type { PublishChangesFunction } from './publish-changes.ts';
@@ -12,8 +14,10 @@ import type { PublishChangesFunction } from './publish-changes.ts';
 export const feedPublishChanges: PublishChangesFunction = (services, changes) => ({
   messageLog: publishingMessageLog(services.messageLog, changes),
   tasks: publishingTasks(services.tasks, changes),
+  sessions: publishingSessions(services.sessions, changes),
   sessionConnections: publishingSessionConnections(services.sessionConnections, changes),
   subagents: publishingSubagents(services.subagents, changes),
+  activity: publishingActivity(services.activity, changes),
 });
 
 /**
@@ -56,6 +60,20 @@ const publishingTasks = (store: TaskStore, changes: ChangeFeed): TaskStore => {
 };
 
 /**
+ * Wraps `store`, so that `setTask` publishes `sessions` to `changes` once it resolves with `true`.
+ */
+const publishingSessions = (store: SessionStore, changes: ChangeFeed): SessionStore => ({
+  register: (session) => store.register(session),
+  get: (id) => store.get(id),
+  list: () => store.list(),
+  setTask: async (id, taskId) => {
+    const changed = await store.setTask(id, taskId);
+    if (changed) changes.publish('sessions');
+    return changed;
+  },
+});
+
+/**
  * Wraps `connections`, so that `bind` publishes `sessions` to `changes`, and again once the bound connection closes.
  */
 const publishingSessionConnections = (connections: SessionConnections, changes: ChangeFeed): SessionConnections => ({
@@ -89,4 +107,16 @@ const publishingSubagents = (subagents: Subagents, changes: ChangeFeed): Subagen
     return stopped;
   },
   list: () => subagents.list(),
+});
+
+/**
+ * Wraps `activity`, so that `report` publishes `sessions` to `changes` when the status changes.
+ */
+const publishingActivity = (activity: SessionActivity, changes: ChangeFeed): SessionActivity => ({
+  report: (sessionId, status, at) => {
+    const changed = activity.report(sessionId, status, at);
+    if (changed) changes.publish('sessions');
+    return changed;
+  },
+  get: (sessionId) => activity.get(sessionId),
 });

@@ -6,6 +6,11 @@ import type { Skill } from '@/api/types.ts';
 const WORKFLOW_PREFIX = 'atomic-workflow:';
 
 /**
+ * Names of the main skills of the atomic workflow, the steps of a task in the order that the user runs them.
+ */
+const MAIN_SKILLS: readonly string[] = ['plan', 'implement', 'approve'].map((command) => WORKFLOW_PREFIX + command);
+
+/**
  * Pattern of a text that is a slash and a word without whitespace, which the menu opens for.
  */
 const SLASH_WORD = /^\/\S*$/;
@@ -15,6 +20,32 @@ const SLASH_WORD = /^\/\S*$/;
  * first group.
  */
 const LEADING_WORD = /^\/(\S+)(?=\s|$)/;
+
+/**
+ * Group of a skill in the menu: `main` for the steps of a task, plan, implement and approve, and `helper` for every
+ * other skill.
+ */
+export type SkillGroup = 'main' | 'helper';
+
+/**
+ * The groups of the menu, in the order that the menu shows them.
+ */
+export const SKILL_GROUPS: readonly SkillGroup[] = ['main', 'helper'];
+
+/**
+ * A skill that the text matches, and how well, as `rankOf` ranks it.
+ */
+interface Match {
+  /**
+   * The skill that the text matches.
+   */
+  skill: Skill;
+
+  /**
+   * How well the text matches the skill, the best match lowest.
+   */
+  rank: number;
+}
 
 /**
  * Returns the skills of `skills` that belong to the atomic workflow, in the order of `skills`.
@@ -36,6 +67,11 @@ export const commandOf = (skill: Skill): string =>
 export const isSlashWord = (text: string): boolean => SLASH_WORD.test(text);
 
 /**
+ * Returns the group of the skill `skill` in the menu.
+ */
+export const groupOf = (skill: Skill): SkillGroup => (MAIN_SKILLS.includes(skill.name) ? 'main' : 'helper');
+
+/**
  * Returns how well the skill `skill` matches the letters `typed`, lower case: 0 when its command starts with them, and
  * 1 when its command holds them. If the command does not hold them, returns `undefined` instead.
  */
@@ -46,9 +82,20 @@ const rankOf = (skill: Skill, typed: string): number | undefined => {
 };
 
 /**
- * Returns the skills of `skills` whose command holds the letters typed after the slash of `text`, in any case. The
- * best matches come first, as `rankOf` ranks them, and skills of the same rank keep the order of `skills`. A slash
- * alone matches every skill. If `text` is not a slash and a word without whitespace, returns an empty list instead.
+ * Returns the order of the matches `first` and `second` in the menu: by group, in the order of `SKILL_GROUPS`, then by
+ * rank, then the main skills in the order of their steps. Helper skills of the same rank keep their order.
+ */
+const compareMatches = (first: Match, second: Match): number =>
+  SKILL_GROUPS.indexOf(groupOf(first.skill)) - SKILL_GROUPS.indexOf(groupOf(second.skill)) ||
+  first.rank - second.rank ||
+  MAIN_SKILLS.indexOf(first.skill.name) - MAIN_SKILLS.indexOf(second.skill.name);
+
+/**
+ * Returns the skills of `skills` whose command holds the letters typed after the slash of `text`, in any case. The main
+ * skills come first and the helper skills after them, and within each group the best matches come first, as `rankOf`
+ * ranks them. Main skills of the same rank follow the order of their steps, and helper skills of the same rank keep the
+ * order of `skills`. A slash alone matches every skill. If `text` is not a slash and a word without whitespace, returns
+ * an empty list instead.
  */
 export const matchSkills = (text: string, skills: readonly Skill[]): readonly Skill[] => {
   if (!isSlashWord(text)) {
@@ -57,9 +104,22 @@ export const matchSkills = (text: string, skills: readonly Skill[]): readonly Sk
   const typed = text.slice(1).toLowerCase();
   return skills
     .map((skill) => ({ skill, rank: rankOf(skill, typed) }))
-    .filter((match): match is { skill: Skill; rank: number } => match.rank !== undefined)
-    .toSorted((first, second) => first.rank - second.rank)
+    .filter((match): match is Match => match.rank !== undefined)
+    .toSorted(compareMatches)
     .map((match) => match.skill);
+};
+
+/**
+ * Returns the index in `matches`, the skills that the text `text` matches, of the best match: the first skill whose
+ * command starts with the letters typed after the slash, in any case. If no command starts with them, returns 0
+ * instead.
+ */
+export const bestMatchIndex = (text: string, matches: readonly Skill[]): number => {
+  const typed = text.slice(1).toLowerCase();
+  return Math.max(
+    0,
+    matches.findIndex((skill) => rankOf(skill, typed) === 0),
+  );
 };
 
 /**

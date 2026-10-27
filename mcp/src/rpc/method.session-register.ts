@@ -16,8 +16,8 @@ const PARAMS = z.object({
 
 /**
  * `Method` named `sessionRegister`, which registers a session and returns it as registered. A session without a start
- * time gets the time of the call, and a session without a role is an orchestrator. A session that is registered
- * already stays as it is.
+ * time gets the time of the call, and a session without a role is an orchestrator. A session that it registers works on
+ * no task. A session that is registered already stays as it is.
  */
 export const sessionRegisterMethod: Method<typeof PARAMS, RegisteredSession> = {
   name: 'sessionRegister',
@@ -25,5 +25,5 @@ export const sessionRegisterMethod: Method<typeof PARAMS, RegisteredSession> = {
   agent: false,
   params: PARAMS,
   handle: ({ sessionId, agent, directory, startedAt = Date.now(), role, parentId = null }, { sessions }) =>
-    sessions.register({ id: sessionId, agent, directory, startedAt, role, parentId }),
+    sessions.register({ id: sessionId, agent, directory, startedAt, role, parentId, taskId: null }),
 };

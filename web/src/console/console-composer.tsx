@@ -132,7 +132,6 @@ export const ConsoleComposer = ({
             failure={skillsFailure}
             matches={menu.matches}
             active={menu.active}
-            runsIn={runsIn}
             onHighlight={menu.highlight}
             onPick={menu.pick}
           />

@@ -1,28 +1,26 @@
+import type { ChatStatus } from '@/chats/chat-list.ts';
 import { cn } from '@/lib/utils.ts';
 
 /**
- * What the dot in front of a chat says: its agent works, its agent is blocked until the user writes to it, it holds a
- * message that the user did not see, or none of these.
+ * The look of the dot of each status, and the words that say the same to a screen reader. Each status has its own
+ * shape besides its color, so that it reads without color too: a hollow ring once ended, a dot while idle, a pulsing
+ * dot while working, and a dot with a halo while waiting.
  */
-export type ChatMark = 'working' | 'blocked' | 'unread' | 'quiet';
-
-/**
- * The color of the dot of each mark, and the words that say the same to a screen reader.
- */
-export const CHAT_MARKS: Record<ChatMark, { dot: string; words: string | undefined }> = {
+export const CHAT_STATUSES: Record<ChatStatus, { dot: string; words: string }> = {
+  ended: { dot: 'border border-muted-foreground/60', words: 'ended' },
+  idle: { dot: 'bg-green-500', words: 'idle' },
   working: { dot: 'bg-yellow-500 motion-safe:animate-pulse', words: 'working' },
-  blocked: { dot: 'bg-red-500', words: 'waits for you' },
-  unread: { dot: 'bg-green-500', words: 'new messages' },
-  quiet: { dot: 'bg-muted-foreground/40', words: undefined },
+  waiting: { dot: 'bg-red-500 ring-[3px] ring-red-500/30', words: 'waits for you' },
 };
 
 /**
- * The dot in front of the name of a chat, in the color of its mark `mark`.
+ * The dot in front of the name of a chat, in the look of its status `status`, with the words of the status on hover.
+ * A screen reader skips it, so the name of the chat must say the words of the status.
  */
-export const ChatDot = ({ mark }: { mark: ChatMark }) => (
+export const ChatDot = ({ status }: { status: ChatStatus }) => (
   <span
     aria-hidden="true"
-    title={CHAT_MARKS[mark].words}
-    className={cn('inline-block size-2 shrink-0 rounded-full', CHAT_MARKS[mark].dot)}
+    title={CHAT_STATUSES[status].words}
+    className={cn('inline-block size-2 shrink-0 rounded-full', CHAT_STATUSES[status].dot)}
   />
 );

@@ -8,6 +8,7 @@ import type {
   FindSubagentTranscriptFunction,
   FindTranscriptFunction,
   SkillListing,
+  TranscriptActivity,
   TranscriptMessage,
   TranscriptSkill,
 } from './find-transcript.ts';
@@ -52,6 +53,83 @@ const SKILL_LISTING = z.object({
 });
 
 /**
+ * Schema of the fields of an entry of a Claude Code transcript that a background command needs: the calls of the
+ * agent to a tool, each with the command that it runs, and the results of the tools, each with the call that it
+ * answers and the id of the background task that it started. The format is internal to Claude Code, so every other
+ * field may be missing or change.
+ */
+const TOOL_ENTRY = z.object({
+  type: z.string(),
+  message: z.object({
+    content: z.array(
+      z.object({
+        type: z.string(),
+        id: z.string().optional(),
+        tool_use_id: z.string().optional(),
+        input: z.object({ command: z.unknown() }).partial().optional(),
+      }),
+    ),
+  }),
+  toolUseResult: z.object({ backgroundTaskId: z.unknown() }).partial().optional().catch(undefined),
+});
+
+/**
+ * Text that the command line of each wait for the messages of the atomic-workflow server holds: the name of the entry
+ * point that waits, `await-command.mjs` in the bundle and `await-command.main.ts` in the sources.
+ */
+const AWAIT_COMMAND_MARK = 'await-command.';
+
+/**
+ * Ids of the calls that run a wait for the messages of the atomic-workflow server, and of the background tasks that
+ * they started, from every transcript that this process parsed. A wait that one session started may end in the next
+ * one, such as when `/clear` stops it, so the ids outlive the transcript that holds the call.
+ */
+const awaitIds = new Set<string>();
+
+/**
+ * Pattern of the name of a tool of the MCP server `atomic-workflow` whose result is a task, `taskCreate` or
+ * `taskGet`, after the prefix that Claude Code gives the tools of the server, such as
+ * `mcp__plugin_atomic-workflow_atomic-workflow__`.
+ */
+const TASK_TOOL = /atomic-workflow__(?:taskCreate|taskGet)$/;
+
+/**
+ * Text that every line of a Claude Code transcript with a call to a tool of `TASK_TOOL` holds, which a line is searched
+ * for before it is parsed, since most lines hold none.
+ */
+const TASK_TOOL_MARK = 'atomic-workflow__task';
+
+/**
+ * Schema of the fields of an entry of a Claude Code transcript that a call to a tool or its result needs: the name and
+ * the id of each call, and for each result the call that it answers, whether it failed, and its content. The format
+ * is internal to Claude Code, so every other field may be missing or change.
+ */
+const TASK_TOOL_ENTRY = z.object({
+  message: z.object({
+    content: z.array(
+      z.object({
+        type: z.string(),
+        id: z.string().optional(),
+        name: z.string().optional(),
+        tool_use_id: z.string().optional(),
+        is_error: z.boolean().optional(),
+        content: z.unknown().optional(),
+      }),
+    ),
+  }),
+});
+
+/**
+ * Schema of the content of the result of a tool of `TASK_TOOL`: one text that holds the task as JSON, with its id.
+ */
+const TASK_RESULT = z.tuple([z.object({ type: z.literal('text'), text: z.string() })]);
+
+/**
+ * Schema of the task that the result of a tool of `TASK_TOOL` holds, with only its id.
+ */
+const TASK_ID = z.object({ id: z.number().int().positive() });
+
+/**
  * Text that every line of a Claude Code transcript with a list of skills holds, which a line is searched for before
  * it is parsed, since most lines hold none.
  */
@@ -64,6 +142,47 @@ const SENDERS: ReadonlyMap<string, MessageSender> = new Map([
   ['user', 'user'],
   ['assistant', 'agent'],
 ]);
+
+/**
+ * Texts of a message of a subagent that end its turn, as its instructions word them: it waits for the next message of
+ * the server, or the server has stopped its messages.
+ */
+const SUBAGENT_TURN_ENDS: ReadonlySet<string> = new Set(['waiting', 'stopped']);
+
+/**
+ * Name of the tool that Claude Code gives a subagent to report back to its parent. A subagent may end its turn with a
+ * report through it in place of a message.
+ */
+const HANDBACK_TOOL = 'SubagentHandback';
+
+/**
+ * Schema of the fields of an entry of a Claude Code transcript that a report through `HANDBACK_TOOL` needs: the name of
+ * each call of a tool, and the message that it reports. The format is internal to Claude Code, so every other field
+ * may be missing or change.
+ */
+const HANDBACK_ENTRY = z.object({
+  message: z.object({
+    content: z.array(
+      z.object({
+        type: z.string(),
+        name: z.string().optional(),
+        input: z.object({ message: z.unknown() }).partial().optional().catch(undefined),
+      }),
+    ),
+  }),
+});
+
+/**
+ * Text that Claude Code starts a message of the user with when the user interrupts a turn, which ends the turn without
+ * a `Stop` hook.
+ */
+const INTERRUPT_MARK = '[Request interrupted by user';
+
+/**
+ * Texts that Claude Code starts a message of the user with for a local command, such as `/clear`, and for its output.
+ * A local command runs no turn, so no `Stop` hook ends it.
+ */
+const LOCAL_COMMAND_MARKS: readonly string[] = ['<command-', '<local-command-'];
 
 /**
  * Schema of the fields of the session file of a Claude Code process that the session id needs. The format is internal
@@ -80,6 +199,7 @@ const SESSION_FILE = z.object({
  */
 const SUBAGENT_META = z.object({
   stoppedByUser: z.boolean().optional(),
+  finished: z.boolean().optional(),
 });
 
 /**
@@ -92,6 +212,12 @@ const POLL_INTERVAL = 500;
  * Time in ms that the search for the transcript of a subagent goes on before it gives up.
  */
 const SUBAGENT_SEARCH_TIMEOUT = 10_000;
+
+/**
+ * Time in ms that the search for the transcript of a one-shot subagent goes on before it gives up. The agent starts
+ * the subagent only after the call that registers it, so it may take a while.
+ */
+const ONE_SHOT_SEARCH_TIMEOUT = 300_000;
 
 /**
  * Number of bytes at the start of the transcript of a subagent that are searched for its session id. The first entry
@@ -143,6 +269,8 @@ export const claudeFindTranscript: FindTranscriptFunction = async (environment, 
     path,
     parse: entryParser(false),
     parseSkills: (line) => parseSkillListing(line, false),
+    parseActivity: (line) => parseActivity(line, false),
+    parseTask: taskParser(),
     waitForEnd: (signal) => waitForEnd(sessionFile, sessionId, signal),
   };
 };
@@ -207,14 +335,20 @@ const expectedTranscriptFile = (projects: string, name: string, environment: Nod
  * `FindSubagentTranscriptFunction` that finds the transcript of a subagent of a Claude Code session. Claude Code writes
  * it to `subagents/agent-<agent id>.jsonl` in a directory beside the transcript of the parent, named after the session
  * of the parent, and starts it with the prompt of the subagent. Beside it, `agent-<agent id>.meta.json` sets
- * `stoppedByUser` once the subagent is stopped, such as by `TaskStop`. The directory is searched every `POLL_INTERVAL`
- * ms, until
- * `SUBAGENT_SEARCH_TIMEOUT` ms have passed.
+ * `stoppedByUser` once the subagent is stopped, such as by `TaskStop`, and `finished` each time that the subagent ends
+ * its turn. A subagent that waits in the background for its messages finishes many times, so only a one-shot subagent
+ * ends when it finishes. The directory is searched every `POLL_INTERVAL` ms, until `SUBAGENT_SEARCH_TIMEOUT` ms have
+ * passed, or `ONE_SHOT_SEARCH_TIMEOUT` ms for a one-shot subagent.
  */
-export const claudeFindSubagentTranscript: FindSubagentTranscriptFunction = async (parent, sessionId, signal) => {
+export const claudeFindSubagentTranscript: FindSubagentTranscriptFunction = async (
+  parent,
+  sessionId,
+  signal,
+  oneShot,
+) => {
   if (parent.agent !== 'claude') return undefined;
   const directory = join(parent.path.replace(/\.jsonl$/, ''), 'subagents');
-  const deadline = Date.now() + SUBAGENT_SEARCH_TIMEOUT;
+  const deadline = Date.now() + (oneShot ? ONE_SHOT_SEARCH_TIMEOUT : SUBAGENT_SEARCH_TIMEOUT);
   for (;;) {
     const path = await findSubagentFile(directory, sessionId);
     if (path !== undefined)
@@ -224,7 +358,9 @@ export const claudeFindSubagentTranscript: FindSubagentTranscriptFunction = asyn
         path,
         parse: entryParser(true),
         parseSkills: (line) => parseSkillListing(line, true),
-        waitForEnd: (signal) => waitForStop(path.replace(/\.jsonl$/, '.meta.json'), signal),
+        parseActivity: (line) => parseActivity(line, true),
+        parseTask: taskParser(),
+        waitForEnd: (signal) => waitForStop(path.replace(/\.jsonl$/, '.meta.json'), oneShot, signal),
       };
     if (signal.aborted || Date.now() >= deadline) return undefined;
     // The only failure of the sleep is the abort, which the next round of the loop handles.
@@ -264,49 +400,161 @@ const readStart = async (path: string): Promise<string> => {
 
 /**
  * Reads the metadata file of a subagent at `path` every `POLL_INTERVAL` ms, and resolves once it sets `stoppedByUser`,
- * or when `signal` aborts.
+ * or `finished` for a one-shot subagent, or when `signal` aborts.
  */
-const waitForStop = async (path: string, signal: AbortSignal): Promise<void> => {
+const waitForStop = async (path: string, oneShot: boolean, signal: AbortSignal): Promise<void> => {
   while (!signal.aborted) {
-    if (await isStopped(path)) return;
+    if (await isStopped(path, oneShot)) return;
     // The only failure of the sleep is the abort, which ends the loop.
     await sleep(POLL_INTERVAL, undefined, { signal }).catch(() => undefined);
   }
 };
 
 /**
- * Returns whether the metadata file of a subagent at `path` sets `stoppedByUser`. A file that does not exist does not.
+ * Returns whether the metadata file of a subagent at `path` sets `stoppedByUser`, or `finished` for a one-shot
+ * subagent. A file that does not exist does not.
  */
-const isStopped = async (path: string): Promise<boolean> => {
+const isStopped = async (path: string, oneShot: boolean): Promise<boolean> => {
   const text = await readFileIfExists(path);
   if (text === undefined) return false;
   const meta = SUBAGENT_META.safeParse(parseJson(text));
-  return meta.success && meta.data.stoppedByUser === true;
+  return meta.success && (meta.data.stoppedByUser === true || (oneShot && meta.data.finished === true));
+};
+
+/**
+ * Returns the function that returns the id of the task that a line of a Claude Code transcript holds as the result of
+ * a call to a tool of `TASK_TOOL`. The function keeps the ids of the calls that it has seen and not yet matched to
+ * their result, so it must see the lines in their order.
+ */
+const taskParser = (): ((line: string) => number | undefined) => {
+  const calls = new Set<string>();
+  return (line) => parseTask(line, calls);
+};
+
+/**
+ * Returns the id of the task that the line `line` holds as the result of one of the calls `calls`, and removes that
+ * call from `calls`. Adds to `calls` the id of each call to a tool of `TASK_TOOL` that the line holds. If the line holds
+ * no result of such a call, or the call failed, returns `undefined` instead.
+ */
+const parseTask = (line: string, calls: Set<string>): number | undefined => {
+  if (!line.includes(TASK_TOOL_MARK) && (calls.size === 0 || !line.includes('"tool_result"'))) return undefined;
+  const entry = TASK_TOOL_ENTRY.safeParse(parseJson(line));
+  if (!entry.success) return undefined;
+  let taskId: number | undefined;
+  for (const part of entry.data.message.content) {
+    if (part.type === 'tool_use' && part.id !== undefined && TASK_TOOL.test(part.name ?? '')) calls.add(part.id);
+    if (part.type === 'tool_result' && part.tool_use_id !== undefined && calls.delete(part.tool_use_id))
+      taskId ??= part.is_error === true ? undefined : taskIdOf(part.content);
+  }
+  return taskId;
+};
+
+/**
+ * Returns the id of the task that the content `content` of the result of a tool of `TASK_TOOL` holds. If it holds no
+ * task, such as the message of a failure, returns `undefined` instead.
+ */
+const taskIdOf = (content: unknown): number | undefined => {
+  const result = TASK_RESULT.safeParse(content);
+  if (!result.success) return undefined;
+  const task = TASK_ID.safeParse(parseJson(result.data[0].text));
+  return task.success ? task.data.id : undefined;
 };
 
 /**
  * Returns the function that returns the message of a user or an agent that a line of a Claude Code transcript holds.
  * With `sidechain`, only the entries of a subagent are messages, and without it, only the entries of the session
- * itself. Entries that only Claude Code wrote, such as the text of a skill or the notice that a background command
- * ended, are no messages, and neither are tool calls, tool results and thinking. If the line holds no message, the
+ * itself. Entries that only Claude Code wrote, such as the text of a skill, are no messages, and neither are tool
+ * calls, tool results and thinking. Neither is the notice that a wait for the messages of the atomic-workflow server
+ * ended: the function keeps in `awaitIds` the id of each call that runs the wait and of the background task that the
+ * call started, and a message of the user that names one of them is no message. If the line holds no message, the
  * function returns `undefined` instead.
  */
 const entryParser = (sidechain: boolean): ((line: string) => TranscriptMessage | undefined) => {
-  return (line) => parseEntry(line, sidechain);
+  return (line) => {
+    const value = parseJson(line);
+    keepAwaitIds(line, value);
+    const message = parseEntry(value, sidechain);
+    if (message?.sender === 'user' && namesAny(message.content, awaitIds)) return undefined;
+    return message;
+  };
 };
 
 /**
- * Returns the message of a user or an agent that the line `line` of a Claude Code transcript holds, as
- * `entryParser` describes it for `sidechain`.
+ * Adds to `awaitIds` the ids that the entry `value` of the line `line` of a Claude Code transcript holds of a
+ * wait for the messages of the atomic-workflow server: the id of each call of a tool whose command holds
+ * `AWAIT_COMMAND_MARK`, and the id of the background task that a result of one of those calls started.
  */
-const parseEntry = (line: string, sidechain: boolean): TranscriptMessage | undefined => {
-  const entry = ENTRY.safeParse(parseJson(line));
+const keepAwaitIds = (line: string, value: unknown): void => {
+  if (!line.includes(AWAIT_COMMAND_MARK) && (awaitIds.size === 0 || !line.includes('"tool_result"'))) return;
+  const entry = TOOL_ENTRY.safeParse(value);
+  if (!entry.success) return;
+  const taskId = entry.data.toolUseResult?.backgroundTaskId;
+  for (const { type, id, tool_use_id: callId, input } of entry.data.message.content) {
+    const command = input?.command;
+    if (type === 'tool_use' && id !== undefined && typeof command === 'string' && command.includes(AWAIT_COMMAND_MARK))
+      awaitIds.add(id);
+    if (type === 'tool_result' && callId !== undefined && awaitIds.has(callId) && typeof taskId === 'string')
+      awaitIds.add(taskId);
+  }
+};
+
+/**
+ * Returns whether the text `text` holds one of the ids of `ids`.
+ */
+const namesAny = (text: string, ids: ReadonlySet<string>): boolean => [...ids].some((id) => text.includes(id));
+
+/**
+ * Returns the message of a user or an agent that the value `value` of a line of a Claude Code transcript holds, as
+ * `entryParser` describes it for `sidechain`, without the waits for the messages of the atomic-workflow server.
+ */
+const parseEntry = (value: unknown, sidechain: boolean): TranscriptMessage | undefined => {
+  const entry = ENTRY.safeParse(value);
   if (!entry.success) return undefined;
   const { type, uuid, timestamp, isMeta, isSidechain = false, isCompactSummary, message } = entry.data;
   const sender = SENDERS.get(type);
   if (sender === undefined || isMeta || isSidechain !== sidechain || isCompactSummary) return undefined;
   const content = textOf(message.content);
   return content === '' ? undefined : { messageId: uuid, sender, content, timestamp: Date.parse(timestamp) };
+};
+
+/**
+ * Returns the status of the agent that the line `line` of a Claude Code transcript shows. With `sidechain`, only the
+ * entries of a subagent count, and without it, only the entries of the session itself. Each entry of the user or the
+ * agent shows that a turn runs, tool calls and tool results included. A message of the user that marks an interrupt
+ * shows that the turn ended, and so does an entry of a subagent that ends its turn, as `endsSubagentTurn` tells.
+ * Entries that only Claude Code wrote, a local command and its output, and every other entry, such as the time that
+ * Claude Code notes after a turn, show no status, and neither does a line that is not valid, so the function returns
+ * `undefined` for it.
+ */
+const parseActivity = (line: string, sidechain: boolean): TranscriptActivity | undefined => {
+  const value = parseJson(line);
+  const entry = ENTRY.safeParse(value);
+  if (!entry.success) return undefined;
+  const { type, timestamp, isMeta, isSidechain = false, isCompactSummary, message } = entry.data;
+  if (!SENDERS.has(type) || isMeta || isSidechain !== sidechain || isCompactSummary) return undefined;
+  const text = textOf(message.content).trim();
+  if (type === 'user' && LOCAL_COMMAND_MARKS.some((mark) => text.startsWith(mark))) return undefined;
+  const ended = type === 'user' ? text.startsWith(INTERRUPT_MARK) : sidechain && endsSubagentTurn(line, value, text);
+  return { status: ended ? 'idle' : 'working', timestamp: Date.parse(timestamp) };
+};
+
+/**
+ * Returns whether the entry `value` of an agent, from the line `line` of the transcript of a subagent, with the text
+ * `text`, ends the turn of the subagent: a message whose text is one of `SUBAGENT_TURN_ENDS`, or a report through
+ * `HANDBACK_TOOL` whose message is one of them.
+ */
+const endsSubagentTurn = (line: string, value: unknown, text: string): boolean => {
+  if (SUBAGENT_TURN_ENDS.has(text)) return true;
+  if (!line.includes(HANDBACK_TOOL)) return false;
+  const entry = HANDBACK_ENTRY.safeParse(value);
+  if (!entry.success) return false;
+  return entry.data.message.content.some(
+    ({ type, name, input }) =>
+      type === 'tool_use' &&
+      name === HANDBACK_TOOL &&
+      typeof input?.message === 'string' &&
+      SUBAGENT_TURN_ENDS.has(input.message.trim()),
+  );
 };
 
 /**

@@ -30,18 +30,22 @@ export interface SessionSkills {
 const messageOf = (error: unknown) => (error instanceof Error ? error.message : String(error));
 
 /**
- * Returns the skills of the atomic workflow that the session `sessionId` can run, read with `skillList` at mount and on
- * each `refresh`. The skills of other plugins, and the personal and project skills, are left out. A failed read
- * keeps the skills of the latest read that succeeded. A read that ends after a newer one started is dropped. The hook
- * holds the skills of one session: use it with a `key` per session, so that another session starts without skills.
+ * Returns the skills of the atomic workflow that the session `sessionId` can run, read with `skillList` at mount, each
+ * time `sessionId` changes, and on each `refresh`. While `sessionId` is `undefined`, nothing is read. The skills of
+ * other plugins, and the personal and project skills, are left out. A failed read keeps the skills of the latest read
+ * that succeeded, and so does a change of `sessionId` until its read succeeds. A read that ends after a newer one
+ * started is dropped.
  */
-export const useSkills = (sessionId: string): SessionSkills => {
+export const useSkills = (sessionId: string | undefined): SessionSkills => {
   const [skills, setSkills] = useState<readonly Skill[]>();
   const [failure, setFailure] = useState<string | null>(null);
   const latest = useRef(0);
   const mounted = useRef(true);
 
   const refresh = useCallback(() => {
+    if (sessionId === undefined) {
+      return;
+    }
     latest.current += 1;
     const read = latest.current;
 

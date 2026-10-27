@@ -26,6 +26,7 @@ const ENTRY_POINTS: Readonly<Record<string, string>> = {
   'repository-server': 'src/repository-server.main.ts',
   'await-command': 'src/await-command.main.ts',
   'session-start': 'src/session-start.main.ts',
+  'session-activity': 'src/session-activity.main.ts',
 };
 
 /**

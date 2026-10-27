@@ -176,7 +176,7 @@ const main = async (): Promise<void> => {
     },
     server,
     context: {
-      followSubagent: (sessionId, parentId) => followSubagent(session, sessionId, parentId),
+      followSubagent: (sessionId, parentId, oneShot) => followSubagent(session, sessionId, parentId, oneShot),
       listSkills: (sessionId) => listSkills(session, sessionId),
     },
     attachment: undefined,
@@ -347,43 +347,54 @@ const listSkills = (session: Session, sessionId: string): readonly TranscriptSki
 
 /**
  * Logs the transcript of the subagent `sessionId`, which runs inside the session `parentId` of `session`, in the
- * background, until the subagent is stopped or the connection to the repository server closes. Once the subagent
- * is stopped, the repository server learns that it has ended. A failure of the log goes to the standard error, like a
- * failure of the log of the session.
+ * background, until the subagent is stopped or the connection to the repository server closes. A one-shot subagent,
+ * which the agent starts after the call, is also logged until it finishes its prompt. Once the subagent is stopped or
+ * finished, the repository server learns that it has ended, and so it does when no transcript of a one-shot subagent
+ * appears. A failure of the log goes to the standard error, like a failure of the log of the session.
  * If `session` is not attached, or `parentId` is not the session that the agent runs now, throws.
  */
-const followSubagent = (session: Session, sessionId: string, parentId: string): void => {
+const followSubagent = (session: Session, sessionId: string, parentId: string, oneShot: boolean): void => {
   const parent = session.transcript;
   if (session.attachment === undefined || parent?.sessionId !== parentId)
     throw new Error(`The session ${parentId} is not the current session`);
-  void logSubagent(session, session.attachment, parent, sessionId);
+  void logSubagent(session, session.attachment, parent, sessionId, oneShot);
 };
 
 /**
  * Finds the transcript of the subagent `sessionId` of the session of the transcript `parent`, and logs it over the
- * connection of `attachment` until the subagent is stopped or the connection closes. Once the subagent is stopped, tells
- * the repository server that it has ended. A failure goes to the standard error.
+ * connection of `attachment` until the subagent is stopped, or finished for a one-shot subagent, or the connection
+ * closes. Then tells the repository server that the subagent has ended, unless the connection closed. A one-shot
+ * subagent without a transcript has ended too. A failure goes to the standard error.
  */
 const logSubagent = async (
   session: Session,
   attachment: Promise<Attachment>,
   parent: Transcript,
   sessionId: string,
+  oneShot: boolean,
 ): Promise<void> => {
   const { findSubagentTranscript, logTranscript, tailFile } = session.dependencies;
   const logging = new AbortController();
   try {
     const { connection } = await attachment;
     void connection.closed.then(() => logging.abort());
-    const transcript = await findSubagentTranscript(parent, sessionId, logging.signal);
-    if (transcript === undefined) throw new Error('Found no transcript');
+    const end = (): Promise<unknown> => {
+      const params: z.input<typeof subagentEndMethod.params> = { sessionId };
+      return connection.request(subagentEndMethod.name, params, logging.signal);
+    };
+    const transcript = await findSubagentTranscript(parent, sessionId, logging.signal, oneShot);
+    if (transcript === undefined) {
+      if (oneShot && !logging.signal.aborted) await end();
+      throw new Error('Found no transcript');
+    }
     await logTranscript(transcript, session.directory, connection, logging.signal, { tailFile });
     if (logging.signal.aborted) return;
-    const params: z.input<typeof subagentEndMethod.params> = { sessionId };
-    await connection.request(subagentEndMethod.name, params, logging.signal);
+    await end();
   } catch (error) {
     // A request that the close of the connection cuts short is no failure of the log.
-    if (!logging.signal.aborted) process.stderr.write(`Could not log the subagent ${sessionId}: ${messageOf(error)}\n`);
+    if (!logging.signal.aborted)
+      process.stderr.write(`Could not log the subagent ${sessionId}: ${messageOf(error)}
+`);
   }
 };
 

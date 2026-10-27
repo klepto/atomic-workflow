@@ -2,9 +2,10 @@ import { useEffect, useRef } from 'react';
 import type { TaskSummary } from '@/api/types.ts';
 import { ScrollArea } from '@/components/ui/scroll-area.tsx';
 import { TaskIdLabel } from '@/tasks/task-id-label.tsx';
+import { TASK_PANEL_ID } from '@/tasks/task-panel.tsx';
 
 /**
- * Props of the page header: the name of the repository and the tasks.
+ * Props of the page header: the name of the repository, the tasks, the open task and what opens or closes a task.
  */
 export interface PageHeaderProps {
   /**
@@ -16,6 +17,16 @@ export interface PageHeaderProps {
    * The tasks of the repository, in the order of their ids.
    */
   tasks: readonly TaskSummary[];
+
+  /**
+   * The id of the open task, or `undefined` while no task is open.
+   */
+  openTaskId: number | undefined;
+
+  /**
+   * Opens the task with the id `taskId`, or closes it while it is the open task.
+   */
+  onToggleTask: (taskId: number) => void;
 }
 
 /**
@@ -49,17 +60,30 @@ const Title = ({ repository }: { repository: string | undefined }) => (
 );
 
 /**
- * The tabs of the tasks: one button for each task of `tasks`, with its slug and its id. A click on a tab does nothing
- * yet, and no tab is the current one. The row scrolls sideways when the tabs do not fit, and brings the current tab
- * into view.
+ * Returns the id of the element of the tab of the task with the id `taskId`.
  */
-const TaskTabs = ({ tasks }: { tasks: readonly TaskSummary[] }) => {
+export const taskTabIdOf = (taskId: number) => `task-tab-${taskId}`;
+
+/**
+ * The tabs of the tasks: one button for each task of `tasks`, with its slug and its id. A click on a tab calls
+ * `onToggleTask` with the id of its task. The tab of the open task `openTaskId` is the current one, and is marked as
+ * expanded. The row scrolls sideways when the tabs do not fit, and brings the current tab into view.
+ */
+const TaskTabs = ({
+  tasks,
+  openTaskId,
+  onToggleTask,
+}: {
+  tasks: readonly TaskSummary[];
+  openTaskId: number | undefined;
+  onToggleTask: (taskId: number) => void;
+}) => {
   const row = useRef<HTMLDivElement>(null);
   useEffect(() => {
-    if (tasks.length > 0 && row.current !== null) {
+    if (tasks.length > 0 && openTaskId !== undefined && row.current !== null) {
       revealCurrentTab(row.current);
     }
-  }, [tasks.length]);
+  }, [tasks.length, openTaskId]);
   return (
     <ScrollArea viewportRef={row} className="flex-1">
       <nav aria-label="Tasks">
@@ -68,7 +92,11 @@ const TaskTabs = ({ tasks }: { tasks: readonly TaskSummary[] }) => {
             <li key={task.id} className="flex">
               <button
                 type="button"
-                className="relative flex items-center whitespace-nowrap rounded-sm px-3 text-muted-foreground text-sm outline-none transition-colors after:absolute after:inset-x-3 after:bottom-0 after:h-0.5 after:rounded-full hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:ring-inset aria-[current=page]:font-medium aria-[current=page]:text-foreground aria-[current=page]:after:bg-primary"
+                id={taskTabIdOf(task.id)}
+                aria-expanded={task.id === openTaskId}
+                aria-controls={TASK_PANEL_ID}
+                onClick={() => onToggleTask(task.id)}
+                className="relative flex cursor-pointer items-center whitespace-nowrap rounded-sm px-3 text-muted-foreground text-sm outline-none transition-colors after:absolute after:inset-x-3 after:bottom-0 after:h-0.5 after:rounded-full hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:ring-inset aria-expanded:font-medium aria-expanded:text-foreground aria-expanded:after:bg-primary"
               >
                 <span>{task.slug}</span>
                 <TaskIdLabel id={String(task.id)} />
@@ -86,7 +114,7 @@ const TaskTabs = ({ tasks }: { tasks: readonly TaskSummary[] }) => {
  * that has none, stays as it is.
  */
 const revealCurrentTab = (row: HTMLElement) => {
-  const tab = row.querySelector<HTMLElement>('[aria-current="page"]');
+  const tab = row.querySelector<HTMLElement>('[aria-expanded="true"]');
   if (tab === null) {
     return;
   }
@@ -100,17 +128,17 @@ const revealCurrentTab = (row: HTMLElement) => {
 };
 
 /**
- * The header across the top of the app: the title, which leads to `/`, and one tab per task. On a narrow screen the
- * tabs take a row below the title. The row of tabs is not shown while there is no task. The top right corner of the
- * header stays free.
+ * The header across the top of the app: the title, which leads to `/`, and one tab per task, which opens the task or
+ * closes it while it is open. On a narrow screen the tabs take a row below the title. The row of tabs is not shown
+ * while there is no task. The top right corner of the header stays free.
  */
-export const PageHeader = ({ repository, tasks }: PageHeaderProps) => (
+export const PageHeader = ({ repository, tasks, openTaskId, onToggleTask }: PageHeaderProps) => (
   <header className="border-b bg-background">
     <div className="flex flex-col md:flex-row md:items-stretch md:gap-6 md:pr-44 md:pl-6">
       <div className="flex min-h-12 min-w-0 items-center py-1.5 pr-36 pl-4 md:h-12 md:max-w-sm md:shrink-0 md:py-0 md:pr-0 md:pl-0">
         <Title repository={repository} />
       </div>
-      {tasks.length > 0 && <TaskTabs tasks={tasks} />}
+      {tasks.length > 0 && <TaskTabs tasks={tasks} openTaskId={openTaskId} onToggleTask={onToggleTask} />}
     </div>
   </header>
 );

@@ -1,5 +1,6 @@
 import type { z } from 'zod';
 import type { Inboxes } from '../attachment/inboxes.ts';
+import type { SessionActivity } from '../attachment/session-activity.ts';
 import type { SessionConnections } from '../attachment/session-connections.ts';
 import type { Subagents } from '../attachment/subagents.ts';
 import type { TicketClaims } from '../attachment/ticket-claims.ts';
@@ -19,10 +20,12 @@ import { taskGetMethod } from './method.task-get.ts';
 import { taskListMethod } from './method.task-list.ts';
 import { taskDeleteMethod } from './method.task-delete.ts';
 import { sessionListMethod } from './method.session-list.ts';
+import { sessionActivityReportMethod } from './method.session-activity-report.ts';
 import { messageListMethod } from './method.message-list.ts';
 import { messageLogMethod } from './method.message-log.ts';
 import { repositoryGetMethod } from './method.repository-get.ts';
 import { sessionRegisterMethod } from './method.session-register.ts';
+import { sessionTaskSetMethod } from './method.session-task-set.ts';
 import { skillListMethod } from './method.skill-list.ts';
 import { designSaveMethod } from './method.design-save.ts';
 import { goalSaveMethod } from './method.goal-save.ts';
@@ -33,6 +36,7 @@ import { ticketSetStatusMethod } from './method.ticket-set-status.ts';
 import { worktreeCreateMethod } from './method.worktree-create.ts';
 import { worktreeDeleteMethod } from './method.worktree-delete.ts';
 import { worktreeMergeMethod } from './method.worktree-merge.ts';
+import { subagentCreateMethod } from './method.subagent-create.ts';
 import { subagentStartMethod } from './method.subagent-start.ts';
 import { subagentStopMethod } from './method.subagent-stop.ts';
 
@@ -64,6 +68,11 @@ export interface MethodContext {
    * Subagents that run inside the attached orchestrator sessions.
    */
   readonly subagents: Subagents;
+
+  /**
+   * Status of the agent of each session.
+   */
+  readonly activity: SessionActivity;
 
   /**
    * Inboxes of the bound sessions and of the started subagents.
@@ -138,11 +147,14 @@ export const Methods: readonly Method[] = [
   echoMethod,
   repositoryGetMethod,
   sessionRegisterMethod,
+  sessionTaskSetMethod,
   messageLogMethod,
   messageListMethod,
   sessionListMethod,
+  sessionActivityReportMethod,
   messageDeliverMethod,
   subagentStartMethod,
+  subagentCreateMethod,
   subagentStopMethod,
   subagentEndMethod,
   skillListMethod,

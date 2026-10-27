@@ -1,6 +1,6 @@
 import { type KeyboardEvent, type RefObject, useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 import type { Skill } from '@/api/types.ts';
-import { insertSkill, isSlashWord, matchSkills } from './skill-commands.ts';
+import { bestMatchIndex, insertSkill, isSlashWord, matchSkills } from './skill-commands.ts';
 
 /**
  * Options of the skill menu of one text box.
@@ -42,7 +42,8 @@ export interface SkillMenu {
   open: boolean;
 
   /**
-   * The skills that the menu offers, the best match first. Empty while the menu is closed.
+   * The skills that the menu offers, the main skills first and the helper skills after them, as `matchSkills` orders
+   * them. Empty while the menu is closed.
    */
   matches: readonly Skill[];
 
@@ -85,19 +86,21 @@ export const skillOptionId = (menuId: string, skill: Skill): string => `${menuId
 
 /**
  * Returns the menu state of the skills of one text box. The menu opens while the whole text is a slash and a word
- * without whitespace, and calls `onOpen` each time it opens. ArrowDown and ArrowUp move the highlight with wrap, Enter
- * and Tab pick the highlighted skill, and Escape closes the menu until the text changes. Enter on a text that is the
- * highlighted skill already, or while no skill matches, is left to the box. A key during the composition of an input
+ * without whitespace, and calls `onOpen` each time it opens. Each time the list of matches changes, the best match is
+ * highlighted, which may be a helper skill below the main skills. ArrowDown and ArrowUp move the highlight with wrap
+ * through both groups, Enter and Tab pick the highlighted skill, and Escape closes the menu until the text changes.
+ * Enter on a text that is the highlighted skill already, or while no skill matches, is left to the box. A key during the composition of an input
  * method is left alone.
  */
 export const useSkillMenu = ({ text, setText, field, skills, onOpen }: UseSkillMenuOptions): SkillMenu => {
   const menuId = useId();
   const matched = matchSkills(text, skills ?? []);
   const listKey = matched.map((skill) => skill.name).join(' ');
+  const best = bestMatchIndex(text, matched);
   const [seenText, setSeenText] = useState(text);
   const [seenListKey, setSeenListKey] = useState(listKey);
   const [dismissed, setDismissed] = useState(false);
-  const [active, setActive] = useState(0);
+  const [active, setActive] = useState(best);
   const caretToEnd = useRef(false);
 
   // Adjusts the state during the render as soon as the text or the list changes, so no render shows a stale state.
@@ -107,10 +110,10 @@ export const useSkillMenu = ({ text, setText, field, skills, onOpen }: UseSkillM
   }
   if (seenListKey !== listKey) {
     setSeenListKey(listKey);
-    setActive(0);
+    setActive(best);
   }
   // The rest of this render still sees the old index, which may lie past the end of the new list.
-  const highlighted = seenListKey === listKey ? active : 0;
+  const highlighted = seenListKey === listKey ? active : best;
 
   const open = isSlashWord(text) && !dismissed;
   const matches = open ? matched : [];

@@ -13,7 +13,8 @@ export interface PageData {
   repository: Repository | undefined;
 
   /**
-   * The attached sessions, as the latest `sessionList` answered them, or `undefined` until it answered once.
+   * The sessions of the repository, attached or not, as the latest `sessionList` answered them, or `undefined` until it
+   * answered once.
    */
   sessions: readonly ListedSession[] | undefined;
 
@@ -29,7 +30,7 @@ export interface PageData {
   messages: number;
 
   /**
-   * Reads the attached sessions again, such as after a call that changed them. Resolves once a read that started after
+   * Reads the sessions again, such as after a call that changed them. Resolves once a read that started after
    * the call ended.
    */
   readSessions: () => Promise<void>;
@@ -76,7 +77,7 @@ const keepLastData = () => undefined;
 
 /**
  * Reads the data of the page and keeps it current by the one stream of the page at `/events`. At load it reads the
- * repository, the attached sessions and the tasks. On `sessions` it reads the sessions again, on `tasks` the tasks, and
+ * repository, the sessions and the tasks. On `sessions` it reads the sessions again, on `tasks` the tasks, and
  * on `messages` it adds one to `messages`. When the stream opens again after a drop, it reads everything again and adds
  * one to `messages`, since events may have been lost meanwhile. Reads of one resource never overlap.
  */
@@ -88,7 +89,7 @@ export const usePageData = (): PageData => {
   const [readers] = useState(() => ({
     repository: serialReads(() => call<Repository>('repositoryGet').then(setRepository, keepLastData)),
     sessions: serialReads(() =>
-      call<{ sessions: readonly ListedSession[] }>('sessionList', { attached: true }).then(
+      call<{ sessions: readonly ListedSession[] }>('sessionList').then(
         (result) => setSessions(result.sessions),
         keepLastData,
       ),
