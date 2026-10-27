@@ -43,13 +43,35 @@ a change.
 
 ## Scope
 
-The description of the ticket is the specification: `## Design` holds the parts of the design that it implements,
-`## Changes` the files to touch, `## Acceptance criteria` the conditions that must hold, and `## Verify` the commands
-that check the work. Do only the work of this ticket. Change a file outside of `## Changes` only when a criterion
-cannot hold without it, and name each such change in your final report.
+The description of the ticket says what to build: `## Acceptance criteria` the behavior that must hold, `## Contract`
+the parts of the design that other tickets rely on, and `## Verify` the commands that check the work. How to build it
+is yours to decide. `## Approach` is the guidance of the planner, written before anyone read the code in depth: a
+starting point, never a limit. Do only the work of this ticket, with no feature beyond its acceptance criteria.
 
-Read only the files that the ticket names, and what they lean on. A later stage reads the work of an earlier one from
-`git -C "<worktree>" diff <task branch>...HEAD`, not by reading every file again.
+A later stage reads the work of an earlier one from `git -C "<worktree>" diff <task branch>...HEAD` and the messages of
+the `wip` commits, not by reading every file again.
+
+## Decisions
+
+The stage `prototype` researches before it builds, and a ticket of the type `other` does so before its one pass.
+Read the code that the ticket touches and what it leans on, and search the web for the facts the repository cannot
+give: libraries, APIs, versions, known pitfalls. Research is done when each choice of the ticket rests on a fact you
+checked, not on a guess.
+
+Then take the best approach you can defend. Take an approach that differs from `## Approach` when it is clearly
+better: more correct, simpler, less code, or a closer fit to the code beside it. A different taste is no reason.
+
+A decision is a choice of yours that differs from `## Approach`, or that settles what the description leaves open and
+a reviewer would ask about. Write each decision as one line: what you chose, over what, and why. Name the decisions of
+a stage in the body of its `wip` commit, so that a later stage and the landing find them.
+
+A contract binds you where other tickets rely on it:
+
+- Match `## Contract` exactly: its names, signatures, data shapes and errors.
+- Extend a contract when every existing part of it still holds, such as with a new optional field or a new export.
+  Each extension is a decision.
+- When a better approach needs a part of a contract to change or go, block the ticket, as `## Blocked` says, with the
+  approach and what it gains. The user amends the design, which carries the change to every ticket that relies on it.
 
 ## Follow-up tickets
 
@@ -78,8 +100,9 @@ Each stage:
    there.
 3. Does its work, and runs the commands of `## Verify` that apply to it until they pass.
 4. Commits its work in the worktree of the ticket: `git -C "<worktree>" add -A`, then a commit with the message
-   `wip(<stage>): <what the stage did>`. A stage that changed nothing commits nothing. The commits of the ticket
-   become one at the end, so keep their messages short.
+   `wip(<stage>): <what the stage did>`, and a body with one line `Decision: <decision>` for each decision of the
+   stage. A stage that changed nothing commits nothing. The commits of the ticket become one at the end, so keep their
+   messages short.
 5. Ends its reply with one line: `Stage <stage> done. Next stage: <next stage skill>.` when the complexity of the
    ticket has a next stage, or `Stage <stage> done. Next: land the ticket.` after the last stage, which is `tests`
    for `simple` and `refactor` for `complex`.
@@ -88,8 +111,8 @@ Each stage:
 
 The code of a ticket has its final shape when:
 
-- The public API is the one that `## Design` names: files, names, signatures, errors. Where the design says nothing,
-  follow the patterns of the code beside it.
+- Each part of `## Contract` that the ticket provides matches it exactly: names, signatures, data shapes, errors.
+  Elsewhere, the public API follows the patterns of the code beside it.
 - The code follows the instructions of the repository and the conventions of the code beside it: its structure, such
   as interfaces where the repository uses them, its naming, and its handling of errors.
 - Each public declaration has documentation in the style of the repository.
@@ -99,8 +122,9 @@ The code of a ticket has its final shape when:
 ## Blocked
 
 Block the ticket when its work cannot go on without the user: a criterion that cannot hold, a command of `## Verify`
-that still fails after three attempts at a fix, a question that the description does not answer, or a conflict that
-you cannot resolve without changing the intent of a ticket. Call `ticketSetStatus` with `blocked`, the current stage,
-and the cause in one sentence as `reason`. Then tell the user the cause and what you need, and stop. The next
+that still fails after three attempts at a fix, a question about what to build that the description does not answer,
+a better approach that needs a contract to change, or a conflict that you cannot resolve without changing the intent
+of a ticket. A question about how to build it is yours to decide, as `## Decisions` says. Call `ticketSetStatus` with
+`blocked`, the current stage, and the cause in one sentence as `reason`. Then tell the user the cause and what you need, and stop. The next
 `/atomic-workflow:implement <task id> <ticket id>` resumes at that stage. Without a ticket, `/atomic-workflow:implement`
 never picks a blocked ticket, since it waits for the user.

@@ -20,12 +20,12 @@ relative to the base directory of this skill. If this conversation does not hold
 
 ## Work
 
-Follow the steps of a stage in `implementation.md`, with the stage `prototype`. Its work depends on the complexity of
-the ticket:
+Follow the steps of a stage in `implementation.md`, with the stage `prototype`. First research, and take the
+decisions of the ticket, as `## Decisions` of `implementation.md` says. Its work then depends on the complexity of the
+ticket:
 
-- `complex`: the stage `refactor` brings the code to its final shape after the tests. Follow the API that `## Design`
-  names: its files, names and signatures. The prototype proves the approach, so get the behavior right first, and
-  leave the polish to the stage `refactor`.
+- `complex`: the stage `refactor` brings the code to its final shape after the tests. Match `## Contract` exactly. The
+  prototype proves the approach, so get the behavior right first, and leave the polish to the stage `refactor`.
 - `simple`: no refactor follows, so write the code in its final shape now, as the final shape in `implementation.md`
   says.
 

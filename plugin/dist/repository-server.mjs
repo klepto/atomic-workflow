@@ -20723,7 +20723,7 @@ var PARAMS20 = external_exports.object({
         "How the work runs: code for work that changes the code of the repository, in stages, other for any other work, such as research or moving files, in one pass"
       ),
       complexity: external_exports.enum(TICKET_COMPLEXITIES).nullable().default(null).describe(
-        "simple for work that follows an existing pattern or makes small decisions inside the design, across one or several files, complex for cross-cutting work, tricky logic or real judgement. null for a manual ticket, and only for one"
+        "simple for work that follows an existing pattern or makes small decisions inside one part, across one or several files, complex for cross-cutting work, tricky logic or real judgement. null for a manual ticket, and only for one"
       ),
       slug: SLUG.describe("Short name of the ticket: exactly three lowercase words joined by hyphens"),
       summary: external_exports.string().trim().min(1).regex(/^[^\r\n]*$/, "Must be one line").describe("Summary of the ticket in one sentence"),

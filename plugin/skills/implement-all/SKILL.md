@@ -74,7 +74,7 @@ Take the final reply of each subagent of the wave, in the order of the ids of th
   worktree of the report. Resolve a conflict in that worktree, as step 3 says. If a conflict cannot be resolved
   without changing the intent of a ticket, or `worktreeMerge` fails for another cause, call `ticketSetStatus` with
   `blocked` and the cause in one sentence as `reason`. Then go on with the next ticket. Remember the commit of each
-  ticket that landed, and the summary line of its message.
+  ticket that landed, the summary line of its message, and the `Decisions:` of its report.
 - `Blocked`: the subagent blocked the ticket already. Go on with the next ticket.
 - Any other reply, `Stopped` included: call `ticketSetStatus` with `blocked` and the cause that the reply names as
   `reason`, or `Its subagent ended without a report.` when it names none. So the ticket runs in no later wave, and
@@ -90,6 +90,7 @@ Use the result of the last call of `ticketNext`. Print this report, and leave ou
 Task **<task id>-<task slug>**. Waves: <number of waves>.
 Landed:
 - **<id>-<slug>**: <first 7 characters of the commit> <summary line>
+  - Decision: <decision>
   - <warning>
 Blocked:
 - **<id>-<slug>**: <blockedReason>
@@ -103,9 +104,9 @@ Next: <next step>
 ```
 
 - `Landed`: each ticket that landed in this run, in the order in which it landed. For a ticket whose commit is null,
-  print `changed nothing` in place of the commit and the summary line. Below the line of a ticket, name each warning
-  of `worktreeCreate` that this conversation remembered, each line of the `Warnings:` of its report, and each warning
-  of `worktreeDelete`.
+  print `changed nothing` in place of the commit and the summary line. Below the line of a ticket, name each line of
+  the `Decisions:` of its report, so the review weighs it. Then name each warning of `worktreeCreate` that this
+  conversation remembered, each line of the `Warnings:` of its report, and each warning of `worktreeDelete`.
 - `Blocked`: each ticket of `waiting` with the cause `blocked`, then each ticket whose `ticketSetStatus` failed, with
   the message of the failure.
 - `Waiting for the user`: each ticket of `pickable` in the mode `attended` or `manual`.

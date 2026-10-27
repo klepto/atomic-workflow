@@ -82,12 +82,13 @@ cause is gone.
 Do the work by the mode and the type of the ticket. A follow-up ticket, with `fixes`, works like any other ticket, as
 `implementation.md` says: its description names the problem to fix.
 
-- Mode `manual`: the user does the work. Guide them through `## Changes` one step at a time, and check the result of
+- Mode `manual`: the user does the work. Guide them through `## Steps` one step at a time, and check the result of
   each step before the next one, by reading files or running commands. Commit each change of the repository in the
   worktree of the ticket.
 - Mode `attended`: the user takes part between turns, where the description says so. Ask them, and wait for their
   answer. Otherwise work as for `unattended`.
-- Type `other`: do the work in one pass, as the description says, and commit it in the worktree of the ticket.
+- Type `other`: research and decide as `## Decisions` of `implementation.md` says, then do the work in one pass, and
+  commit it in the worktree of the ticket, with a line `Decision: <decision>` in the body for each decision.
 - Type `code`: run the stages that `implementation.md` lists for the complexity of the ticket, in order, each with the
   Skill tool. If the ticket has a stage, start at that stage, and skip the ones before it. When a stage ends and names
   the next one, invoke it in the same reply. When it ends with `Next: land the ticket.`, go on to the check.
@@ -99,6 +100,10 @@ Before you land the ticket, check the whole work against its description:
 1. Run each command of `## Verify` in the worktree of the ticket. Each must pass.
 2. Read `git -C "<worktree>" diff <task branch>...HEAD`, and check each acceptance criterion against it. Name each
    criterion with the evidence that it holds.
+3. Check each part of `## Contract` against the diff: the parts that the ticket provides match it exactly, and the
+   parts that it uses are used as the contract says.
+4. Collect the decisions of the ticket from the bodies of its commits, with
+   `git -C "<worktree>" log --format=%b <task branch>..HEAD`.
 
 Fix each gap, and commit the fix. If a gap stays, block the ticket.
 
@@ -109,7 +114,8 @@ With `--no-land`, go on to `## No land` instead of `## Land`.
 1. Write the message of the one commit of the ticket. Its summary line is `<type>: <what changes>`, in the imperative
    and in lower case, at most 72 characters. The type is `feat` for a new ability, `fix` for a bug fix, `refactor` for
    a change of structure only, `docs` for documentation only, `test` for tests only, `perf` for speed, and `chore` for
-   anything else. Below a blank line, the body says what changes and why, in one to three lines.
+   anything else. Below a blank line, the body says what changes and why, in one to three lines, then one line
+   `Decision: <decision>` for each decision of the ticket.
 2. Call `worktreeMerge` with the message. It squashes the commits of the ticket into one, rebases it onto the task
    branch, moves the task branch to it, and sets the ticket `needs-review`.
 3. On a conflict, resolve the files that it names in the worktree of the ticket, so that the work of both tickets
@@ -119,8 +125,8 @@ With `--no-land`, go on to `## No land` instead of `## Land`.
 ## Finish
 
 Print `Ticket **<id>-<slug>** landed on <task branch> as <first 7 characters of the commit>. Status: needs-review.`,
-or `Ticket **<id>-<slug>** changed nothing. Status: needs-review.` when the commit is null. Then name each change
-outside of `## Changes`, and each warning of `worktreeDelete`. For a follow-up ticket, add: `Once the review passes,
+or `Ticket **<id>-<slug>** changed nothing. Status: needs-review.` when the commit is null. Then name each decision
+of the ticket, so the review weighs it, and each warning of `worktreeDelete`. For a follow-up ticket, add: `Once the review passes,
 approve ticket <fixes> and this ticket with /atomic-workflow:approve <task id>.`
 
 ## No land
@@ -145,11 +151,13 @@ Commit message:
 <body>
 Check:
 - <acceptance criterion>: <evidence that it holds, in one line>
+Decisions:
+- <decision>
 Warnings:
-- <each change outside of `## Changes`, the uncommitted changes of `worktreeCreate`, each file that it did not copy, and each line of its `warnings`>
+- <the uncommitted changes of `worktreeCreate`, each file that it did not copy, and each line of its `warnings`>
 ```
 
-Leave out `Warnings:` when there are none. When the ticket is blocked:
+Leave out `Decisions:` and `Warnings:` when there are none. When the ticket is blocked:
 
 ```
 Blocked: **<id>-<slug>**: <reason>

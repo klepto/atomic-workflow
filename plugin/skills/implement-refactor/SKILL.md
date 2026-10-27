@@ -25,8 +25,9 @@ its tests, in the commits of the ticket:
 
 - Reshape the code to its final shape, as the final shape in `implementation.md` says.
 - Keep the behavior that the tests lock. Run the tests after each step of the reshape, and keep every one passing.
-- Change a test only when the public API of `## Design` requires it, such as a name or a signature that the prototype
-  did not follow. Never change a test to hide a change of behavior.
+- Change a test only for a change of the public API: a part of `## Contract` that the prototype did not match, or a
+  name or a signature outside the contract that the reshape improves, as a decision. Never change a test to hide a
+  change of behavior.
 - Write no new tests. If the stage `tests` wrote none, since the repository says to write no tests, check each
   acceptance criterion by running the code after the reshape.
 

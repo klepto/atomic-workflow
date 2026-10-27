@@ -985,6 +985,42 @@ Rejected:
 - A skill typed into the chat of the orchestrator that runs in the orchestrator. Its work would fill the context of the
   orchestrator, while a subagent keeps it in a chat of its own.
 
+## Phase 27
+
+The plan of a task is a guide, not a bounding box. The design settles the contracts between the parts of the result,
+and the agent of each ticket researches the internals of its part and decides them, with the code in front of it.
+Planning reads less and decides less, and a ticket that finds a better approach takes it.
+
+- A part is one moving piece of the result, such as a module, a command or a page. A contract is what one part exposes
+  and another relies on: an API, a data shape, a file format, a shared name. A choice that every part must make the
+  same way, or that the user requires, is a contract too. Everything else is internal to a part.
+- The design lists the parts in `## Parts`, then has one section per contract, then `## Open questions` for the
+  unknowns that a ticket settles. `plan-design` researches only where parts meet: the code that a contract builds on,
+  and an outside API that a contract names. A request to pin an internal choice in the design gets pushback, and
+  becomes a contract when the user keeps it.
+- `plan-tickets` looks up only the area of the repository that each ticket touches, not its files.
+- A ticket quotes the contracts that it provides or uses in `## Contract`, in place of `## Design`. `## Approach`
+  replaces `## Changes`: a few lines of guidance that the agent may depart from. A `manual` ticket has `## Steps` in
+  place of `## Changes`. Acceptance criteria state behavior seen from outside the part, and name a file or a function
+  only when a contract does.
+- The stage `prototype`, or the one pass of a ticket of the type `other`, researches first, then takes the best
+  approach it can defend. A decision is a choice that departs from `## Approach`, or that settles what the description
+  leaves open. Each decision goes into the body of its `wip` commit as `Decision: <what, over what, why>`, and into the
+  commit of the ticket when it lands, its report and the report of `implement-all`, so the review weighs it.
+- A contract still binds. The code matches it exactly, and may extend it when every existing part still holds. A
+  better approach that changes a contract blocks the ticket, and the user amends the design, whose cascade carries the
+  change to each ticket that relies on it.
+- The tests derive from the acceptance criteria, the contracts and the decisions, so a departure from `## Approach`
+  breaks no test of the plan.
+- Only the instructions of the agent change. The server stores the design and the descriptions as Markdown, as before.
+
+Rejected:
+
+- A ticket agent that rewrites the design for its own decisions. Parallel tickets would overwrite each other, since
+  `designSave` replaces the whole text, and the internals that a decision settles no longer belong in the design.
+- A ticket agent that changes a contract that no started ticket uses yet. Two tickets of a wave can rely on it at
+  once, so a change of a contract always goes through the user.
+
 ## Layout
 
 ```

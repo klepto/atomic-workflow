@@ -22,11 +22,13 @@ Follow the start of planning with the stage `plan-tickets`. Then:
   would you like to change in the tickets? A ticket whose work started stays as it is, and a follow-up ticket can fix
   a ticket that needs review."
 - Else with tickets, show the ticket list, and ask about the split.
-- Without tickets, read the code that the design touches, split the design into tickets, store them, show the ticket
-  list, and ask about the split.
+- Without tickets, look up where the parts of the design live, split the design into tickets, store them, show the
+  ticket list, and ask about the split.
 
-Read the code yourself, in this session, with Read, Grep and Glob, since this skill may run inside a subagent, which
-cannot start one. Reading is done when you can name the files that each ticket in the mode `unattended` or `attended` touches.
+Look up the code yourself, in this session, with Read, Grep and Glob, since this skill may run inside a subagent,
+which cannot start one. Look only far enough to cut the tickets and write their `## Approach`: the agent of each ticket
+reads the code in depth. Looking is done when you can name the area of the repository, a directory or a module, that
+each ticket in the mode `unattended` or `attended` touches.
 
 Ask about the split with: "Would you like any changes to the ticket split, or do you accept it?"
 

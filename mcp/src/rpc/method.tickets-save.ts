@@ -37,7 +37,7 @@ const PARAMS = z.object({
           .nullable()
           .default(null)
           .describe(
-            'simple for work that follows an existing pattern or makes small decisions inside the design, across one or several files, complex for cross-cutting work, tricky logic or real judgement. null for a manual ticket, and only for one',
+            'simple for work that follows an existing pattern or makes small decisions inside one part, across one or several files, complex for cross-cutting work, tricky logic or real judgement. null for a manual ticket, and only for one',
           ),
         slug: SLUG.describe('Short name of the ticket: exactly three lowercase words joined by hyphens'),
         summary: z

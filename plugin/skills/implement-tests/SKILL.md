@@ -1,6 +1,6 @@
 ---
 name: implement-tests
-description: Second stage of the implementation of a ticket of type code. Writes unit tests for each public feature of the ticket from its acceptance criteria and its design, runs them against the prototype, and updates the tests that its changes affect.
+description: Second stage of the implementation of a ticket of type code. Writes unit tests for each public feature of the ticket from its acceptance criteria and its contract, runs them against the prototype, and updates the tests that its changes affect.
 argument-hint: "<task id> <ticket id>"
 allowed-tools: mcp__plugin_atomic-workflow_atomic-workflow__activate, mcp__plugin_atomic-workflow_atomic-workflow__taskGet, mcp__plugin_atomic-workflow_atomic-workflow__worktreeCreate, mcp__plugin_atomic-workflow_atomic-workflow__ticketSetStatus, Bash, PowerShell, Read, Edit, Write, Grep, Glob, WebSearch, WebFetch
 ---
@@ -31,13 +31,13 @@ with one line:
 
 Otherwise:
 
-- Derive the tests from the acceptance criteria and from `## Design`, not from the code: at least one test per
-  criterion, and one per edge case and error that the design names.
-- Test through the public API that `## Design` names, not through internals, so that the tests hold through a
-  refactor.
+- Derive the tests from the acceptance criteria, `## Contract` and the decisions in the `wip` commits, not from the
+  code: at least one test per criterion, and one per edge case and error that the contract or a decision names.
+- Test through the public API of the ticket, the parts of `## Contract` that it provides and what else it exports, not
+  through internals, so that the tests hold through a refactor.
 - Find the existing tests that the changes of the ticket break or make wrong, from
-  `git -C "<worktree>" diff <task branch>...HEAD`, and update them. Delete a test only when the design removes the
-  behavior it tests.
+  `git -C "<worktree>" diff <task branch>...HEAD`, and update them. Delete a test only when the ticket removes the
+  behavior it tests on purpose, by its acceptance criteria or by a decision.
 - Use the test framework, layout and helpers of the repository. Add a framework only when the repository has none and
   the ticket asks for one.
 - Run the new tests against the prototype, then the whole test suite, and every other command of `## Verify`. Each
