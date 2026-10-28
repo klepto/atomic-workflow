@@ -9,8 +9,8 @@ import { Button } from '@/components/ui/button.tsx';
 import { ScrollArea } from '@/components/ui/scroll-area.tsx';
 import { parseCommand } from '@/conversation/command-text.ts';
 import { MarkdownBody } from '@/conversation/markdown-body.tsx';
-import { parseTaskNotification } from '@/conversation/task-notification.ts';
 import { MessageTime } from '@/conversation/message-time.tsx';
+import { isTaskNotification } from '@/conversation/task-notification.ts';
 import { cn } from '@/lib/utils.ts';
 import { ConsoleComposer } from './console-composer.tsx';
 import { useFollowScroll } from './follow-scroll.ts';
@@ -81,11 +81,6 @@ interface PendingMessage {
  * The sender of a text of the user, as the foot of its row names it.
  */
 const USER = 'user';
-
-/**
- * The sender of the notice that a background task ended, as the foot of its row names it.
- */
-const BACKGROUND_TASK = 'background task';
 
 /**
  * Returns the message of the failure `error`.
@@ -183,31 +178,14 @@ const AgentRow = ({ message, chat }: { message: LoggedMessage; chat: Chat }) => 
 );
 
 /**
- * The notice that a background task ended, such as a command or a subagent: its summary `summary` as a muted line on
- * the right side, without a bubble, then the foot of the row with the time of the notice.
+ * One message of the log of the chat `chat`.
  */
-const NotificationRow = ({ summary, time }: { summary: string; time: string }) => (
-  <section aria-label="Background task" className="flex flex-col items-end gap-1">
-    <p className="max-w-[85%] whitespace-pre-wrap break-words text-right text-muted-foreground text-sm">{summary}</p>
-    <RowFoot sender={BACKGROUND_TASK} time={time} />
-  </section>
-);
-
-/**
- * One message of the log of the chat `chat`. A message of the user that notifies the end of a background task shows
- * as the summary of the notice.
- */
-const ConsoleRow = ({ message, chat }: { message: LoggedMessage; chat: Chat }) => {
-  if (message.sender === 'agent') {
-    return <AgentRow message={message} chat={chat} />;
-  }
-  const summary = parseTaskNotification(message.content);
-  return summary === undefined ? (
-    <UserRow label="Message" text={message.content} time={timeOf(message)} />
+const ConsoleRow = ({ message, chat }: { message: LoggedMessage; chat: Chat }) =>
+  message.sender === 'agent' ? (
+    <AgentRow message={message} chat={chat} />
   ) : (
-    <NotificationRow summary={summary} time={timeOf(message)} />
+    <UserRow label="Message" text={message.content} time={timeOf(message)} />
   );
-};
 
 /**
  * The line between the messages of two sessions of a chat, such as after a `/clear` of the orchestrator.
@@ -332,8 +310,8 @@ const runsInOf = (chat: Chat): ReactNode =>
 
 /**
  * The console, the chat `chat`: its messages in a scrolling log, oldest at the top, and the composer at the bottom. The
- * log is read at load and each time `messages` changes. Where the messages of the log pass from one session to the
- * next, such as after a `/clear` of the orchestrator, a line says `New session`. A text of the composer goes to the
+ * log is read at load and each time `messages` changes, and shows no notification that a background task ended. Where
+ * the messages of the log pass from one session to the next, such as after a `/clear` of the orchestrator, a line says `New session`. A text of the composer goes to the
  * attached session of the chat with `messageDeliver`, and shows at the end of the log until it is delivered, or with
  * why it was not. A text that runs a skill of the session goes the same way in the chat of a subagent. In the chat of
  * the orchestrator, it starts a new subagent with `subagentStart` instead, with the text as its first message, and once
@@ -342,7 +320,8 @@ const runsInOf = (chat: Chat): ReactNode =>
  * place of the composer says why.
  */
 export const ConsolePage = ({ chat, messages, online, onOpen, readSessions }: ConsolePageProps) => {
-  const { entries, loaded, failure } = useChatLog(chat.logQuery, messages);
+  const { entries: logged, loaded, failure } = useChatLog(chat.logQuery, messages);
+  const entries = useMemo(() => logged.filter((message) => !isTaskNotification(message.content)), [logged]);
   const skills = useSkills(chat.sessionId);
   const breaks = useMemo(() => sessionBreaks(entries), [entries]);
   const [pending, setPending] = useState<readonly PendingMessage[]>([]);

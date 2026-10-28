@@ -31,11 +31,17 @@ const published = async <T>(write: Promise<T>, changes: ChangeFeed, resource: Ch
 };
 
 /**
- * Wraps `store`, so that `append` publishes `messages` to `changes` once it resolves.
+ * Wraps `store`, so that `append` publishes `messages` to `changes` once it resolves, and `deleteSession` once it
+ * resolves with a deleted message.
  */
 const publishingMessageLog = (store: MessageLogStore, changes: ChangeFeed): MessageLogStore => ({
   append: (message) => published(store.append(message), changes, 'messages'),
   list: (query) => store.list(query),
+  deleteSession: async (sessionId) => {
+    const deleted = await store.deleteSession(sessionId);
+    if (deleted > 0) changes.publish('messages');
+    return deleted;
+  },
 });
 
 /**
@@ -60,7 +66,8 @@ const publishingTasks = (store: TaskStore, changes: ChangeFeed): TaskStore => {
 };
 
 /**
- * Wraps `store`, so that `setTask` publishes `sessions` to `changes` once it resolves with `true`.
+ * Wraps `store`, so that `setTask` publishes `sessions` to `changes` once it resolves with `true`, and `delete`
+ * publishes `sessions` and `messages` once it resolves with `true`.
  */
 const publishingSessions = (store: SessionStore, changes: ChangeFeed): SessionStore => ({
   register: (session) => store.register(session),
@@ -70,6 +77,14 @@ const publishingSessions = (store: SessionStore, changes: ChangeFeed): SessionSt
     const changed = await store.setTask(id, taskId);
     if (changed) changes.publish('sessions');
     return changed;
+  },
+  delete: async (id) => {
+    const deleted = await store.delete(id);
+    if (deleted) {
+      changes.publish('sessions');
+      changes.publish('messages');
+    }
+    return deleted;
   },
 });
 

@@ -78,7 +78,7 @@ export interface MessageQuery {
 }
 
 /**
- * Store of the message log of a repository, which only grows.
+ * Store of the message log of a repository, which grows, except when the messages of a session are deleted.
  */
 export interface MessageLogStore {
   /**
@@ -92,4 +92,9 @@ export interface MessageLogStore {
    * Returns the messages that `query` selects, in the order of the log.
    */
   list(query: MessageQuery): Promise<readonly LoggedMessage[]>;
+
+  /**
+   * Deletes every message of the session `sessionId` from the log, and returns how many it deleted.
+   */
+  deleteSession(sessionId: string): Promise<number>;
 }

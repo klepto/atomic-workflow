@@ -25,7 +25,7 @@ const BodyLink = ({ node: _node, children, href, ...props }: ComponentProps<'a'>
 export const MarkdownBody = ({ text, className }: { text: string; className?: string }) => (
   <div
     className={cn(
-      'flex flex-col gap-2 break-words text-sm [&_code]:rounded [&_code]:bg-muted [&_code]:px-1 [&_pre]:overflow-x-auto [&_pre]:rounded [&_pre]:bg-muted [&_pre]:p-2 [&_blockquote]:flex [&_blockquote]:flex-col [&_blockquote]:gap-2 [&_blockquote]:border-l-2 [&_blockquote]:border-muted-foreground/40 [&_blockquote]:pl-3 [&_blockquote]:text-muted-foreground',
+      'flex flex-col gap-2 break-words text-sm [&_code]:rounded [&_code]:bg-muted [&_code]:px-1 [&_pre]:overflow-x-auto [&_pre]:rounded [&_pre]:bg-muted [&_pre]:p-2 [&_blockquote]:flex [&_blockquote]:flex-col [&_blockquote]:gap-2 [&_blockquote]:border-l-2 [&_blockquote]:border-muted-foreground/40 [&_blockquote]:pl-3 [&_blockquote]:text-muted-foreground [&_blockquote]:italic',
       className,
     )}
   >

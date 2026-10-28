@@ -1,9 +1,10 @@
-import { LoaderCircle, Plus } from 'lucide-react';
+import { LoaderCircle, Plus, Trash2 } from 'lucide-react';
 import { type ReactNode, useState } from 'react';
 import { call } from '@/api/rpc.ts';
 import type { ListedSession, TaskSummary } from '@/api/types.ts';
 import { CHAT_STATUSES, ChatDot } from '@/chats/chat-dot.tsx';
 import { type Chat, listChats } from '@/chats/chat-list.ts';
+import { DeleteDialog } from '@/components/delete-dialog.tsx';
 import { Button } from '@/components/ui/button.tsx';
 import { cn } from '@/lib/utils.ts';
 
@@ -44,23 +45,54 @@ const ENTRY_LINK =
   'flex min-w-0 flex-1 items-center gap-2 whitespace-nowrap rounded-md px-3 py-1.5 text-muted-foreground text-sm outline-none transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:ring-[3px] focus-visible:ring-sidebar-ring/50 aria-[current=page]:bg-sidebar-accent aria-[current=page]:font-medium aria-[current=page]:text-sidebar-accent-foreground';
 
 /**
- * The entry of the chat `chat`: the dot of its status and its name. A screen reader hears the name, then the words of
- * the status. A click on it calls `onOpen`. It is marked as the current page when `current` is true.
+ * The button that deletes the subagent of the chat `chat` with `sessionDelete`, with its chat, after it asks in a
+ * dialog. It sits at the right end of the entry of the chat, and shows only while the pointer is over the entry, while
+ * it has the focus, or while its dialog is open.
  */
-const ChatEntry = ({ chat, current, onOpen }: { chat: Chat; current: boolean; onOpen: () => void }) => (
-  <li className="flex min-w-0">
-    <button
-      type="button"
-      onClick={onOpen}
-      aria-current={current ? 'page' : undefined}
-      className={cn(ENTRY_LINK, 'cursor-pointer')}
-    >
-      <ChatDot status={chat.status} />
-      <span className="truncate">{chat.name}</span>
-      <span className="sr-only">{`, ${CHAT_STATUSES[chat.status].words}`}</span>
-    </button>
-  </li>
+const DeleteAgent = ({ chat }: { chat: Chat }) => (
+  <DeleteDialog
+    trigger={
+      <Button
+        variant="ghost"
+        size="icon"
+        className="absolute top-1/2 right-1 size-6 -translate-y-1/2 text-destructive opacity-0 hover:bg-destructive/10 hover:text-destructive focus-visible:opacity-100 group-hover:opacity-100 data-popup-open:opacity-100"
+        aria-label={`Delete ${chat.name}`}
+      />
+    }
+    title={`Delete ${chat.name}?`}
+    description="This deletes the agent with its chat. You cannot undo it."
+    confirm="Delete agent"
+    onDelete={async () => {
+      await call('sessionDelete', { sessionId: chat.key });
+    }}
+  >
+    <Trash2 aria-hidden="true" className="size-3.5" />
+  </DeleteDialog>
 );
+
+/**
+ * The entry of the chat `chat`: the dot of its status and its name. A screen reader hears the name, then the words of
+ * the status. A click on it calls `onOpen`. It is marked as the current page when `current` is true. The entry of a
+ * subagent that ended has the button that deletes it.
+ */
+const ChatEntry = ({ chat, current, onOpen }: { chat: Chat; current: boolean; onOpen: () => void }) => {
+  const deletable = chat.role === 'subagent' && chat.status === 'ended';
+  return (
+    <li className="group relative flex min-w-0">
+      <button
+        type="button"
+        onClick={onOpen}
+        aria-current={current ? 'page' : undefined}
+        className={cn(ENTRY_LINK, 'cursor-pointer', deletable && 'pr-8')}
+      >
+        <ChatDot status={chat.status} />
+        <span className="truncate">{chat.name}</span>
+        <span className="sr-only">{`, ${CHAT_STATUSES[chat.status].words}`}</span>
+      </button>
+      {deletable && <DeleteAgent chat={chat} />}
+    </li>
+  );
+};
 
 /**
  * A section of the sidebar: its heading `title`, a line below the heading on a wide screen or after it in the row on a
@@ -149,6 +181,7 @@ const StartAgentButton = ({
  * `orchestrator`, its heading names the task, and a new agent works on the task. A task without subagents says so
  * below the chat `orchestrator`. The dot of each chat shows its status: a grey ring once ended, green while idle, yellow while working,
  * and red while it waits for the user. A click on a chat opens it, and the open chat is marked as the current page. A
+ * subagent that ended can be deleted with its chat from its entry. A
  * new agent starts inside the orchestrator session that attached last. It is the navigation of a column at the left of
  * the page on a wide screen, and of a row above the page on a narrow one.
  */

@@ -23,9 +23,11 @@ import { sessionListMethod } from './method.session-list.ts';
 import { sessionActivityReportMethod } from './method.session-activity-report.ts';
 import { messageListMethod } from './method.message-list.ts';
 import { messageLogMethod } from './method.message-log.ts';
+import { messageLogDeleteMethod } from './method.message-log-delete.ts';
 import { repositoryGetMethod } from './method.repository-get.ts';
 import { sessionRegisterMethod } from './method.session-register.ts';
 import { sessionTaskSetMethod } from './method.session-task-set.ts';
+import { sessionDeleteMethod } from './method.session-delete.ts';
 import { skillListMethod } from './method.skill-list.ts';
 import { designSaveMethod } from './method.design-save.ts';
 import { goalSaveMethod } from './method.goal-save.ts';
@@ -148,7 +150,9 @@ export const Methods: readonly Method[] = [
   repositoryGetMethod,
   sessionRegisterMethod,
   sessionTaskSetMethod,
+  sessionDeleteMethod,
   messageLogMethod,
+  messageLogDeleteMethod,
   messageListMethod,
   sessionListMethod,
   sessionActivityReportMethod,

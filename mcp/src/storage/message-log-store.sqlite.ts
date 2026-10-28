@@ -30,6 +30,7 @@ export const sqliteMessageLogStore = (database: DatabaseSync): MessageLogStore =
   const selectLatest = database.prepare(
     `SELECT * FROM (SELECT ${COLUMNS} FROM message_log WHERE ${filter} ORDER BY id DESC LIMIT :limit) ORDER BY id`,
   );
+  const removeSession = database.prepare('DELETE FROM message_log WHERE session_id = :sessionId');
   return {
     append: async (message) => {
       // An insert that conflicts returns no row, and the message that it conflicts with is selected instead.
@@ -44,5 +45,6 @@ export const sqliteMessageLogStore = (database: DatabaseSync): MessageLogStore =
           : selectAfter.all({ sessionId, role, after, limit });
       return rows as unknown as LoggedMessage[];
     },
+    deleteSession: async (sessionId) => Number(removeSession.run({ sessionId }).changes),
   };
 };

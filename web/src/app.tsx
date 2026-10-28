@@ -46,13 +46,18 @@ const useOpenChat = (
 
 /**
  * Returns the open task among the tasks `tasks`, or `undefined` while no task is open, with the function that opens a
- * task by its id or closes it while it is open, and the one that closes the open task. The open task lives in state,
- * not in the URL. A task that is no longer among `tasks`, such as one deleted, counts as closed. Closing the open task
- * moves the focus to its tab.
+ * task by its id or closes it while it is open, the one that closes the open task, and the one that opens a task by its
+ * id. The open task lives in state, not in the URL. A task that is no longer among `tasks`, such as one deleted, counts
+ * as closed. Closing the open task moves the focus to its tab.
  */
 const useOpenTask = (
   tasks: readonly TaskSummary[] | undefined,
-): [open: TaskSummary | undefined, toggle: (taskId: number) => void, close: () => void] => {
+): [
+  open: TaskSummary | undefined,
+  toggle: (taskId: number) => void,
+  close: () => void,
+  show: (taskId: number) => void,
+] => {
   const [openId, setOpenId] = useState<number>();
   const open = tasks?.find((task) => task.id === openId);
   const toggle = (taskId: number) => setOpenId((current) => (current === taskId ? undefined : taskId));
@@ -62,7 +67,28 @@ const useOpenTask = (
     }
     setOpenId(undefined);
   };
-  return [open, toggle, close];
+  return [open, toggle, close, setOpenId];
+};
+
+/**
+ * Calls `onFirstTask` with the id of the task of the open chat `open`, among the sessions `sessions`, when the subagent
+ * of that chat gets its first task while its chat stays open, such as once it creates the task with its first goal. A
+ * chat that already has a task when it opens does not call it.
+ */
+const useFirstTaskOfOpenChat = (
+  open: Chat | undefined,
+  sessions: readonly ListedSession[] | undefined,
+  onFirstTask: (taskId: number) => void,
+) => {
+  const taskId =
+    open?.role === 'subagent' ? (sessions?.find((session) => session.sessionId === open.key)?.taskId ?? null) : null;
+  const [seen, setSeen] = useState({ key: open?.key, taskId });
+  if (seen.key !== open?.key || seen.taskId !== taskId) {
+    setSeen({ key: open?.key, taskId });
+    if (seen.key === open?.key && seen.taskId === null && taskId !== null) {
+      onFirstTask(taskId);
+    }
+  }
 };
 
 /**
@@ -70,14 +96,15 @@ const useOpenTask = (
  * the panel of the open task at the right. The main column stays empty until the sessions are known. Then it shows the
  * open chat, or the line that no agent has run in the repository while there is no chat. The app fills the window, and
  * the window never scrolls: the sidebar, the tabs of the header, the main column and the task panel each scroll inside
- * themselves. While a task is open, the sidebar lists the chats of the task. On a narrow screen the sidebar is a row
- * above the main column, and the task panel covers both.
+ * themselves. While a task is open, the sidebar lists the chats of the task. The task of the open chat opens once its
+ * subagent gets it. On a narrow screen the sidebar is a row above the main column, and the task panel covers both.
  */
 const Shell = () => {
   const { online } = useConnection();
   const { repository, sessions, tasks, messages, readSessions } = usePageData();
   const [open, setOpenKey] = useOpenChat(sessions);
-  const [openTask, toggleTask, closeTask] = useOpenTask(tasks);
+  const [openTask, toggleTask, closeTask, showTask] = useOpenTask(tasks);
+  useFirstTaskOfOpenChat(open, sessions, showTask);
   return (
     <div className="flex h-dvh flex-col overflow-hidden">
       <PageHeader

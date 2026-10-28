@@ -60,7 +60,7 @@ export interface RegisteredSession {
 }
 
 /**
- * Store of the sessions of a repository. A session stays registered for good.
+ * Store of the sessions of a repository. A session stays registered until it is deleted.
  */
 export interface SessionStore {
   /**
@@ -84,4 +84,10 @@ export interface SessionStore {
    * already keeps it. If no such session is registered, or it works on a task already, returns `false` instead.
    */
   setTask(id: string, taskId: number): Promise<boolean>;
+
+  /**
+   * Deletes the session `id` with its messages in the message log, and returns `true`. If no such session is
+   * registered, returns `false` instead. Rejects for a session that another session runs inside.
+   */
+  delete(id: string): Promise<boolean>;
 }

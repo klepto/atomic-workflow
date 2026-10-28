@@ -1,6 +1,6 @@
 ---
 name: tasks-delete
-description: Deletes a task of the atomic workflow with its goals, its design, its tickets, and its worktrees and branches.
+description: Deletes a task of the atomic workflow with its goals, its design, its tickets, its worktrees and branches, and its subagents with their chats.
 argument-hint: "<task id | task slug>"
 allowed-tools: mcp__plugin_atomic-workflow_atomic-workflow__activate, mcp__plugin_atomic-workflow_atomic-workflow__taskDelete, Bash(node:*)
 ---
@@ -18,4 +18,4 @@ Arguments: `$ARGUMENTS`. The first word names the task: its id, its slug, or bot
      and lose that work. Stop. Only when the user confirms in their next message, call `taskDelete` again with
      the same word and `force` set to true.
 3. Print `Deleted **<id>-<slug>**.` with the id and slug of its result. Then print the number of worktrees and branches
-   that it removed, and each of its warnings.
+   that it removed, the number of subagents that it deleted with their chats, and each of its warnings.

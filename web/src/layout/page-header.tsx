@@ -32,11 +32,24 @@ export interface PageHeaderProps {
 /**
  * The title of the app, `atomic-workflow / <repository>`, as a link to `/`. It reads `atomic-workflow` only while
  * `repository` is `undefined`. On a narrow screen the name of the repository takes a line of its own when the title
- * does not fit on one.
+ * does not fit on one. While `onCloseTask` is set, a plain click calls it instead of following the link, and a click
+ * that opens the link elsewhere, such as with Ctrl, still follows it.
  */
-const Title = ({ repository }: { repository: string | undefined }) => (
+const Title = ({
+  repository,
+  onCloseTask,
+}: {
+  repository: string | undefined;
+  onCloseTask: (() => void) | undefined;
+}) => (
   <a
     href="/"
+    onClick={(event) => {
+      if (onCloseTask !== undefined && !(event.ctrlKey || event.metaKey || event.shiftKey || event.altKey)) {
+        event.preventDefault();
+        onCloseTask();
+      }
+    }}
     className="flex min-w-0 flex-wrap items-center gap-x-1.5 rounded-md text-sm leading-5 outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50 md:flex-nowrap"
   >
     <span className="flex shrink-0 gap-1.5 text-muted-foreground">
@@ -128,15 +141,18 @@ const revealCurrentTab = (row: HTMLElement) => {
 };
 
 /**
- * The header across the top of the app: the title, which leads to `/`, and one tab per task, which opens the task or
- * closes it while it is open. On a narrow screen the tabs take a row below the title. The row of tabs is not shown
+ * The header across the top of the app: the title, which closes the open task or else leads to `/`, and one tab per
+ * task, which opens the task or closes it while it is open. On a narrow screen the tabs take a row below the title. The row of tabs is not shown
  * while there is no task. The top right corner of the header stays free.
  */
 export const PageHeader = ({ repository, tasks, openTaskId, onToggleTask }: PageHeaderProps) => (
   <header className="border-b bg-background">
     <div className="flex flex-col md:flex-row md:items-stretch md:gap-6 md:pr-44 md:pl-6">
       <div className="flex min-h-12 min-w-0 items-center py-1.5 pr-36 pl-4 md:h-12 md:max-w-sm md:shrink-0 md:py-0 md:pr-0 md:pl-0">
-        <Title repository={repository} />
+        <Title
+          repository={repository}
+          onCloseTask={openTaskId === undefined ? undefined : () => onToggleTask(openTaskId)}
+        />
       </div>
       {tasks.length > 0 && <TaskTabs tasks={tasks} openTaskId={openTaskId} onToggleTask={onToggleTask} />}
     </div>

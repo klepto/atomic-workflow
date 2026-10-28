@@ -6,20 +6,6 @@
 const TASK_NOTIFICATION = /^<task-notification>[\s\S]*<\/task-notification>$/;
 
 /**
- * Pattern of the summary of a notification, such as `Background command "Build" completed (exit code 0)`. The text of
- * the summary is its first group.
+ * Returns whether the text `text` of the user is the notification that a background task ended.
  */
-const SUMMARY = /<summary>([\s\S]*?)<\/summary>/;
-
-/**
- * Returns the summary of the notification that the text `text` of the user is, when a background task ended. If the
- * text is no notification, or the notification holds no summary, returns `undefined` instead.
- */
-export const parseTaskNotification = (text: string): string | undefined => {
-  const trimmed = text.trim();
-  if (!TASK_NOTIFICATION.test(trimmed)) {
-    return undefined;
-  }
-  const summary = SUMMARY.exec(trimmed)?.[1]?.trim();
-  return summary === '' ? undefined : summary;
-};
+export const isTaskNotification = (text: string): boolean => TASK_NOTIFICATION.test(text.trim());

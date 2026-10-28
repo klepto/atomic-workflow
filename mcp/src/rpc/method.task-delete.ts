@@ -1,8 +1,9 @@
 import { z } from 'zod';
 import type { DeletedWorktrees } from '../worktree/worktrees.ts';
-import type { Method } from './method.ts';
+import type { Method, MethodContext } from './method.ts';
 import { TASK_REFERENCE, taskGetMethod } from './method.task-get.ts';
 import { endWork, worktreeCall } from './open-ticket.ts';
+import { deleteSubagent } from './method.session-delete.ts';
 
 /**
  * Schema of the parameters of `taskDelete`.
@@ -35,13 +36,31 @@ interface TaskDeleteResult {
    * Worktrees and branches of the task that the deletion removed.
    */
   readonly worktrees: DeletedWorktrees;
+
+  /**
+   * Identifiers of the subagents of the task that the deletion removed with their messages.
+   */
+  readonly subagents: readonly string[];
 }
 
 /**
+ * Deletes each subagent that works on the task `taskId` with its messages, with the services of `context`, as
+ * `sessionDelete` does, and returns their identifiers.
+ */
+const deleteSubagents = async (taskId: number, context: MethodContext): Promise<string[]> => {
+  const subagents = (await context.sessions.list()).filter(
+    (session) => session.role === 'subagent' && session.taskId === taskId,
+  );
+  for (const { id } of subagents) await deleteSubagent(id, context);
+  return subagents.map(({ id }) => id);
+};
+
+/**
  * `Method` named `taskDelete`, which removes every worktree and branch of the task that `task` names, the task branch
- * included, then deletes the task with its goals and its tickets, and returns the identifier and the slug of the
- * deleted task with what it removed. Without `force`, a branch whose commits have not landed, on the task branch for a
- * ticket branch and on the base branch for the task branch, or a worktree with uncommitted changes, fails the call
+ * included, then deletes the task with its goals and its tickets, and each subagent that works on it with its
+ * messages, as `sessionDelete` does, and returns the identifier and the slug of the deleted task with what it removed.
+ * Without `force`, a branch whose commits have not landed, on the task branch for a ticket branch and on the base
+ * branch for the task branch, or a worktree with uncommitted changes, fails the call
  * with an invalid request, and nothing is deleted. A worktree or branch that cannot be removed, such as a directory
  * that another program holds, stays with a warning, and the task is deleted anyway. A task that does not exist fails
  * with invalid parameters, and so does a slug that several tasks have, with a message that lists each of them as
@@ -60,7 +79,8 @@ export const taskDeleteMethod: Method<typeof PARAMS, TaskDeleteResult> = {
     return endWork(taskId, ticketIds, context, async () => {
       const worktrees = await worktreeCall(() => context.worktrees.deleteTask(task, task.baseBranch, force));
       await context.tasks.delete(taskId);
-      return { taskId, slug: task.slug, worktrees };
+      const subagents = await deleteSubagents(taskId, context);
+      return { taskId, slug: task.slug, worktrees, subagents };
     });
   },
 };

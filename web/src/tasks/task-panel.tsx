@@ -1,6 +1,8 @@
-import { X } from 'lucide-react';
+import { Trash2, X } from 'lucide-react';
 import { type KeyboardEvent, type ReactNode, useState } from 'react';
+import { call } from '@/api/rpc.ts';
 import type { TaskSummary } from '@/api/types.ts';
+import { DeleteDialog } from '@/components/delete-dialog.tsx';
 import { Button } from '@/components/ui/button.tsx';
 import { cn } from '@/lib/utils.ts';
 import { TaskIdLabel } from '@/tasks/task-id-label.tsx';
@@ -120,8 +122,39 @@ const PanelSection = ({ title, children }: { title: string; children: ReactNode 
 );
 
 /**
- * The content of the panel for the task `task`: its slug, its id and the day it was created, with the button that
- * closes the panel, then its status with its stages, then its tickets.
+ * The button that deletes the task `task`, with its goals, its design, its tickets, its worktrees and branches, and its
+ * subagents with their chats. It asks first in a dialog above the whole window, which says that the deletion cannot be
+ * undone. When the deletion fails, such as for commits that have not landed, the dialog shows why, and offers to
+ * delete the task anyway, which loses that work. Once the task is deleted, it leaves the tasks, and the panel closes.
+ */
+const DeleteTask = ({ task }: { task: TaskSummary }) => (
+  <DeleteDialog
+    trigger={
+      <Button
+        variant="ghost"
+        size="icon"
+        className="size-[1.625rem] shrink-0 text-destructive hover:bg-destructive/10 hover:text-destructive"
+        aria-label="Delete task"
+      />
+    }
+    title={`Delete ${task.slug}?`}
+    description="This deletes the task with its goals, design and tickets, removes its worktrees and branches, and deletes the chats of its agents. You cannot undo it."
+    confirm="Delete task"
+    retry={{
+      confirm: 'Delete anyway',
+      note: 'Delete anyway to also lose the commits that have not landed and the uncommitted changes.',
+    }}
+    onDelete={async (retried) => {
+      await call('taskDelete', { task: task.id, force: retried });
+    }}
+  >
+    <Trash2 aria-hidden="true" />
+  </DeleteDialog>
+);
+
+/**
+ * The content of the panel for the task `task`: its slug, its id and the day it was created, with the buttons that
+ * delete the task and close the panel, then its status with its stages, then its tickets.
  */
 const TaskDetails = ({ task, onClose }: { task: TaskSummary; onClose: () => void }) => (
   <div className="flex flex-col gap-8 px-6 py-5">
@@ -135,9 +168,18 @@ const TaskDetails = ({ task, onClose }: { task: TaskSummary; onClose: () => void
           {`Created ${new Date(task.createdAt).toLocaleDateString(undefined, { dateStyle: 'medium' })}`}
         </p>
       </div>
-      <Button variant="ghost" size="icon" className="-mr-2 shrink-0" aria-label="Close task" onClick={onClose}>
-        <X aria-hidden="true" />
-      </Button>
+      <div className="-mr-1 flex shrink-0 items-center gap-0.5">
+        <DeleteTask task={task} />
+        <Button
+          variant="ghost"
+          size="icon"
+          className="size-[1.725rem] shrink-0"
+          aria-label="Close task"
+          onClick={onClose}
+        >
+          <X aria-hidden="true" className="size-[1.2rem]" />
+        </Button>
+      </div>
     </div>
     <PanelSection title="Status">
       <p className="font-medium text-base">{STATUS_WORDS[task.status] ?? task.status}</p>
@@ -153,7 +195,8 @@ const TaskDetails = ({ task, onClose }: { task: TaskSummary; onClose: () => void
  * The task panel at the right of the page, which shows the open task `task` beside the open chat. It slides out from
  * the right edge when a task opens, and back when it closes, without the motion when the user asks for less. While it
  * slides back, it keeps the task that it showed last. On a narrow screen it covers the chat instead of standing beside
- * it. A click on its close button, or Escape inside it, calls `onClose`. While closed, nothing in it takes focus.
+ * it. A click on its close button, or Escape inside it but outside its dialogs, calls `onClose`. While closed, nothing
+ * in it takes focus.
  */
 export const TaskPanel = ({ task, onClose }: TaskPanelProps) => {
   const [shown, setShown] = useState(task);
@@ -163,10 +206,10 @@ export const TaskPanel = ({ task, onClose }: TaskPanelProps) => {
   const open = task !== undefined;
 
   /**
-   * Closes the panel on Escape.
+   * Closes the panel on Escape, except in a dialog, whose events reach the panel from its portal.
    */
   const closeOnEscape = (event: KeyboardEvent) => {
-    if (event.key === 'Escape') {
+    if (event.key === 'Escape' && event.currentTarget.contains(event.target as Node)) {
       onClose();
     }
   };
