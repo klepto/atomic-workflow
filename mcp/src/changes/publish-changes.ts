@@ -46,9 +46,10 @@ export interface PublishedServices {
  * Function that wraps each service of `services`, so that it publishes its changes to `changes`, and returns the
  * wrapped services. A wrapped service does what the service does. `MessageLogStore.append` publishes `messages`,
  * `MessageLogStore.deleteSession` publishes `messages` once it resolves with a deleted message, and
- * each write of `TaskStore` publishes `tasks`, once it resolves. `SessionStore.setTask` and
- * `SessionStore.setTicket` publish `sessions` once they resolve with `true`, and `SessionStore.delete` publishes `sessions` and `messages` once it resolves with `true`. `SessionConnections.bind` publishes `sessions`, and
- * again once its connection closes. `Subagents.attach` and `Subagents.stop` publish `sessions`, and `Subagents.start`
+ * each write of `TaskStore` publishes `tasks`, once it resolves. `SessionStore.setTask`, `SessionStore.setTicket` and
+ * `SessionStore.setAlias` publish `sessions` once they resolve with `true`, and `SessionStore.delete` publishes
+ * `sessions` and `messages` once it resolves with `true`. `SessionConnections.bind` publishes `sessions`, and again once
+ * its connection closes. `Subagents.attach` and `Subagents.stop` publish `sessions`, and `Subagents.start`
  * publishes `sessions` once its connection closes, since that stops the subagent. `SessionActivity.report` publishes
  * `sessions` when the status changes. No read publishes.
  */

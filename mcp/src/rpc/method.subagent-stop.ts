@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { messageDeliverMethod } from './method.message-deliver.ts';
+import { deliverServerMessage } from './method.message-deliver.ts';
 import type { Method, MethodContext } from './method.ts';
 import { RpcError, RpcErrorCode } from './rpc-error.ts';
 import { subagentTaskIdMethod } from './session-method.subagent-task-id.ts';
@@ -46,7 +46,7 @@ const killTask = async (context: MethodContext, sessionId: string, parentId: str
   };
   if (backgroundTaskId === null) return;
   const content = killMessage(sessionId, backgroundTaskId);
-  await messageDeliverMethod.handle({ sessionId: parentId, content }, context);
+  deliverServerMessage(context.inboxes, parentId, content);
 };
 
 /**

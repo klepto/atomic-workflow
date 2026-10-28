@@ -1,17 +1,20 @@
 import type { z } from 'zod';
 import { messageLogMethod } from '../rpc/method.message-log.ts';
 import { sessionActivityReportMethod } from '../rpc/method.session-activity-report.ts';
+import { sessionAliasSetMethod } from '../rpc/method.session-alias-set.ts';
 import { sessionRegisterMethod } from '../rpc/method.session-register.ts';
 import { sessionTaskSetMethod } from '../rpc/method.session-task-set.ts';
 import { sessionTicketSetMethod } from '../rpc/method.session-ticket-set.ts';
 import type { RpcConnection } from '../rpc/rpc-connection.ts';
+import { SESSION_ALIAS_MAX_LENGTH } from '../storage/session-store.ts';
 import type { Transcript, TranscriptActivity } from './find-transcript.ts';
 import type { LogTranscriptFunction } from './log-transcript.ts';
 
 /**
  * `LogTranscriptFunction` that calls `sessionRegister` once and then `messageLog` for each message, one after the
  * other, so the log keeps the order of the transcript. For each result of `taskCreate` or `taskGet` in the transcript,
- * it calls `sessionTaskSet` with its task, and for each result of `worktreeCreate`, `sessionTicketSet` with its
+ * it calls `sessionTaskSet` with its task, and after a result of `taskCreate`, `sessionAliasSet` with the plan alias of
+ * the task, as `planAlias` builds it. For each result of `worktreeCreate`, it calls `sessionTicketSet` with its
  * ticket. After the messages of each read of the transcript, it calls
  * `sessionActivityReport` once with the last status that the read shows. The end of the session stops the tail of the
  * transcript, which reads the file once more before it resolves.
@@ -75,7 +78,8 @@ const logLines = async (
 
 /**
  * Tells the repository server over `connection` the task that the line `line` of `transcript` holds as the result of
- * a tool, if it holds one, as the task that the session of the transcript works on.
+ * a tool, if it holds one, as the task that the session of the transcript works on. If the tool created the task, also
+ * names the session after it, with the alias that `planAlias` returns.
  */
 const reportTask = async (
   transcript: Transcript,
@@ -83,10 +87,14 @@ const reportTask = async (
   line: string,
   signal: AbortSignal,
 ): Promise<void> => {
-  const taskId = transcript.parseTask(line);
-  if (taskId === undefined) return;
-  const params: z.input<typeof sessionTaskSetMethod.params> = { sessionId: transcript.sessionId, taskId };
+  const task = transcript.parseTask(line);
+  if (task === undefined) return;
+  const { sessionId } = transcript;
+  const params: z.input<typeof sessionTaskSetMethod.params> = { sessionId, taskId: task.taskId };
   await connection.request(sessionTaskSetMethod.name, params, signal);
+  if (!task.created) return;
+  const alias: z.input<typeof sessionAliasSetMethod.params> = { sessionId, alias: planAlias(task.slug) };
+  await connection.request(sessionAliasSetMethod.name, alias, signal);
 };
 
 /**
@@ -104,6 +112,12 @@ const reportTicket = async (
   const params: z.input<typeof sessionTicketSetMethod.params> = { sessionId: transcript.sessionId, ticketId };
   await connection.request(sessionTicketSetMethod.name, params, signal);
 };
+
+/**
+ * Returns the alias of a session that created the task with the slug `slug`: `plan-<slug>`, cut to
+ * `SESSION_ALIAS_MAX_LENGTH` characters.
+ */
+const planAlias = (slug: string): string => `plan-${slug}`.slice(0, SESSION_ALIAS_MAX_LENGTH);
 
 /**
  * Returns the status of the agent that the last line of `lines` with a status shows, among the lines of `transcript`

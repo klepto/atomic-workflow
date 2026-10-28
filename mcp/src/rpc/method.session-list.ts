@@ -57,8 +57,13 @@ interface ListedSession {
   readonly job: string | null;
 
   /**
-   * Name of the chat of the session: `main` for an orchestrator session, and for a subagent its job with the slug of
-   * its target, such as `implement-cache-key-format`, unique among the subagents.
+   * Alias of the session, or `null` for a session that no feature named.
+   */
+  readonly alias: string | null;
+
+  /**
+   * Name of the chat of the session: `main` for an orchestrator session, and for a subagent its alias, or else its job
+   * with the slug of its target, such as `implement-cache-key-format`, unique among the subagents with no alias.
    */
   readonly name: string;
 
@@ -86,8 +91,8 @@ interface ListedSession {
 /**
  * `Method` named `sessionList`, which returns the sessions of the repository: the attached ones first, then the
  * registered ones that are not attached, in the order of their start, each with its status, the task and the ticket
- * that it works on, its job, the name of its chat, and the time of its latest message. With `attached`, it returns only
- * the attached sessions or only the others.
+ * that it works on, its job, its alias, the name of its chat, and the time of its latest message. With `attached`, it
+ * returns only the attached sessions or only the others.
  */
 export const sessionListMethod: Method<typeof PARAMS, { readonly sessions: readonly ListedSession[] }> = {
   name: 'sessionList',
@@ -121,12 +126,15 @@ export const sessionListMethod: Method<typeof PARAMS, { readonly sessions: reado
 /**
  * The fields of a listed session that the store and the message log hold, rather than the attachment.
  */
-type SessionDetails = Pick<ListedSession, 'taskId' | 'ticketId' | 'job' | 'name' | 'startedAt' | 'lastActivityAt'>;
+type SessionDetails = Pick<
+  ListedSession,
+  'taskId' | 'ticketId' | 'job' | 'alias' | 'name' | 'startedAt' | 'lastActivityAt'
+>;
 
 /**
  * Returns the function that returns the details of the session with an id and a role, among the registered sessions
- * `registered`, with the services of `context`. A session that is not registered works on no task, has no job, and
- * has the name of its role.
+ * `registered`, with the services of `context`. A session that is not registered works on no task, has no job and no
+ * alias, and has the name of its role.
  */
 const detailsOf = async (
   registered: readonly RegisteredSession[],
@@ -137,11 +145,12 @@ const detailsOf = async (
   const rows = new Map(registered.map((session) => [session.id, session]));
   return (sessionId, role) => {
     const row = rows.get(sessionId);
-    const fallback = { id: sessionId, role, job: null, taskId: null, ticketId: null };
+    const fallback = { id: sessionId, role, job: null, taskId: null, ticketId: null, alias: null };
     return {
       taskId: row?.taskId ?? null,
       ticketId: row?.ticketId ?? null,
       job: row?.job ?? null,
+      alias: row?.alias ?? null,
       name: names.get(sessionId) ?? baseNameOf(fallback, undefined),
       startedAt: row?.startedAt ?? null,
       lastActivityAt: latest.get(sessionId) ?? null,

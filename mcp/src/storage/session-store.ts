@@ -20,6 +20,11 @@ export const SESSION_ROLES = ['orchestrator', 'subagent'] as const;
 export type SessionRole = (typeof SESSION_ROLES)[number];
 
 /**
+ * Most characters that the alias of a session holds. An alias holds at least one character, and no line break.
+ */
+export const SESSION_ALIAS_MAX_LENGTH = 60;
+
+/**
  * Session of an agent that the storage knows.
  */
 export interface RegisteredSession {
@@ -69,6 +74,12 @@ export interface RegisteredSession {
    * ticket.
    */
   readonly ticketId: number | null;
+
+  /**
+   * Display name that a feature gave the session, or `null` for a session that no feature named. Aliases are not
+   * unique.
+   */
+  readonly alias: string | null;
 }
 
 /**
@@ -77,7 +88,7 @@ export interface RegisteredSession {
 export interface SessionStore {
   /**
    * Registers `session`, and returns it as registered. A session with the identifier of `session` that is registered
-   * already stays as it is, and is returned instead.
+   * already stays as it is, with its alias, and is returned instead.
    */
   register(session: RegisteredSession): Promise<RegisteredSession>;
 
@@ -103,6 +114,12 @@ export interface SessionStore {
    * or it works on a ticket already, returns `false` instead.
    */
   setTicket(id: string, ticketId: number): Promise<boolean>;
+
+  /**
+   * Sets the alias of the session `id` to `alias`, or clears it for `null`, and returns `true`. If no such session is
+   * registered, or it holds `alias` already, returns `false` instead.
+   */
+  setAlias(id: string, alias: string | null): Promise<boolean>;
 
   /**
    * Deletes the session `id` with its messages in the message log, and returns `true`. If no such session is

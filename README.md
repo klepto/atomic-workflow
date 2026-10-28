@@ -251,7 +251,9 @@ agent. This replaces the channel of phase 5 and the blocking tool `awaitCommand`
   one, with its messages and its wait. The agent keeps receiving messages after `/clear` without a new `activate`.
 - `deliverMessage` puts the message into the inbox of the session, and logs it as a message of the user, since the
   agent receives it as the output of a command, which is no message of its transcript. Claude Code writes the notice
-  that a background command ended as an entry of its own (`isMeta`), which the log skips.
+  that a background command ended as an entry of its own (`isMeta`), which the log skips. The messages that the
+  repository server writes itself, which ask an orchestrator to spawn or to stop a subagent, go into the inbox without
+  being logged, since no user wrote them, so the chat of the orchestrator does not show them.
 - `awaitCommand` takes a session id and `after`, the number of the last message that the session received. It drops
   the messages up to `after`, and returns the messages that are left, all at once, or waits as long as it takes for the
   next one. It returns the status `messages` with the messages and the session that the inbox belongs to now, `stop`

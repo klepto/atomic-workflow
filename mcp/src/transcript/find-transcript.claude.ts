@@ -11,6 +11,7 @@ import type {
   TranscriptActivity,
   TranscriptMessage,
   TranscriptSkill,
+  TranscriptTask,
 } from './find-transcript.ts';
 
 /**
@@ -96,9 +97,14 @@ const awaitIds = new Set<string>();
 /**
  * Pattern of the name of a tool of the MCP server `atomic-workflow` whose result is a task, `taskCreate` or
  * `taskGet`, after the prefix that Claude Code gives the tools of the server, such as
- * `mcp__plugin_atomic-workflow_atomic-workflow__`.
+ * `mcp__plugin_atomic-workflow_atomic-workflow__`. Its first group is the name of the tool.
  */
-const TASK_TOOL = /atomic-workflow__(?:taskCreate|taskGet)$/;
+const TASK_TOOL = /atomic-workflow__(taskCreate|taskGet)$/;
+
+/**
+ * Name of the tool of `TASK_TOOL` that creates the task of its result.
+ */
+const TASK_CREATE_TOOL = 'taskCreate';
 
 /**
  * Text that every line of a Claude Code transcript with a call to a tool of `TASK_TOOL` holds, which a line is searched
@@ -144,9 +150,9 @@ const TASK_TOOL_ENTRY = z.object({
 const TASK_RESULT = z.tuple([z.object({ type: z.literal('text'), text: z.string() })]);
 
 /**
- * Schema of the task that the result of a tool of `TASK_TOOL` holds, with only its id.
+ * Schema of the task that the result of a tool of `TASK_TOOL` holds, with only its id and its slug.
  */
-const TASK_ID = z.object({ id: z.number().int().positive() });
+const TASK_ID = z.object({ id: z.number().int().positive(), slug: z.string().min(1) });
 
 /**
  * Schema of the result of the tool of `TICKET_TOOL`, with only the id of its ticket.
@@ -459,13 +465,14 @@ const isStopped = async (path: string, oneShot: boolean): Promise<boolean> => {
 };
 
 /**
- * Returns the function that returns the id of the task that a line of a Claude Code transcript holds as the result of
- * a call to a tool of `TASK_TOOL`. The function keeps the ids of the calls that it has seen and not yet matched to
- * their result, so it must see the lines in their order.
+ * Returns the function that returns the task that a line of a Claude Code transcript holds as the result of a call to
+ * a tool of `TASK_TOOL`. The function keeps the calls that it has seen and not yet matched to their result, so it must
+ * see the lines in their order.
  */
-const taskParser = (): ((line: string) => number | undefined) => {
-  const calls = new Set<string>();
-  return (line) => parseResult(line, calls, TASK_TOOL, TASK_TOOL_MARK, taskIdOf);
+const taskParser = (): ((line: string) => TranscriptTask | undefined) => {
+  const calls = new Map<string, string>();
+  return (line) =>
+    parseResult(line, calls, TASK_TOOL, TASK_TOOL_MARK, (content, tool) => taskOf(content, tool === TASK_CREATE_TOOL));
 };
 
 /**
@@ -473,44 +480,49 @@ const taskParser = (): ((line: string) => number | undefined) => {
  * of a call to the tool of `TICKET_TOOL`. Like the function of `taskParser`, it must see the lines in their order.
  */
 const ticketParser = (): ((line: string) => number | undefined) => {
-  const calls = new Set<string>();
+  const calls = new Map<string, string>();
   return (line) => parseResult(line, calls, TICKET_TOOL, TICKET_TOOL_MARK, ticketIdOf);
 };
 
 /**
- * Returns the id that `idOf` finds in the line `line` as the result of one of the calls `calls`, and removes that call
- * from `calls`. Adds to `calls` the id of each call to a tool of `tool` that the line holds. Only a line that holds
- * `mark`, or a result while a call waits for one, is parsed. If the line holds no result of such a call, or the call
- * failed, returns `undefined` instead.
+ * Returns what `valueOf` finds in the line `line` as the result of one of the calls `calls`, and removes that call from
+ * `calls`. Adds to `calls` the id of each call to a tool of `tool` that the line holds, with the name of the tool: the
+ * first group of `tool`, or else the whole match. `valueOf` takes the content of the result and the name of the tool
+ * of its call. Only a line that holds `mark`, or a result while a call waits for one, is parsed. If the line holds no
+ * result of such a call, or the call failed, returns `undefined` instead.
  */
-const parseResult = (
+const parseResult = <T>(
   line: string,
-  calls: Set<string>,
+  calls: Map<string, string>,
   tool: RegExp,
   mark: string,
-  idOf: (content: unknown) => number | undefined,
-): number | undefined => {
+  valueOf: (content: unknown, tool: string) => T | undefined,
+): T | undefined => {
   if (!line.includes(mark) && (calls.size === 0 || !line.includes('"tool_result"'))) return undefined;
   const entry = TASK_TOOL_ENTRY.safeParse(parseJson(line));
   if (!entry.success) return undefined;
-  let id: number | undefined;
+  let value: T | undefined;
   for (const part of entry.data.message.content) {
-    if (part.type === 'tool_use' && part.id !== undefined && tool.test(part.name ?? '')) calls.add(part.id);
-    if (part.type === 'tool_result' && part.tool_use_id !== undefined && calls.delete(part.tool_use_id))
-      id ??= part.is_error === true ? undefined : idOf(part.content);
+    const match = tool.exec(part.name ?? '');
+    if (part.type === 'tool_use' && part.id !== undefined && match !== null) calls.set(part.id, match[1] ?? match[0]);
+    if (part.type !== 'tool_result' || part.tool_use_id === undefined) continue;
+    const name = calls.get(part.tool_use_id);
+    if (name === undefined) continue;
+    calls.delete(part.tool_use_id);
+    value ??= part.is_error === true ? undefined : valueOf(part.content, name);
   }
-  return id;
+  return value;
 };
 
 /**
- * Returns the id of the task that the content `content` of the result of a tool of `TASK_TOOL` holds. If it holds no
- * task, such as the message of a failure, returns `undefined` instead.
+ * Returns the task that the content `content` of the result of a tool of `TASK_TOOL` holds, which the call created
+ * when `created` is true. If it holds no task, such as the message of a failure, returns `undefined` instead.
  */
-const taskIdOf = (content: unknown): number | undefined => {
+const taskOf = (content: unknown, created: boolean): TranscriptTask | undefined => {
   const result = TASK_RESULT.safeParse(content);
   if (!result.success) return undefined;
   const task = TASK_ID.safeParse(parseJson(result.data[0].text));
-  return task.success ? task.data.id : undefined;
+  return task.success ? { taskId: task.data.id, slug: task.data.slug, created } : undefined;
 };
 
 /**

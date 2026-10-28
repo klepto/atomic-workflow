@@ -77,6 +77,27 @@ export interface SkillListing {
 }
 
 /**
+ * Task that a transcript holds as the result of a call to the tool `taskCreate` or `taskGet` of the MCP server
+ * `atomic-workflow`.
+ */
+export interface TranscriptTask {
+  /**
+   * Identifier of the task.
+   */
+  readonly taskId: number;
+
+  /**
+   * Slug of the task.
+   */
+  readonly slug: string;
+
+  /**
+   * Whether the call created the task, with `taskCreate`, rather than read it, with `taskGet`.
+   */
+  readonly created: boolean;
+}
+
+/**
  * Transcript of one session of an agent: a file that the agent appends one line of JSON to for each entry of the
  * session.
  */
@@ -122,11 +143,11 @@ export interface Transcript {
   parseActivity(line: string): TranscriptActivity | undefined;
 
   /**
-   * Returns the id of the task that the line `line` of the transcript holds as the result of a call to the tool
-   * `taskCreate` or `taskGet` of the MCP server `atomic-workflow`, which an earlier line of the transcript made. If the
-   * line holds no such result, or the call failed, returns `undefined` instead. The lines must be passed in their order.
+   * Returns the task that the line `line` of the transcript holds as the result of a call to the tool `taskCreate` or
+   * `taskGet` of the MCP server `atomic-workflow`, which an earlier line of the transcript made. If the line holds no
+   * such result, or the call failed, returns `undefined` instead. The lines must be passed in their order.
    */
-  parseTask(line: string): number | undefined;
+  parseTask(line: string): TranscriptTask | undefined;
 
   /**
    * Returns the id of the ticket that the line `line` of the transcript holds as the result of a call to the tool

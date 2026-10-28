@@ -26,7 +26,7 @@ const SKILL_COMMAND = /^\/(?:[\w-]+:)?([\w-]+)(?:\s|$)/;
 /**
  * The fields of a session that its name depends on.
  */
-type NamedSession = Pick<RegisteredSession, 'id' | 'role' | 'job' | 'taskId' | 'ticketId'>;
+type NamedSession = Pick<RegisteredSession, 'id' | 'role' | 'job' | 'taskId' | 'ticketId' | 'alias'>;
 
 /**
  * Returns the job that the first message `prompt` gives a subagent: the name of the skill that it runs, without the
@@ -46,8 +46,9 @@ export const isTicketJob = (job: string | null): boolean =>
 /**
  * Returns the name of the chat of each session of `sessions`, by its id. `sessions` must be in the order of their
  * start, as `SessionStore.list` returns them, and the tasks that they work on are read from `tasks`. A name that an
- * earlier session has already gets `-2`, `-3` and so on, so each subagent has a name of its own. Every orchestrator
- * session shares the name `main`, since they share one chat.
+ * earlier session has already gets `-2`, `-3` and so on, so each subagent has a name of its own. A subagent with an
+ * alias is named by its alias as it is, since aliases are not unique, and takes no part in that count. Every
+ * orchestrator session shares the name `main`, since they share one chat, whatever its alias.
  */
 export const sessionNames = async (
   sessions: readonly NamedSession[],
@@ -64,6 +65,7 @@ export const sessionNames = async (
     sessions.map((session) => {
       const base = baseNameOf(session, session.taskId === null ? undefined : known.get(session.taskId));
       if (session.role === 'orchestrator') return [session.id, base];
+      if (session.alias !== null) return [session.id, session.alias];
       const count = (counts.get(base) ?? 0) + 1;
       counts.set(base, count);
       return [session.id, count === 1 ? base : `${base}-${count}`];

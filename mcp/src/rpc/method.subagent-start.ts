@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
-import { messageDeliverMethod } from './method.message-deliver.ts';
+import { deliverServerMessage, messageDeliverMethod } from './method.message-deliver.ts';
 import { taskGetMethod } from './method.task-get.ts';
 import type { Method, MethodContext } from './method.ts';
 import { RpcError, RpcErrorCode } from './rpc-error.ts';
@@ -98,6 +98,7 @@ export const startSubagent = async (
     taskId: taskId ?? null,
     job,
     ticketId: null,
+    alias: null,
   });
   subagents.start(sessionId, parentId, connection);
   inboxes.open(sessionId, connection.closed);
@@ -124,7 +125,7 @@ const spawn = async (context: MethodContext, parentId: string, sessionId: string
   // The delivery below can fail before the wait is awaited, which must not leave its rejection unhandled.
   attached.catch(() => undefined);
   const content = spawnMessage(sessionId, context.awaitCommandLine(sessionId));
-  await messageDeliverMethod.handle({ sessionId: parentId, content }, context);
+  deliverServerMessage(context.inboxes, parentId, content);
   await attached;
 };
 

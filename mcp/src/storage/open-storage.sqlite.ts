@@ -180,6 +180,8 @@ const MIGRATIONS: readonly string[] = [
   // so a task with sessions can still be deleted.
   `ALTER TABLE session ADD COLUMN job TEXT;
   ALTER TABLE session ADD COLUMN ticket_id INTEGER;`,
+  // Step 13 adds the alias of a session, its display name. Each session stored before has none.
+  `ALTER TABLE session ADD COLUMN alias TEXT CHECK (alias IS NULL OR length(alias) BETWEEN 1 AND 60);`,
 ];
 
 /**

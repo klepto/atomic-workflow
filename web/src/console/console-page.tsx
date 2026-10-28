@@ -121,7 +121,7 @@ const RowFoot = ({
   className?: string;
 }) => (
   <p className={cn('flex items-baseline gap-1.5 text-[0.6875rem] text-muted-foreground leading-4', className)}>
-    <span className={cn('font-medium', mono && 'font-mono')}>{sender}</span>
+    <span className={cn('font-medium wrap-anywhere', mono && 'font-mono')}>{sender}</span>
     {time !== undefined && <MessageTime time={time} className="text-[0.5625rem]" />}
   </p>
 );
@@ -271,7 +271,7 @@ const EmptyChat = ({ chat }: { chat: Chat }) =>
   chat.role === 'orchestrator' ? (
     <EmptyState title="What should the main session do?">Your messages and its replies show here.</EmptyState>
   ) : (
-    <EmptyState title={<span className="font-mono">{chat.label}</span>}>
+    <EmptyState title={<span className="font-mono wrap-anywhere">{chat.label}</span>}>
       Nothing said yet. Your messages and its replies show here.
     </EmptyState>
   );
@@ -300,7 +300,7 @@ const EndedNotice = ({ chat }: { chat: Chat }) => (
       `No main session is attached. ${ATTACH_HINT}`
     ) : (
       <>
-        <span className="font-mono">{chat.label}</span> has ended. Its messages stay here to read.
+        <span className="font-mono wrap-anywhere">{chat.label}</span> has ended. Its messages stay here to read.
       </>
     )}
   </p>
@@ -313,19 +313,20 @@ const EndedNotice = ({ chat }: { chat: Chat }) => (
  */
 const runsInOf = (chat: Chat, task: TaskSummary | undefined): ReactNode => {
   if (chat.role === 'subagent') {
-    return <span className="font-mono text-foreground">{chat.label}</span>;
+    return <span className="font-mono text-foreground wrap-anywhere">{chat.label}</span>;
   }
   return task === undefined ? (
     <span className="text-foreground">a new subagent</span>
   ) : (
-    <span className="font-mono text-foreground">{`orchestrator-${task.slug}`}</span>
+    <span className="font-mono text-foreground wrap-anywhere">{`orchestrator-${task.slug}`}</span>
   );
 };
 
 /**
  * Returns the messages of `logged` that the log shows: none that notifies that a background task ended, and each
- * without the marked quotes of the atomic-workflow server at its start, such as the messages that an agent quotes
- * before its reply. A message that holds only marked quotes is not shown.
+ * without the marked quotes of the atomic-workflow server at its start and at its end, such as the messages that an
+ * agent quotes before its reply, or the word that ends the turn of a subagent after its reply. A message that holds only
+ * marked quotes is not shown.
  */
 const visibleMessages = (logged: readonly LoggedMessage[]): readonly LoggedMessage[] =>
   logged

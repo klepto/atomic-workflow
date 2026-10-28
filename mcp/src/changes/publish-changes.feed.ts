@@ -67,8 +67,8 @@ const publishingTasks = (store: TaskStore, changes: ChangeFeed): TaskStore => {
 };
 
 /**
- * Wraps `store`, so that `setTask` and `setTicket` publish `sessions` to `changes` once they resolve with `true`, and
- * `delete` publishes `sessions` and `messages` once it resolves with `true`.
+ * Wraps `store`, so that `setTask`, `setTicket` and `setAlias` publish `sessions` to `changes` once they resolve with
+ * `true`, and `delete` publishes `sessions` and `messages` once it resolves with `true`.
  */
 const publishingSessions = (store: SessionStore, changes: ChangeFeed): SessionStore => ({
   register: (session) => store.register(session),
@@ -81,6 +81,11 @@ const publishingSessions = (store: SessionStore, changes: ChangeFeed): SessionSt
   },
   setTicket: async (id, ticketId) => {
     const changed = await store.setTicket(id, ticketId);
+    if (changed) changes.publish('sessions');
+    return changed;
+  },
+  setAlias: async (id, alias) => {
+    const changed = await store.setAlias(id, alias);
     if (changed) changes.publish('sessions');
     return changed;
   },

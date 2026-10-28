@@ -29,6 +29,7 @@ import { sessionRegisterMethod } from './method.session-register.ts';
 import { sessionTaskSetMethod } from './method.session-task-set.ts';
 import { sessionTicketSetMethod } from './method.session-ticket-set.ts';
 import { taskOrchestratorDeliverMethod } from './method.task-orchestrator-deliver.ts';
+import { sessionAliasSetMethod } from './method.session-alias-set.ts';
 import { sessionDeleteMethod } from './method.session-delete.ts';
 import { skillListMethod } from './method.skill-list.ts';
 import { designSaveMethod } from './method.design-save.ts';
@@ -155,6 +156,7 @@ export const Methods: readonly Method[] = [
   sessionRegisterMethod,
   sessionTaskSetMethod,
   sessionTicketSetMethod,
+  sessionAliasSetMethod,
   sessionDeleteMethod,
   messageLogMethod,
   messageLogDeleteMethod,

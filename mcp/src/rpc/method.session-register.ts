@@ -35,5 +35,6 @@ export const sessionRegisterMethod: Method<typeof PARAMS, RegisteredSession> = {
       taskId: null,
       job: null,
       ticketId: null,
+      alias: null,
     }),
 };

@@ -36,8 +36,8 @@ export interface ListedSession {
   job: string | null;
 
   /**
-   * Name of the chat of the session: `main` for an orchestrator session, and for a subagent its job with the slug of
-   * its target, such as `implement-cache-key-format`, unique among the subagents.
+   * Name of the chat of the session: `main` for an orchestrator session, and for a subagent its alias, or else its job
+   * with the slug of its target, such as `implement-cache-key-format`, unique among the subagents with no alias.
    */
   name: string;
 
@@ -61,6 +61,12 @@ export interface ListedSession {
    * `idle`, `working`, or `waiting` for the user. It is `SessionStatus` of `mcp/src/rpc/method.session-list.ts`.
    */
   status: 'ended' | 'idle' | 'working' | 'waiting';
+
+  /**
+   * Alias of the session, a display name of 1 to 60 characters that a feature gave it, or `null` while it has none.
+   * Aliases are not unique.
+   */
+  alias: string | null;
 }
 
 /**

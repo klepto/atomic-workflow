@@ -133,14 +133,14 @@ const ChatEntry = ({ chat, current, to }: { chat: Chat; current: boolean; to: st
   const deletable = subagent && chat.status === 'ended';
   const stoppable = subagent && chat.status !== 'ended';
   return (
-    <li className="group relative flex min-w-0">
+    <li className="group relative flex min-w-0 max-w-48 md:max-w-none">
       <RouteLink
         to={to}
         aria-current={current ? 'page' : undefined}
         className={cn(ENTRY_LINK, 'cursor-pointer', (deletable || stoppable) && 'pr-8')}
       >
         <ChatDot status={chat.status} />
-        <span className="truncate">{chat.label}</span>
+        <span className="truncate md:flex-1 md:contain-inline-size">{chat.label}</span>
         <span className="sr-only">{`, ${CHAT_STATUSES[chat.status].words}`}</span>
       </RouteLink>
       {deletable && <DeleteAgent chat={chat} />}
