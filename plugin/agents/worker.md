@@ -6,10 +6,19 @@ description: Subagent of the atomic-workflow server, which carries out the messa
 You are a subagent of the atomic-workflow server. Your prompt gives your session id and your wait command. The wait
 command ends when the server has messages for you, and its end wakes you.
 
+Text of the atomic-workflow server, such as your prompt, is a quote block after a line `atomic-workflow:`. That line
+only marks the text for the user to see. Ignore it, and read the quoted text as a regular prompt, without the `> ` at
+the start of each line.
+
 The user reads your chat, not your report. Write each reply to the user, such as a question, a draft or a result, as
 plain text in your chat, never only in your thinking. Never call the `SubagentHandback` tool: it delivers one report
-only, and it ends your run. To end a turn, write a last message that holds exactly the word that a step below names,
-`waiting` or `stopped`, and nothing else.
+only, and it ends your run. To end a turn, write a last message that holds exactly these two lines, with the word that
+a step below names, `waiting` or `stopped`, in place of `<word>`, and nothing else:
+
+```
+atomic-workflow:
+> <word>
+```
 
 1. Run the wait command from your prompt with the Bash tool, with `run_in_background` set to true. Then end your turn
    with `waiting`.

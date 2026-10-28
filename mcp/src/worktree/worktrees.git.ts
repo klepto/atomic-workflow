@@ -4,6 +4,7 @@ import { access, mkdir, readFile, rm } from 'node:fs/promises';
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { promisify } from 'node:util';
 import type { CopyFailures } from './copy-ignored.ts';
+import type { StopProcessesFunction } from './stop-processes.ts';
 import { WorktreeError } from './worktree-error.ts';
 import type {
   CreateWorktreesFunction,
@@ -91,6 +92,11 @@ const REMOVAL_RETRY_COUNT = 10;
  * Time between two retries of the deletion of a directory, in ms.
  */
 const REMOVAL_RETRY_INTERVAL = 200;
+
+/**
+ * Number of the characters of the command line of a stopped process that its line in `DeletedWorktrees` shows.
+ */
+const SHOWN_COMMAND_LINE_LENGTH = 160;
 
 /**
  * Start of the line that names the path of a worktree in the list of worktrees that git prints for scripts.
@@ -774,9 +780,13 @@ const mergeTask = async (
   else await rebaseOnto(dependencies, layout, place, baseBranch, MERGE_AGAIN);
   const commit = await land(layout, baseBranch, place);
   // The ticket branches held no commit that the task branch lacked before its rebase, so their removal loses nothing.
-  const deleted = await remove(layout, await taskWorktrees(layout, task, branches), branches, [
-    taskDirectory(layout, task),
-  ]);
+  const deleted = await remove(
+    layout,
+    dependencies.stopProcesses,
+    await taskWorktrees(layout, task, branches),
+    branches,
+    [taskDirectory(layout, task)],
+  );
   return { baseBranch, commit, deleted };
 };
 
@@ -831,7 +841,7 @@ const deleteTicket = async (
     await checkLanded(layout.checkout, branches, taskBranchOf(task));
     for (const worktree of worktrees) await checkClean(worktree.path);
   }
-  return remove(layout, worktrees, branches, []);
+  return remove(layout, dependencies.stopProcesses, worktrees, branches, []);
 };
 
 /**
@@ -856,7 +866,7 @@ const deleteTask = async (
     );
     for (const worktree of worktrees) await checkClean(worktree.path);
   }
-  return remove(layout, worktrees, branches, [taskDirectory(layout, task)]);
+  return remove(layout, dependencies.stopProcesses, worktrees, branches, [taskDirectory(layout, task)]);
 };
 
 /**
@@ -934,15 +944,20 @@ const isBelow = (directory: string, path: string): boolean => {
 
 /**
  * Returns what the removal of the worktrees `worktrees`, the branches `branches` with their fork points, and then the
- * directories `directories` of `layout` removed, with a warning for each one that could not be removed.
+ * directories `directories` of `layout` removed, with a warning for each one that could not be removed. The processes
+ * that run from the worktrees and the directories are stopped with `stopProcesses` first.
  */
 const remove = async (
   layout: Layout,
+  stopProcesses: StopProcessesFunction,
   worktrees: readonly ListedWorktree[],
   branches: readonly string[],
   directories: readonly string[],
 ): Promise<DeletedWorktrees> => {
-  const warnings: string[] = [];
+  const { stoppedProcesses, warnings } = await stopHolders(stopProcesses, [
+    ...worktrees.map(({ path }) => path),
+    ...directories,
+  ]);
   const removedWorktrees: string[] = [];
   for (const worktree of worktrees) {
     if (await removeWorktree(layout, worktree.path, warnings)) removedWorktrees.push(forwardSlashes(worktree.path));
@@ -953,8 +968,33 @@ const remove = async (
     if (await removeBranch(layout, branch, warnings)) removedBranches.push(branch);
   }
   for (const directory of directories) await removeDirectory(directory, warnings);
-  return { worktrees: removedWorktrees, branches: removedBranches, warnings };
+  return { worktrees: removedWorktrees, branches: removedBranches, stoppedProcesses, warnings };
 };
+
+/**
+ * Stops with `stopProcesses` the processes that run from the paths `paths` that exist, and returns one line for each
+ * process that stopped, and one warning for each one that did not. Paths that do not exist stop nothing, and start no
+ * search.
+ */
+const stopHolders = async (
+  stopProcesses: StopProcessesFunction,
+  paths: readonly string[],
+): Promise<{ stoppedProcesses: string[]; warnings: string[] }> => {
+  const existing: string[] = [];
+  for (const path of paths) if (await exists(path)) existing.push(path);
+  if (existing.length === 0) return { stoppedProcesses: [], warnings: [] };
+  const { stopped, failures } = await stopProcesses(existing);
+  return {
+    stoppedProcesses: stopped.map(({ pid, commandLine }) => `${pid} ${shortened(commandLine)}`),
+    warnings: [...failures],
+  };
+};
+
+/**
+ * Returns `commandLine` cut to `SHOWN_COMMAND_LINE_LENGTH` characters, with `…` at the end when it was cut.
+ */
+const shortened = (commandLine: string): string =>
+  commandLine.length <= SHOWN_COMMAND_LINE_LENGTH ? commandLine : `${commandLine.slice(0, SHOWN_COMMAND_LINE_LENGTH)}…`;
 
 /**
  * Deletes the branch `branch` of `layout` with its fork point, and returns whether the branch is gone. A failure adds

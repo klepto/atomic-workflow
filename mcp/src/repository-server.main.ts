@@ -17,6 +17,7 @@ import { DatabasePath } from './storage/database-path.ts';
 import { OpenStorage, type Storage } from './storage/open-storage.ts';
 import { StartWebServer } from './web/start-web-server.ts';
 import { CopyIgnored } from './worktree/copy-ignored.ts';
+import { StopProcesses } from './worktree/stop-processes.ts';
 import { MainWorktree } from './worktree/main-worktree.ts';
 import { CreateWorktrees } from './worktree/worktrees.ts';
 
@@ -83,7 +84,7 @@ const serve = async (address: string, directory: string, mainWorktree: string, s
     subagents: published.subagents,
     activity: published.activity,
     inboxes: CreateInboxes(),
-    worktrees: CreateWorktrees({ directory, home: homedir(), copyIgnored: CopyIgnored }),
+    worktrees: CreateWorktrees({ directory, home: homedir(), copyIgnored: CopyIgnored, stopProcesses: StopProcesses }),
     ticketClaims: CreateTicketClaims(),
     mainWorktree,
     caller: undefined,

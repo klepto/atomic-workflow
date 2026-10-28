@@ -19928,8 +19928,7 @@ var inboxAwaitCommandMethod = {
   handle: async ({ sessionId: name, after }, { subagents, inboxes }) => {
     const sessionId = inboxes.find(name) ?? name;
     subagents.attach(sessionId);
-    const subagent = subagents.list().some((attached) => attached.sessionId === sessionId);
-    return { ...await inboxes.take(sessionId, after), subagent };
+    return inboxes.take(sessionId, after);
   }
 };
 
@@ -20018,6 +20017,7 @@ var OpenRpcConnection = ndjsonOpenRpcConnection;
 // src/await-command.main.ts
 var USAGE = "Usage: node await-command.mjs <session id> [--after <number of the last message received>]";
 var QUOTE_LENGTH = 200;
+var MARK = "atomic-workflow:";
 var main = async () => {
   const { values, positionals } = parseArgs({ options: { after: { type: "string" } }, allowPositionals: true });
   const [sessionId] = positionals;
@@ -20042,21 +20042,22 @@ var main = async () => {
 var report = (result) => {
   switch (result.status) {
     case "messages":
-      return messagesReport(result.messages, result.sessionId, result.subagent);
+      return messagesReport(result.messages, result.sessionId);
     case "stop":
       return "The atomic-workflow server has stopped the messages of this session. Do not run the wait command again.";
     case "replaced":
       return "A newer wait for the messages of this session has replaced this one. Do nothing about it.";
   }
 };
-var messagesReport = (messages, sessionId, subagent) => {
+var messagesReport = (messages, sessionId) => {
   const last = messages.at(-1)?.id;
   const commandLine = AwaitCommandLine(import.meta.filename, sessionId, last);
-  const quotes = subagent ? [] : ["Start your reply with these lines as they are:", ...messages.map((message) => quote(message.content))];
   const header = messages.length === 1 ? "Handle like a message of the user:" : "Handle like messages of the user, oldest first:";
   return [
     `Run in the background first: ${commandLine}`,
-    ...quotes,
+    "Start your reply with these lines as they are:",
+    MARK,
+    ...messages.map((message) => quote(message.content)),
     header,
     messages.map((message) => message.content).join("\n\n---\n\n")
   ].join("\n");

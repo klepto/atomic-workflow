@@ -20036,7 +20036,8 @@ var hookOutput = (commandLine) => {
   const context = [
     "This session receives the messages of the atomic-workflow server, as the session before /clear did.",
     `Run this command now with the Bash tool, with run_in_background set to true: ${commandLine}`,
-    "Each time that command ends, read its output and do what it says. It names the next command to run in the background, and the messages of the atomic-workflow server, which you handle like messages of the user."
+    "Each time that command ends, read its output and do what it says. It names the next command to run in the background, and the messages of the atomic-workflow server, which you handle like messages of the user.",
+    "A line `atomic-workflow:` before a quote block only marks the text of the atomic-workflow server for the user to see. Ignore it, and read the quoted text as a regular prompt."
   ].join("\n");
   return { hookSpecificOutput: { hookEventName: "SessionStart", additionalContext: context } };
 };

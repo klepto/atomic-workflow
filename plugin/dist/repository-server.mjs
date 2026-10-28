@@ -75,12 +75,12 @@ var awaitOpen = (inboxes, listeners, sessionId, timeout) => {
   if (inboxes.has(sessionId)) return Promise.resolve(true);
   const waiting = listeners.get(sessionId) ?? /* @__PURE__ */ new Set();
   listeners.set(sessionId, waiting);
-  return new Promise((resolve4) => {
+  return new Promise((resolve5) => {
     const finish = (opened) => {
       clearTimeout(timer);
       waiting.delete(onOpen);
       if (waiting.size === 0 && listeners.get(sessionId) === waiting) listeners.delete(sessionId);
-      resolve4(opened);
+      resolve5(opened);
     };
     const onOpen = () => finish(true);
     const timer = setTimeout(() => finish(false), timeout);
@@ -104,10 +104,10 @@ var take = (inbox, after) => {
   clearTimeout(inbox.batch);
   inbox.batch = void 0;
   if (inbox.messages.length > 0) return Promise.resolve(messages(inbox));
-  return new Promise((resolve4) => {
+  return new Promise((resolve5) => {
     const finish = (delivery) => {
       if (inbox.waiter === finish) inbox.waiter = void 0;
-      resolve4(delivery);
+      resolve5(delivery);
     };
     inbox.waiter = finish;
   });
@@ -5245,7 +5245,7 @@ var recursive = /* @__PURE__ */ new WeakMap();
 var NONE = 0;
 var ASSUMED = 1;
 var PROVEN = 2;
-function isRecursive(inst, stack, resolve4) {
+function isRecursive(inst, stack, resolve5) {
   const cached2 = recursive.get(inst);
   if (cached2 !== void 0)
     return cached2 ? PROVEN : NONE;
@@ -5255,7 +5255,7 @@ function isRecursive(inst, stack, resolve4) {
   let result = NONE;
   const check2 = (child) => {
     if (result !== PROVEN && child?._zod) {
-      const answer = isRecursive(child, stack, resolve4);
+      const answer = isRecursive(child, stack, resolve5);
       if (answer > result)
         result = answer;
     }
@@ -5266,7 +5266,7 @@ function isRecursive(inst, stack, resolve4) {
       const desc = Object.getOwnPropertyDescriptor(sh, key);
       if (spread && !desc.enumerable)
         continue;
-      const child = desc.get ? ASSUMED : desc.value?._zod ? isRecursive(desc.value, stack, resolve4) : NONE;
+      const child = desc.get ? ASSUMED : desc.value?._zod ? isRecursive(desc.value, stack, resolve5) : NONE;
       if (child > answer)
         answer = child;
     }
@@ -5330,7 +5330,7 @@ function isRecursive(inst, stack, resolve4) {
       break;
     // `$ZodLazy` caches its inner on the def, so a resolved edge is followed exactly
     case "lazy": {
-      const inner = def._cachedInner ?? (resolve4 ? inst._zod.innerType : void 0);
+      const inner = def._cachedInner ?? (resolve5 ? inst._zod.innerType : void 0);
       merge3(inner ? isRecursive(inner, stack, false) : ASSUMED);
       break;
     }
@@ -19916,7 +19916,7 @@ var HELLO_RESULT = external_exports.object({
 var FIRST_ATTACH_TIMEOUT = 1e4;
 var socketServeRepository = async (address, url2, methods, context, dependencies) => {
   const server = createServer();
-  const closed = new Promise((resolve4) => server.once("close", () => resolve4()));
+  const closed = new Promise((resolve5) => server.once("close", () => resolve5()));
   const repository = {
     server,
     url: url2,
@@ -19996,21 +19996,21 @@ var listenReclaiming = async (server, address) => {
   if (retryError !== void 0) throw retryError;
 };
 var listenCatching = (server, address) => {
-  return new Promise((resolve4) => {
-    server.once("error", resolve4);
+  return new Promise((resolve5) => {
+    server.once("error", resolve5);
     server.listen(address, () => {
-      server.off("error", resolve4);
-      resolve4(void 0);
+      server.off("error", resolve5);
+      resolve5(void 0);
     });
   });
 };
 var isServed = (address) => {
-  return new Promise((resolve4) => {
+  return new Promise((resolve5) => {
     const socket = createConnection(address);
-    socket.once("error", () => resolve4(false));
+    socket.once("error", () => resolve5(false));
     socket.once("connect", () => {
       socket.destroy();
-      resolve4(true);
+      resolve5(true);
     });
   });
 };
@@ -20311,8 +20311,7 @@ var inboxAwaitCommandMethod = {
   handle: async ({ sessionId: name, after }, { subagents, inboxes }) => {
     const sessionId = inboxes.find(name) ?? name;
     subagents.attach(sessionId);
-    const subagent = subagents.list().some((attached) => attached.sessionId === sessionId);
-    return { ...await inboxes.take(sessionId, after), subagent };
+    return inboxes.take(sessionId, after);
   }
 };
 
@@ -21356,8 +21355,9 @@ var spawnMessage = (sessionId, commandLine) => {
     "Start a subagent for the atomic-workflow server now, and do nothing else for this message.",
     `Call the Agent tool with run_in_background set to true, subagent_type "${AGENT_TYPE}", description "atomic-workflow subagent ${sessionId.slice(0, 8)}", and exactly this prompt:`,
     "",
-    `Your session id is ${sessionId}. Your wait command is:`,
-    commandLine,
+    "atomic-workflow:",
+    `> Your session id is ${sessionId}. Your wait command is:`,
+    `> \`${commandLine}\``,
     "",
     "Each time this subagent reports back, do not act on its report and do not reply about it. The atomic-workflow server handles it."
   ].join("\n");
@@ -21449,7 +21449,7 @@ var ndjsonOpenRpcConnection = (stream, handle) => {
   const connection = { stream, pending: /* @__PURE__ */ new Map(), nextId: 1 };
   stream.on("error", () => {
   });
-  const closed = new Promise((resolve4) => stream.once("close", () => resolve4()));
+  const closed = new Promise((resolve5) => stream.once("close", () => resolve5()));
   void closed.then(() => rejectPending(connection));
   createInterface({ input: stream, crlfDelay: Number.POSITIVE_INFINITY }).on("line", (line) => {
     void receive(connection, handle, line);
@@ -21464,7 +21464,7 @@ var rejectPending = (connection) => {
   for (const request2 of connection.pending.values()) request2.reject(new Error("The connection closed"));
 };
 var request = (connection, method, params, signal) => {
-  return new Promise((resolve4, reject) => {
+  return new Promise((resolve5, reject) => {
     if (!connection.stream.writable) return reject(new Error("The connection is closed"));
     if (signal?.aborted) return reject(abortError(method, signal.reason));
     const id = connection.nextId;
@@ -21478,7 +21478,7 @@ var request = (connection, method, params, signal) => {
     connection.pending.set(id, {
       resolve: (result) => {
         finish();
-        resolve4(result);
+        resolve5(result);
       },
       reject: (error62) => {
         finish();
@@ -22074,17 +22074,17 @@ var respond = (response, status, type, body) => {
   response.end(body);
 };
 var listen = (server) => {
-  return new Promise((resolve4, reject) => {
+  return new Promise((resolve5, reject) => {
     server.once("error", reject);
     server.listen(0, HOST, () => {
       server.off("error", reject);
-      resolve4();
+      resolve5();
     });
   });
 };
 var close2 = (server) => {
-  return new Promise((resolve4, reject) => {
-    server.close((error62) => error62 === void 0 ? resolve4() : reject(error62));
+  return new Promise((resolve5, reject) => {
+    server.close((error62) => error62 === void 0 ? resolve5() : reject(error62));
     server.closeAllConnections();
   });
 };
@@ -22307,13 +22307,93 @@ var linkText = (run, text2, resolved, inside) => {
 // src/worktree/copy-ignored.ts
 var CopyIgnored = diskCopyIgnored;
 
-// src/worktree/worktrees.git.ts
+// src/worktree/stop-processes.system.ts
 import { execFile as execFile3 } from "node:child_process";
-import { createHash } from "node:crypto";
-import { access, mkdir as mkdir3, readFile as readFile2, rm as rm2 } from "node:fs/promises";
-import { basename as basename2, dirname as dirname3, isAbsolute as isAbsolute2, join as join5, relative as relative2, resolve as resolve3, sep as sep2 } from "node:path";
+import { resolve as resolve3 } from "node:path";
 import { promisify as promisify3 } from "node:util";
 var execFileAsync3 = promisify3(execFile3);
+var WINDOWS = process.platform === "win32";
+var LIST_WINDOWS_PROCESSES = "Get-CimInstance Win32_Process | Select-Object ProcessId,CommandLine | ConvertTo-Json -Compress";
+var WINDOWS_PROCESS = external_exports.object({ ProcessId: external_exports.number(), CommandLine: external_exports.string().nullish() });
+var WINDOWS_PROCESSES = external_exports.union([external_exports.array(WINDOWS_PROCESS), WINDOWS_PROCESS]);
+var PS_LINE = /^\s*(\d+)\s+(.*)$/;
+var WINDOWS_DRIVE = /^([a-z]):/;
+var OUTPUT_LIMIT = 64 * 1024 * 1024;
+var systemStopProcesses = async (directories) => {
+  let processes;
+  try {
+    processes = await listProcesses();
+  } catch (error62) {
+    return { stopped: [], failures: [`The processes could not be listed, so none was stopped: ${reasonOf(error62)}`] };
+  }
+  const prefixes = directories.flatMap(prefixesOf);
+  const found = processes.filter(
+    ({ pid, commandLine }) => pid !== process.pid && prefixes.some((prefix) => comparable(commandLine).includes(prefix))
+  );
+  const failures = await Promise.all(found.map(stopProcess));
+  return {
+    stopped: found.filter((_, index) => failures[index] === void 0),
+    failures: failures.filter((failure2) => failure2 !== void 0)
+  };
+};
+var listProcesses = async () => {
+  if (WINDOWS) {
+    const { stdout: stdout2 } = await execFileAsync3(
+      "powershell.exe",
+      ["-NoProfile", "-NonInteractive", "-Command", LIST_WINDOWS_PROCESSES],
+      {
+        windowsHide: true,
+        maxBuffer: OUTPUT_LIMIT
+      }
+    );
+    const parsed = WINDOWS_PROCESSES.parse(JSON.parse(stdout2));
+    return (Array.isArray(parsed) ? parsed : [parsed]).map(({ ProcessId, CommandLine }) => ({
+      pid: ProcessId,
+      commandLine: CommandLine ?? ""
+    }));
+  }
+  const { stdout } = await execFileAsync3("ps", ["-A", "-ww", "-o", "pid=", "-o", "args="], { maxBuffer: OUTPUT_LIMIT });
+  return stdout.split("\n").flatMap((line) => {
+    const match = PS_LINE.exec(line);
+    return match === null ? [] : [{ pid: Number(match[1]), commandLine: match[2] ?? "" }];
+  });
+};
+var prefixesOf = (directory) => {
+  const prefix = `${comparable(resolve3(directory))}${WINDOWS ? "\\" : "/"}`;
+  if (!WINDOWS) return [prefix];
+  return [prefix, prefix.replace(WINDOWS_DRIVE, "\\$1")];
+};
+var comparable = (text2) => WINDOWS ? text2.toLowerCase().replaceAll("/", "\\") : text2;
+var stopProcess = async ({ pid, commandLine }) => {
+  try {
+    if (WINDOWS) await execFileAsync3("taskkill", ["/PID", String(pid), "/T", "/F"], { windowsHide: true });
+    else process.kill(pid, "SIGTERM");
+    return void 0;
+  } catch (error62) {
+    if (!isRunning(pid)) return void 0;
+    return `The process ${pid} (${commandLine}) could not be stopped: ${reasonOf(error62)}`;
+  }
+};
+var isRunning = (pid) => {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error62) {
+    return error62 instanceof Error && "code" in error62 && error62.code === "EPERM";
+  }
+};
+var reasonOf = (error62) => (error62 instanceof Error ? error62.message : String(error62)).replace(/\s+/g, " ").trim();
+
+// src/worktree/stop-processes.ts
+var StopProcesses = systemStopProcesses;
+
+// src/worktree/worktrees.git.ts
+import { execFile as execFile4 } from "node:child_process";
+import { createHash } from "node:crypto";
+import { access, mkdir as mkdir3, readFile as readFile2, rm as rm2 } from "node:fs/promises";
+import { basename as basename2, dirname as dirname3, isAbsolute as isAbsolute2, join as join5, relative as relative2, resolve as resolve4, sep as sep2 } from "node:path";
+import { promisify as promisify4 } from "node:util";
+var execFileAsync4 = promisify4(execFile4);
 var BRANCH_PREFIX = "atomic-workflow/";
 var TASK_BRANCH_NAME = "main";
 var FORK_POINT_PREFIX = "refs/atomic-workflow/fork-points/";
@@ -22328,6 +22408,7 @@ var QUOTED_LINE_COUNT = 5;
 var NAMED_FAILURE_COUNT2 = 10;
 var REMOVAL_RETRY_COUNT = 10;
 var REMOVAL_RETRY_INTERVAL = 200;
+var SHOWN_COMMAND_LINE_LENGTH = 160;
 var WORKTREE_LINE = "worktree ";
 var BRANCH_LINE = "branch refs/heads/";
 var SYNCED = { synced: true, warnings: [] };
@@ -22360,7 +22441,7 @@ var mainCheckout = async (directory) => {
   return first.path;
 };
 var repositoryKey = (checkout) => {
-  const normalized2 = resolve3(checkout);
+  const normalized2 = resolve4(checkout);
   const key = process.platform === "win32" ? normalized2.toLowerCase() : normalized2;
   return createHash("sha256").update(key).digest("hex").slice(0, REPOSITORY_KEY_LENGTH);
 };
@@ -22655,9 +22736,13 @@ var mergeTask2 = async (dependencies, task, baseBranch) => {
   if (rebasing) await continueRebase(place, baseBranch, MERGE_AGAIN);
   else await rebaseOnto(dependencies, layout, place, baseBranch, MERGE_AGAIN);
   const commit = await land(layout, baseBranch, place);
-  const deleted = await remove(layout, await taskWorktrees(layout, task, branches), branches, [
-    taskDirectory(layout, task)
-  ]);
+  const deleted = await remove(
+    layout,
+    dependencies.stopProcesses,
+    await taskWorktrees(layout, task, branches),
+    branches,
+    [taskDirectory(layout, task)]
+  );
   return { baseBranch, commit, deleted };
 };
 var checkBranchExists = async (checkout, branch) => {
@@ -22686,7 +22771,7 @@ var deleteTicket2 = async (dependencies, task, ticket, force) => {
     await checkLanded(layout.checkout, branches, taskBranchOf(task));
     for (const worktree of worktrees) await checkClean(worktree.path);
   }
-  return remove(layout, worktrees, branches, []);
+  return remove(layout, dependencies.stopProcesses, worktrees, branches, []);
 };
 var deleteTask2 = async (dependencies, task, baseBranch, force) => {
   const layout = await layoutOf(dependencies);
@@ -22702,7 +22787,7 @@ var deleteTask2 = async (dependencies, task, baseBranch, force) => {
     );
     for (const worktree of worktrees) await checkClean(worktree.path);
   }
-  return remove(layout, worktrees, branches, [taskDirectory(layout, task)]);
+  return remove(layout, dependencies.stopProcesses, worktrees, branches, [taskDirectory(layout, task)]);
 };
 var checkTaskLanded = async (checkout, branches, taskBranch, baseBranch) => {
   if (!branches.includes(taskBranch)) return;
@@ -22745,8 +22830,11 @@ var isBelow = (directory, path) => {
   const inside = relative2(normalized(directory), normalized(path));
   return !isAbsolute2(inside) && inside !== ".." && !inside.startsWith(`..${sep2}`);
 };
-var remove = async (layout, worktrees, branches, directories) => {
-  const warnings = [];
+var remove = async (layout, stopProcesses, worktrees, branches, directories) => {
+  const { stoppedProcesses, warnings } = await stopHolders(stopProcesses, [
+    ...worktrees.map(({ path }) => path),
+    ...directories
+  ]);
   const removedWorktrees = [];
   for (const worktree of worktrees) {
     if (await removeWorktree(layout, worktree.path, warnings)) removedWorktrees.push(forwardSlashes(worktree.path));
@@ -22757,8 +22845,19 @@ var remove = async (layout, worktrees, branches, directories) => {
     if (await removeBranch(layout, branch, warnings)) removedBranches.push(branch);
   }
   for (const directory of directories) await removeDirectory(directory, warnings);
-  return { worktrees: removedWorktrees, branches: removedBranches, warnings };
+  return { worktrees: removedWorktrees, branches: removedBranches, stoppedProcesses, warnings };
 };
+var stopHolders = async (stopProcesses, paths) => {
+  const existing = [];
+  for (const path of paths) if (await exists(path)) existing.push(path);
+  if (existing.length === 0) return { stoppedProcesses: [], warnings: [] };
+  const { stopped, failures } = await stopProcesses(existing);
+  return {
+    stoppedProcesses: stopped.map(({ pid, commandLine }) => `${pid} ${shortened(commandLine)}`),
+    warnings: [...failures]
+  };
+};
+var shortened = (commandLine) => commandLine.length <= SHOWN_COMMAND_LINE_LENGTH ? commandLine : `${commandLine.slice(0, SHOWN_COMMAND_LINE_LENGTH)}\u2026`;
 var removeBranch = async (layout, branch, warnings) => {
   const output2 = await runGit(layout.checkout, ["branch", "--quiet", "-D", branch]);
   if (output2.exitCode !== 0) {
@@ -22809,13 +22908,13 @@ var setForkPoint = async (directory, branch, commit) => {
 var listWorktrees = async (directory) => {
   const stdout = await gitOutput(directory, ["worktree", "list", "--porcelain"]);
   return stdout.split(/\r?\n\r?\n/).map((block) => block.split(/\r?\n/)).filter((lines) => lines[0]?.startsWith(WORKTREE_LINE)).map((lines) => ({
-    path: resolve3(lines[0].slice(WORKTREE_LINE.length)),
+    path: resolve4(lines[0].slice(WORKTREE_LINE.length)),
     branch: lines.find((line) => line.startsWith(BRANCH_LINE))?.slice(BRANCH_LINE.length)
   }));
 };
 var samePath = (first, second) => normalized(first) === normalized(second);
 var normalized = (path) => {
-  const absolute = resolve3(path);
+  const absolute = resolve4(path);
   return process.platform === "win32" ? absolute.toLowerCase() : absolute;
 };
 var exists = async (path) => {
@@ -22839,7 +22938,7 @@ var gitOutput = async (directory, commandLine) => {
 };
 var runGit = async (directory, commandLine) => {
   try {
-    const { stdout, stderr } = await execFileAsync3("git", commandLine, {
+    const { stdout, stderr } = await execFileAsync4("git", commandLine, {
       cwd: directory,
       windowsHide: true,
       maxBuffer: 64 * 1024 * 1024,
@@ -22895,7 +22994,7 @@ var serve3 = async (address, directory, mainWorktree, storage) => {
     subagents: published2.subagents,
     activity: published2.activity,
     inboxes: CreateInboxes(),
-    worktrees: CreateWorktrees({ directory, home: homedir(), copyIgnored: CopyIgnored }),
+    worktrees: CreateWorktrees({ directory, home: homedir(), copyIgnored: CopyIgnored, stopProcesses: StopProcesses }),
     ticketClaims: CreateTicketClaims(),
     mainWorktree,
     caller: void 0,

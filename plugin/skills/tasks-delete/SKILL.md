@@ -18,4 +18,6 @@ Arguments: `$ARGUMENTS`. The first word names the task: its id, its slug, or bot
      and lose that work. Stop. Only when the user confirms in their next message, call `taskDelete` again with
      the same word and `force` set to true.
 3. Print `Deleted **<id>-<slug>**.` with the id and slug of its result. Then print the number of worktrees and branches
-   that it removed, the number of subagents that it deleted with their chats, and each of its warnings.
+   that it removed, the number of subagents that it deleted with their chats, each process of its
+   `stoppedProcesses`, and each of its warnings. Read them as `../../references/removal.md` says, relative to the base
+   directory of this skill, and end with its block, if any.

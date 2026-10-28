@@ -92,8 +92,9 @@ const spawn = async (context: MethodContext, parentId: string, sessionId: string
 /**
  * Returns the message that asks an orchestrator to spawn the subagent `sessionId`. The prompt of the subagent names
  * its session id and the command line `commandLine` that waits for its messages, since the definition of the agent
- * tells it what to do with them. The message also asks the orchestrator to ignore each report of the subagent, since
- * the atomic-workflow server handles its results.
+ * tells it what to do with them. The prompt is a quote after the line `atomic-workflow:`, which marks it as text of the
+ * atomic-workflow server, so that the web app hides it. The message also asks the orchestrator to ignore each report of
+ * the subagent, since the atomic-workflow server handles its results.
  */
 const spawnMessage = (sessionId: string, commandLine: string): string => {
   return [
@@ -101,8 +102,9 @@ const spawnMessage = (sessionId: string, commandLine: string): string => {
     `Call the Agent tool with run_in_background set to true, subagent_type "${AGENT_TYPE}", description ` +
       `"atomic-workflow subagent ${sessionId.slice(0, 8)}", and exactly this prompt:`,
     '',
-    `Your session id is ${sessionId}. Your wait command is:`,
-    commandLine,
+    'atomic-workflow:',
+    `> Your session id is ${sessionId}. Your wait command is:`,
+    `> \`${commandLine}\``,
     '',
     'Each time this subagent reports back, do not act on its report and do not reply about it. The atomic-workflow ' +
       'server handles it.',

@@ -120,14 +120,17 @@ With `--no-land`, go on to `## No land` instead of `## Land`.
    branch, moves the task branch to it, and sets the ticket `needs-review`.
 3. On a conflict, resolve the files that it names in the worktree of the ticket, so that the work of both tickets
    stays. Run `git -C "<worktree>" add` on them, then call `worktreeMerge` again with the same message.
-4. Call `worktreeDelete` with the task id and the ticket id, without `force`.
+4. Call `worktreeDelete` with the task id and the ticket id, without `force`. Read its result as
+   `../../references/removal.md` says, relative to the base directory of this skill. The ticket landed already, so a
+   block there only ends the reply with `## Finish`.
 
 ## Finish
 
 Print `Ticket **<id>-<slug>** landed on <task branch> as <first 7 characters of the commit>. Status: needs-review.`,
 or `Ticket **<id>-<slug>** changed nothing. Status: needs-review.` when the commit is null. Then name each decision
-of the ticket, so the review weighs it, and each warning of `worktreeDelete`. For a follow-up ticket, add: `Once the review passes,
-approve ticket <fixes> and this ticket with /atomic-workflow:approve <task id>.`
+of the ticket, so the review weighs it, each process of `stoppedProcesses` of `worktreeDelete`, and each of its
+warnings. For a follow-up ticket, add: `Once the review passes, approve ticket <fixes> and this ticket with
+/atomic-workflow:approve <task id>.` End with the block of `removal.md`, if any.
 
 ## No land
 

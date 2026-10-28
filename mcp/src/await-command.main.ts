@@ -19,6 +19,12 @@ const USAGE = 'Usage: node await-command.mjs <session id> [--after <number of th
 const QUOTE_LENGTH = 200;
 
 /**
+ * Line that marks the quote after it as text of the atomic-workflow server, so that the user tells it apart from the
+ * turns of the agent, and the web app can hide it.
+ */
+const MARK = 'atomic-workflow:';
+
+/**
  * Waits for the next messages of the session that the first argument names, on the repository server of the
  * repository that holds the working directory, and prints them for the agent of the session, which runs this tool in
  * the background, so that its end wakes the agent. The output tells the agent what to do, and names the command line
@@ -52,7 +58,7 @@ const main = async (): Promise<void> => {
 const report = (result: AwaitCommandResult): string => {
   switch (result.status) {
     case 'messages':
-      return messagesReport(result.messages, result.sessionId, result.subagent);
+      return messagesReport(result.messages, result.sessionId);
     case 'stop':
       return 'The atomic-workflow server has stopped the messages of this session. Do not run the wait command again.';
     case 'replaced':
@@ -64,21 +70,20 @@ const report = (result: AwaitCommandResult): string => {
  * Returns the text that hands `messages` to the agent, and names the command line of the next wait for the session
  * `sessionId`, which acknowledges them. The session is the one that the inbox belongs to now, which after `/clear` is
  * not the one of this wait. The agent starts the next wait first, so that a message that comes in while it works
- * wakes it again. Unless the session is a `subagent`, whose reply the user does not see, the agent then quotes the
- * beginning of each message, so that the user sees in the terminal what came in. The agent reads the text on each
- * message, so it stays short: the skill and the definition of the agent tell the rest.
+ * wakes it again. The agent then quotes the beginning of each message after `MARK`, so that the user sees in the
+ * terminal what came in, and from where, in the chat of a subagent as well. The agent reads the text on each message,
+ * so it stays short: the skill and the definition of the agent tell the rest.
  */
-const messagesReport = (messages: readonly InboxMessage[], sessionId: string, subagent: boolean): string => {
+const messagesReport = (messages: readonly InboxMessage[], sessionId: string): string => {
   const last = messages.at(-1)?.id;
   const commandLine = AwaitCommandLine(import.meta.filename, sessionId, last);
-  const quotes = subagent
-    ? []
-    : ['Start your reply with these lines as they are:', ...messages.map((message) => quote(message.content))];
   const header =
     messages.length === 1 ? 'Handle like a message of the user:' : 'Handle like messages of the user, oldest first:';
   return [
     `Run in the background first: ${commandLine}`,
-    ...quotes,
+    'Start your reply with these lines as they are:',
+    MARK,
+    ...messages.map((message) => quote(message.content)),
     header,
     messages.map((message) => message.content).join('\n\n---\n\n'),
   ].join('\n');

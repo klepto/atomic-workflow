@@ -75,16 +75,15 @@ const statusWordsOf = (task: TaskSummary) =>
 /**
  * The stages of a task that stands at the stage `stage`, as a row of bars with the name of each stage below its bar.
  * The stages before the current one are filled, the current one is filled in the primary color, and the ones after it
- * are empty. A task that has landed has every stage filled, none current.
+ * are empty. A task that has landed stands at its last stage, `Done`.
  */
 const StageTrack = ({ stage: currentStage }: { stage: Stage | undefined }) => {
   const current = STAGES.findIndex(({ stage }) => stage === currentStage);
-  const landed = currentStage === 'done';
   return (
     <ol aria-label="Stages" className="grid grid-cols-4 gap-1">
       {STAGES.map((stage, index) => {
-        const passed = index < current || landed;
-        const isCurrent = index === current && !landed;
+        const passed = index < current;
+        const isCurrent = index === current;
         return (
           <li key={stage.stage} aria-current={isCurrent ? 'step' : undefined} className="flex flex-col gap-1.5">
             <span

@@ -35,6 +35,13 @@ worktree of the ticket, the path `worktrees.ticket.path` of `worktreeCreate`:
   `git -C "<worktree>" <arguments>` for git.
 - Never push, and never commit in another worktree.
 
+## Processes
+
+Start a process that keeps running, such as a dev server, a watcher or a preview, only when a command of `## Verify`
+needs it. Stop each process that you started before the stage ends, with the tool that started it or by its process
+id, and check that it is gone. A process left behind holds its port, and on Windows the files of the worktree, so the
+removal of the worktree cannot delete them. The server stops what it finds before a removal, but only as a safety net.
+
 ## Instructions of the repository
 
 Read `AGENTS.md` and `CLAUDE.md` at the root of the worktree, and in each directory that the ticket touches, before

@@ -11,6 +11,7 @@ import { parseCommand } from '@/conversation/command-text.ts';
 import { MarkdownBody } from '@/conversation/markdown-body.tsx';
 import { MessageTime } from '@/conversation/message-time.tsx';
 import { isTaskNotification } from '@/conversation/task-notification.ts';
+import { withoutWorkflowQuotes } from '@/conversation/workflow-quote.ts';
 import { cn } from '@/lib/utils.ts';
 import { ConsoleComposer } from './console-composer.tsx';
 import { useFollowScroll } from './follow-scroll.ts';
@@ -309,8 +310,20 @@ const runsInOf = (chat: Chat): ReactNode =>
   );
 
 /**
+ * Returns the messages of `logged` that the log shows: none that notifies that a background task ended, and each
+ * without the marked quotes of the atomic-workflow server at its start, such as the messages that an agent quotes
+ * before its reply. A message that holds only marked quotes is not shown.
+ */
+const visibleMessages = (logged: readonly LoggedMessage[]): readonly LoggedMessage[] =>
+  logged
+    .filter((message) => !isTaskNotification(message.content))
+    .map((message) => ({ ...message, content: withoutWorkflowQuotes(message.content) }))
+    .filter((message) => message.content.trim() !== '');
+
+/**
  * The console, the chat `chat`: its messages in a scrolling log, oldest at the top, and the composer at the bottom. The
- * log is read at load and each time `messages` changes, and shows no notification that a background task ended. Where
+ * log is read at load and each time `messages` changes, and shows no notification that a background task ended and no
+ * text of the atomic-workflow server. Where
  * the messages of the log pass from one session to the next, such as after a `/clear` of the orchestrator, a line says `New session`. A text of the composer goes to the
  * attached session of the chat with `messageDeliver`, and shows at the end of the log until it is delivered, or with
  * why it was not. A text that runs a skill of the session goes the same way in the chat of a subagent. In the chat of
@@ -321,7 +334,7 @@ const runsInOf = (chat: Chat): ReactNode =>
  */
 export const ConsolePage = ({ chat, messages, online, onOpen, readSessions }: ConsolePageProps) => {
   const { entries: logged, loaded, failure } = useChatLog(chat.logQuery, messages);
-  const entries = useMemo(() => logged.filter((message) => !isTaskNotification(message.content)), [logged]);
+  const entries = useMemo(() => visibleMessages(logged), [logged]);
   const skills = useSkills(chat.sessionId);
   const breaks = useMemo(() => sessionBreaks(entries), [entries]);
   const [pending, setPending] = useState<readonly PendingMessage[]>([]);

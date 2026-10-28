@@ -152,9 +152,12 @@ const SENDERS: ReadonlyMap<string, MessageSender> = new Map([
 
 /**
  * Texts of a message of a subagent that end its turn, as its instructions word them: it waits for the next message of
- * the server, or the server has stopped its messages.
+ * the server, or the server has stopped its messages. Each word is a quote after the line `atomic-workflow:`, which
+ * marks it as text of the atomic-workflow server, and the bare word counts as well.
  */
-const SUBAGENT_TURN_ENDS: ReadonlySet<string> = new Set(['waiting', 'stopped']);
+const SUBAGENT_TURN_ENDS: ReadonlySet<string> = new Set(
+  ['waiting', 'stopped'].flatMap((word) => [word, `atomic-workflow:\n> ${word}`, `atomic-workflow:\r\n> ${word}`]),
+);
 
 /**
  * Name of the tool that Claude Code gives a subagent to report back to its parent. A subagent may end its turn with a

@@ -59,4 +59,6 @@ fixes it, with the problem that the review found. Once the follow-up ticket land
 
 Print `Task **<id>-<slug>** landed on <base branch> at <first 7 characters of the commit>. Status: done.`, or
 `Task **<id>-<slug>** changed nothing on <base branch>. Status: done.` when the commit is null. Then print the number
-of worktrees and branches that the merge removed, and each of its warnings.
+of worktrees and branches that the merge removed, each process of its `stoppedProcesses`, and each of its warnings.
+Read them as `../../references/removal.md` says, relative to the base directory of this skill, and end with its block,
+if any.

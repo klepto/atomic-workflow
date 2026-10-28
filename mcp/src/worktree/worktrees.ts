@@ -1,4 +1,5 @@
 import type { CopyFailures, CopyIgnoredFunction } from './copy-ignored.ts';
+import type { StopProcessesFunction } from './stop-processes.ts';
 import { gitCreateWorktrees } from './worktrees.git.ts';
 
 /**
@@ -136,8 +137,14 @@ export interface DeletedWorktrees {
   readonly branches: readonly string[];
 
   /**
+   * One line for each process that ran from a removed directory and was stopped before the removal, with its
+   * identifier and the start of its command line.
+   */
+  readonly stoppedProcesses: readonly string[];
+
+  /**
    * One sentence for each worktree or branch that could not be removed, such as a directory that another program
-   * holds.
+   * holds, and for each process that ran from a removed directory and could not be stopped.
    */
   readonly warnings: readonly string[];
 }
@@ -149,7 +156,9 @@ export interface DeletedWorktrees {
  * `atomic-workflow/<task id>-<task slug>/<ticket id>-<ticket slug>`, made from the task branch once it is synced with
  * the base branch. The commit of the task branch that a ticket branch starts from is its fork point, which stays
  * right when a sync rewrites the task branch. Each branch has a worktree of its own in a directory of the repository
- * below the home of the user, outside the main checkout, so no tool of the main checkout indexes it.
+ * below the home of the user, outside the main checkout, so no tool of the main checkout indexes it. Each process that
+ * runs from a worktree or a directory of a task, such as a dev server that an agent left behind, is stopped before its
+ * removal, so it holds none of its files.
  * A call that the state of the repository does not allow rejects with a `WorktreeError`. Only unexpected failures,
  * such as a missing git program, reject with another error. Calls run one at a time, in the order they came, so
  * two calls never change the branches of a repository at once: a sync of a task branch never runs while a ticket
@@ -233,6 +242,12 @@ export interface WorktreesDependencies {
    * Function that copies the ignored files of the main checkout into a new worktree.
    */
   readonly copyIgnored: CopyIgnoredFunction;
+
+  /**
+   * Function that stops the processes that run from a worktree or a directory before its removal, so no process holds
+   * its files.
+   */
+  readonly stopProcesses: StopProcessesFunction;
 }
 
 /**

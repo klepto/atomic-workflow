@@ -81,6 +81,10 @@ Take the final reply of each subagent of the wave, in the order of the ids of th
   `blocked` and the cause in one sentence as `reason`. Then go on with the next ticket. Remember the commit of each
   ticket that landed, the summary line of its message, and the `Decisions:` of its report.
 - `Blocked`: the subagent blocked the ticket already. Go on with the next ticket.
+
+Read the result of each call of `worktreeDelete` as `../../references/removal.md` says, relative to the base directory
+of this skill. A block there does not stop the landing of the wave, since each ticket landed before its removal. Once
+the wave landed, start no next wave: go on to `## Finish`, and end its report with the block.
 - Any other reply, `Stopped` included: call `ticketSetStatus` with `blocked` and the cause that the reply names as
   `reason`, or `Its subagent ended without a report.` when it names none. So the ticket runs in no later wave, and
   waits for the user. If the call fails, remember its message.
@@ -111,7 +115,8 @@ Next: <next step>
 - `Landed`: each ticket that landed in this run, in the order in which it landed. For a ticket whose commit is null,
   print `changed nothing` in place of the commit and the summary line. Below the line of a ticket, name each line of
   the `Decisions:` of its report, so the review weighs it. Then name each warning of `worktreeCreate` that this
-  conversation remembered, each line of the `Warnings:` of its report, and each warning of `worktreeDelete`.
+  conversation remembered, each line of the `Warnings:` of its report, each process of `stoppedProcesses` of
+  `worktreeDelete`, and each of its warnings.
 - `Blocked`: each ticket of `waiting` with the cause `blocked`, then each ticket whose `ticketSetStatus` failed, with
   the message of the failure.
 - `Waiting for the user`: each ticket of `pickable` in the mode `attended` or `manual`.

@@ -36845,8 +36845,7 @@ var inboxAwaitCommandMethod = {
   handle: async ({ sessionId: name, after }, { subagents, inboxes }) => {
     const sessionId = inboxes.find(name) ?? name;
     subagents.attach(sessionId);
-    const subagent = subagents.list().some((attached) => attached.sessionId === sessionId);
-    return { ...await inboxes.take(sessionId, after), subagent };
+    return inboxes.take(sessionId, after);
   }
 };
 
@@ -37879,8 +37878,9 @@ var spawnMessage = (sessionId, commandLine) => {
     "Start a subagent for the atomic-workflow server now, and do nothing else for this message.",
     `Call the Agent tool with run_in_background set to true, subagent_type "${AGENT_TYPE}", description "atomic-workflow subagent ${sessionId.slice(0, 8)}", and exactly this prompt:`,
     "",
-    `Your session id is ${sessionId}. Your wait command is:`,
-    commandLine,
+    "atomic-workflow:",
+    `> Your session id is ${sessionId}. Your wait command is:`,
+    `> \`${commandLine}\``,
     "",
     "Each time this subagent reports back, do not act on its report and do not reply about it. The atomic-workflow server handles it."
   ].join("\n");
@@ -38122,7 +38122,11 @@ var SENDERS = /* @__PURE__ */ new Map([
   ["user", "user"],
   ["assistant", "agent"]
 ]);
-var SUBAGENT_TURN_ENDS = /* @__PURE__ */ new Set(["waiting", "stopped"]);
+var SUBAGENT_TURN_ENDS = new Set(
+  ["waiting", "stopped"].flatMap((word) => [word, `atomic-workflow:
+> ${word}`, `atomic-workflow:\r
+> ${word}`])
+);
 var HANDBACK_TOOL = "SubagentHandback";
 var HANDBACK_ENTRY = external_exports.object({
   message: external_exports.object({
