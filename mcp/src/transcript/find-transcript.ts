@@ -97,6 +97,13 @@ export interface Transcript {
   readonly path: string;
 
   /**
+   * Identifier of the background task that runs the subagent of the transcript, by which the agent of its parent
+   * stops it, such as with the tool `TaskStop` of Claude Code. `undefined` for the transcript of a session, which no
+   * background task runs.
+   */
+  readonly backgroundTaskId: string | undefined;
+
+  /**
    * Returns the message of a user or an agent that the line `line` of the transcript holds. If the line holds another
    * kind of entry, or is not valid, returns `undefined` instead.
    */

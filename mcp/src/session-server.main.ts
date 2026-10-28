@@ -149,6 +149,12 @@ interface Session {
    * order of the list. Empty while no transcript is logged.
    */
   skills: Map<string, TranscriptSkill>;
+
+  /**
+   * Identifiers of the background tasks that run the subagents of the session whose transcripts are logged, by the
+   * session id of the subagent.
+   */
+  readonly subagentTasks: Map<string, string>;
 }
 
 /**
@@ -178,10 +184,12 @@ const main = async (): Promise<void> => {
     context: {
       followSubagent: (sessionId, parentId, oneShot) => followSubagent(session, sessionId, parentId, oneShot),
       listSkills: (sessionId) => listSkills(session, sessionId),
+      subagentTaskId: (sessionId) => session.subagentTasks.get(sessionId),
     },
     attachment: undefined,
     transcript: undefined,
     skills: new Map(),
+    subagentTasks: new Map(),
   };
   server.registerTool(
     'activate',
@@ -363,8 +371,9 @@ const followSubagent = (session: Session, sessionId: string, parentId: string, o
 /**
  * Finds the transcript of the subagent `sessionId` of the session of the transcript `parent`, and logs it over the
  * connection of `attachment` until the subagent is stopped, or finished for a one-shot subagent, or the connection
- * closes. Then tells the repository server that the subagent has ended, unless the connection closed. A one-shot
- * subagent without a transcript has ended too. A failure goes to the standard error.
+ * closes. While it logs, `session` keeps the id of the background task that runs the subagent. Then tells the
+ * repository server that the subagent has ended, unless the connection closed. A one-shot subagent without a
+ * transcript has ended too. A failure goes to the standard error.
  */
 const logSubagent = async (
   session: Session,
@@ -387,6 +396,7 @@ const logSubagent = async (
       if (oneShot && !logging.signal.aborted) await end();
       throw new Error('Found no transcript');
     }
+    if (transcript.backgroundTaskId !== undefined) session.subagentTasks.set(sessionId, transcript.backgroundTaskId);
     await logTranscript(transcript, session.directory, connection, logging.signal, { tailFile });
     if (logging.signal.aborted) return;
     await end();
@@ -395,6 +405,8 @@ const logSubagent = async (
     if (!logging.signal.aborted)
       process.stderr.write(`Could not log the subagent ${sessionId}: ${messageOf(error)}
 `);
+  } finally {
+    session.subagentTasks.delete(sessionId);
   }
 };
 

@@ -21363,21 +21363,49 @@ var spawnMessage = (sessionId, commandLine) => {
   ].join("\n");
 };
 
-// src/rpc/method.subagent-stop.ts
+// src/rpc/session-method.subagent-task-id.ts
 var PARAMS34 = external_exports.object({
+  sessionId: external_exports.string().min(1).describe("Identifier of the session of the subagent")
+});
+var subagentTaskIdMethod = {
+  name: "subagentTaskId",
+  description: "Returns the id of the background task that runs a subagent of the session.",
+  agent: false,
+  params: PARAMS34,
+  handle: async ({ sessionId }, { subagentTaskId }) => ({ backgroundTaskId: subagentTaskId(sessionId) ?? null })
+};
+
+// src/rpc/method.subagent-stop.ts
+var PARAMS35 = external_exports.object({
   sessionId: external_exports.string().describe("Session id of the subagent to stop")
 });
 var subagentStopMethod = {
   name: "subagentStop",
   description: "Stops a subagent that subagentStart started.",
   agent: false,
-  params: PARAMS34,
-  handle: async ({ sessionId }, { subagents, inboxes }) => {
+  params: PARAMS35,
+  handle: async ({ sessionId }, context) => {
+    const { subagents, inboxes } = context;
+    const subagent = subagents.list().find((started) => started.sessionId === sessionId);
+    if (subagent !== void 0) await killTask(context, sessionId, subagent.parentId);
     if (!subagents.stop(sessionId))
       throw new RpcError(RpcErrorCode.INVALID_PARAMS, `No subagent ${sessionId} is started`);
     inboxes.close(sessionId);
   }
 };
+var killTask = async (context, sessionId, parentId) => {
+  const connection = context.sessionConnections.get(parentId);
+  if (connection === void 0) return;
+  const params = { sessionId };
+  const { backgroundTaskId } = await connection.request(subagentTaskIdMethod.name, params);
+  if (backgroundTaskId === null) return;
+  const content = killMessage(sessionId, backgroundTaskId);
+  await messageDeliverMethod.handle({ sessionId: parentId, content }, context);
+};
+var killMessage = (sessionId, backgroundTaskId) => [
+  "Stop a subagent for the atomic-workflow server now, and do nothing else for this message.",
+  `Call the TaskStop tool with task_id "${backgroundTaskId}", the subagent "atomic-workflow subagent ${sessionId.slice(0, 8)}". Do not reply about its end. The atomic-workflow server handles it.`
+].join("\n");
 
 // src/rpc/method.ts
 var Methods = [

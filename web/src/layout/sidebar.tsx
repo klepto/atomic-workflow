@@ -1,4 +1,4 @@
-import { LoaderCircle, Plus, Trash2 } from 'lucide-react';
+import { LoaderCircle, Plus, Square, Trash2 } from 'lucide-react';
 import { type ReactNode, useState } from 'react';
 import { call } from '@/api/rpc.ts';
 import type { ListedSession, TaskSummary } from '@/api/types.ts';
@@ -45,6 +45,13 @@ const ENTRY_LINK =
   'flex min-w-0 flex-1 items-center gap-2 whitespace-nowrap rounded-md px-3 py-1.5 text-muted-foreground text-sm outline-none transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:ring-[3px] focus-visible:ring-sidebar-ring/50 aria-[current=page]:bg-sidebar-accent aria-[current=page]:font-medium aria-[current=page]:text-sidebar-accent-foreground';
 
 /**
+ * The classes of the button at the right end of the entry of a chat, which shows only while the pointer is over the
+ * entry, or while it has the focus.
+ */
+const ENTRY_ACTION =
+  'absolute top-1/2 right-1 size-6 -translate-y-1/2 text-destructive opacity-0 hover:bg-destructive/10 hover:text-destructive focus-visible:opacity-100 group-hover:opacity-100';
+
+/**
  * The button that deletes the subagent of the chat `chat` with `sessionDelete`, with its chat, after it asks in a
  * dialog. It sits at the right end of the entry of the chat, and shows only while the pointer is over the entry, while
  * it has the focus, or while its dialog is open.
@@ -55,7 +62,7 @@ const DeleteAgent = ({ chat }: { chat: Chat }) => (
       <Button
         variant="ghost"
         size="icon"
-        className="absolute top-1/2 right-1 size-6 -translate-y-1/2 text-destructive opacity-0 hover:bg-destructive/10 hover:text-destructive focus-visible:opacity-100 group-hover:opacity-100 data-popup-open:opacity-100"
+        className={cn(ENTRY_ACTION, 'data-popup-open:opacity-100')}
         aria-label={`Delete ${chat.name}`}
       />
     }
@@ -71,25 +78,72 @@ const DeleteAgent = ({ chat }: { chat: Chat }) => (
 );
 
 /**
+ * The button that stops the subagent of the chat `chat` at once with `subagentStop`, even in the middle of a turn. It
+ * sits at the right end of the entry of the chat, and shows only while the pointer is over the entry, or while it has
+ * the focus. Once clicked, it shows a spinner and stays disabled until the subagent ends and the button goes away. A
+ * failure enables it again, keeps it shown, and names the failure in its label and its tooltip.
+ */
+const StopAgent = ({ chat }: { chat: Chat }) => {
+  const [stopping, setStopping] = useState(false);
+  const [failure, setFailure] = useState<string>();
+
+  /**
+   * Stops the subagent, and keeps the message of a failure.
+   */
+  const stop = async () => {
+    setFailure(undefined);
+    setStopping(true);
+    try {
+      await call('subagentStop', { sessionId: chat.key });
+    } catch (error) {
+      setFailure(messageOf(error));
+      setStopping(false);
+    }
+  };
+
+  return (
+    <Button
+      variant="ghost"
+      size="icon"
+      className={cn(ENTRY_ACTION, (stopping || failure !== undefined) && 'opacity-100')}
+      aria-label={failure === undefined ? `Stop ${chat.name}` : `Stop ${chat.name}. The last stop failed: ${failure}`}
+      title={failure}
+      disabled={stopping}
+      onClick={stop}
+    >
+      {stopping ? (
+        <LoaderCircle aria-hidden="true" className="size-3.5 motion-safe:animate-spin" />
+      ) : (
+        <Square aria-hidden="true" className="size-3.5" />
+      )}
+    </Button>
+  );
+};
+
+/**
  * The entry of the chat `chat`: the dot of its status and its name. A screen reader hears the name, then the words of
  * the status. A click on it calls `onOpen`. It is marked as the current page when `current` is true. The entry of a
- * subagent that ended has the button that deletes it.
+ * subagent that runs has the button that stops it, and the entry of a subagent that ended has the button that deletes
+ * it.
  */
 const ChatEntry = ({ chat, current, onOpen }: { chat: Chat; current: boolean; onOpen: () => void }) => {
-  const deletable = chat.role === 'subagent' && chat.status === 'ended';
+  const subagent = chat.role === 'subagent';
+  const deletable = subagent && chat.status === 'ended';
+  const stoppable = subagent && chat.status !== 'ended';
   return (
     <li className="group relative flex min-w-0">
       <button
         type="button"
         onClick={onOpen}
         aria-current={current ? 'page' : undefined}
-        className={cn(ENTRY_LINK, 'cursor-pointer', deletable && 'pr-8')}
+        className={cn(ENTRY_LINK, 'cursor-pointer', (deletable || stoppable) && 'pr-8')}
       >
         <ChatDot status={chat.status} />
         <span className="truncate">{chat.name}</span>
         <span className="sr-only">{`, ${CHAT_STATUSES[chat.status].words}`}</span>
       </button>
       {deletable && <DeleteAgent chat={chat} />}
+      {stoppable && <StopAgent chat={chat} />}
     </li>
   );
 };
@@ -181,7 +235,7 @@ const StartAgentButton = ({
  * `orchestrator`, its heading names the task, and a new agent works on the task. A task without subagents says so
  * below the chat `orchestrator`. The dot of each chat shows its status: a grey ring once ended, green while idle, yellow while working,
  * and red while it waits for the user. A click on a chat opens it, and the open chat is marked as the current page. A
- * subagent that ended can be deleted with its chat from its entry. A
+ * subagent that runs can be stopped from its entry, and one that ended can be deleted with its chat from it. A
  * new agent starts inside the orchestrator session that attached last. It is the navigation of a column at the left of
  * the page on a wide screen, and of a row above the page on a narrow one.
  */

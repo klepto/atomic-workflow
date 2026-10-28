@@ -3,6 +3,7 @@ import type { TranscriptSkill } from '../transcript/find-transcript.ts';
 import type { Method } from './method.ts';
 import { skillListSessionMethod } from './session-method.skill-list.ts';
 import { subagentFollowMethod } from './session-method.subagent-follow.ts';
+import { subagentTaskIdMethod } from './session-method.subagent-task-id.ts';
 
 /**
  * Services of a session server that a method of the session server uses to do its work.
@@ -21,6 +22,13 @@ export interface SessionMethodContext {
    * order of the list. If `sessionId` is not the session that the agent runs now, throws.
    */
   listSkills(sessionId: string): readonly TranscriptSkill[];
+
+  /**
+   * Returns the id of the background task that runs the subagent `sessionId` of the session, by which the agent of the
+   * session stops it. If the transcript of the subagent is not logged, or no background task runs it, returns
+   * `undefined` instead.
+   */
+  subagentTaskId(sessionId: string): string | undefined;
 }
 
 /**
@@ -29,4 +37,5 @@ export interface SessionMethodContext {
 export const SessionMethods: readonly Method<z.ZodObject, unknown, SessionMethodContext>[] = [
   subagentFollowMethod,
   skillListSessionMethod,
+  subagentTaskIdMethod,
 ];

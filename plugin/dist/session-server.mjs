@@ -7199,7 +7199,7 @@ var require_dist = __commonJS({
 });
 
 // src/session-server.main.ts
-import { basename as basename2, join as join3 } from "node:path";
+import { basename as basename3, join as join3 } from "node:path";
 
 // node_modules/zod/v3/helpers/util.js
 var util;
@@ -37886,21 +37886,49 @@ var spawnMessage = (sessionId, commandLine) => {
   ].join("\n");
 };
 
-// src/rpc/method.subagent-stop.ts
+// src/rpc/session-method.subagent-task-id.ts
 var PARAMS34 = external_exports.object({
+  sessionId: external_exports.string().min(1).describe("Identifier of the session of the subagent")
+});
+var subagentTaskIdMethod = {
+  name: "subagentTaskId",
+  description: "Returns the id of the background task that runs a subagent of the session.",
+  agent: false,
+  params: PARAMS34,
+  handle: async ({ sessionId }, { subagentTaskId }) => ({ backgroundTaskId: subagentTaskId(sessionId) ?? null })
+};
+
+// src/rpc/method.subagent-stop.ts
+var PARAMS35 = external_exports.object({
   sessionId: external_exports.string().describe("Session id of the subagent to stop")
 });
 var subagentStopMethod = {
   name: "subagentStop",
   description: "Stops a subagent that subagentStart started.",
   agent: false,
-  params: PARAMS34,
-  handle: async ({ sessionId }, { subagents, inboxes }) => {
+  params: PARAMS35,
+  handle: async ({ sessionId }, context) => {
+    const { subagents, inboxes } = context;
+    const subagent = subagents.list().find((started) => started.sessionId === sessionId);
+    if (subagent !== void 0) await killTask(context, sessionId, subagent.parentId);
     if (!subagents.stop(sessionId))
       throw new RpcError(RpcErrorCode.INVALID_PARAMS, `No subagent ${sessionId} is started`);
     inboxes.close(sessionId);
   }
 };
+var killTask = async (context, sessionId, parentId) => {
+  const connection = context.sessionConnections.get(parentId);
+  if (connection === void 0) return;
+  const params = { sessionId };
+  const { backgroundTaskId } = await connection.request(subagentTaskIdMethod.name, params);
+  if (backgroundTaskId === null) return;
+  const content = killMessage(sessionId, backgroundTaskId);
+  await messageDeliverMethod.handle({ sessionId: parentId, content }, context);
+};
+var killMessage = (sessionId, backgroundTaskId) => [
+  "Stop a subagent for the atomic-workflow server now, and do nothing else for this message.",
+  `Call the TaskStop tool with task_id "${backgroundTaskId}", the subagent "atomic-workflow subagent ${sessionId.slice(0, 8)}". Do not reply about its end. The atomic-workflow server handles it.`
+].join("\n");
 
 // src/rpc/method.ts
 var Methods = [
@@ -38023,13 +38051,14 @@ var OpenRpcConnection = ndjsonOpenRpcConnection;
 // src/rpc/session-method.ts
 var SessionMethods = [
   subagentFollowMethod,
-  skillListSessionMethod
+  skillListSessionMethod,
+  subagentTaskIdMethod
 ];
 
 // src/transcript/find-transcript.claude.ts
 import { access, open as open2, readdir, readFile } from "node:fs/promises";
 import { homedir } from "node:os";
-import { join as join2 } from "node:path";
+import { basename as basename2, join as join2 } from "node:path";
 import { setTimeout as sleep2 } from "node:timers/promises";
 var ENTRY = external_exports.object({
   type: external_exports.string(),
@@ -38039,9 +38068,11 @@ var ENTRY = external_exports.object({
   isSidechain: external_exports.boolean().optional(),
   isCompactSummary: external_exports.boolean().optional(),
   message: external_exports.object({
-    content: external_exports.union([external_exports.string(), external_exports.array(external_exports.object({ type: external_exports.string(), text: external_exports.string().optional() }))])
+    content: external_exports.union([external_exports.string(), external_exports.array(external_exports.object({ type: external_exports.string(), text: external_exports.string().optional() }))]),
+    stop_reason: external_exports.string().nullish().catch(void 0)
   })
 });
+var END_TURN = "end_turn";
 var SKILL_LISTING = external_exports.object({
   type: external_exports.literal("attachment"),
   isSidechain: external_exports.boolean().optional(),
@@ -38116,6 +38147,7 @@ var SUBAGENT_META = external_exports.object({
 var POLL_INTERVAL = 500;
 var SUBAGENT_SEARCH_TIMEOUT = 1e4;
 var ONE_SHOT_SEARCH_TIMEOUT = 3e5;
+var AGENT_FILE_PREFIX = "agent-";
 var PROMPT_BYTES = 16 * 1024;
 var parseJson = (text2) => {
   try {
@@ -38143,6 +38175,7 @@ var claudeFindTranscript = async (environment, parentProcessId) => {
     agent: "claude",
     sessionId,
     path,
+    backgroundTaskId: void 0,
     parse: entryParser(false),
     parseSkills: (line) => parseSkillListing(line, false),
     parseActivity: (line) => parseActivity(line, false),
@@ -38194,6 +38227,7 @@ var claudeFindSubagentTranscript = async (parent, sessionId, signal, oneShot) =>
         agent: "claude",
         sessionId,
         path,
+        backgroundTaskId: basename2(path, ".jsonl").slice(AGENT_FILE_PREFIX.length),
         parse: entryParser(true),
         parseSkills: (line) => parseSkillListing(line, true),
         parseActivity: (line) => parseActivity(line, true),
@@ -38209,7 +38243,7 @@ var findSubagentFile = async (directory, sessionId) => {
     if (error62.code === "ENOENT") return [];
     throw error62;
   });
-  const candidates = names.filter((name) => name.startsWith("agent-") && name.endsWith(".jsonl")).map((name) => join2(directory, name));
+  const candidates = names.filter((name) => name.startsWith(AGENT_FILE_PREFIX) && name.endsWith(".jsonl")).map((name) => join2(directory, name));
   const starts = await Promise.all(candidates.map(readStart));
   return candidates.find((_, index) => starts[index]?.includes(sessionId));
 };
@@ -38297,11 +38331,11 @@ var parseActivity = (line, sidechain) => {
   if (!SENDERS.has(type) || isMeta || isSidechain !== sidechain || isCompactSummary) return void 0;
   const text2 = textOf(message.content).trim();
   if (type === "user" && LOCAL_COMMAND_MARKS.some((mark) => text2.startsWith(mark))) return void 0;
-  const ended = type === "user" ? text2.startsWith(INTERRUPT_MARK) : sidechain && endsSubagentTurn(line, value, text2);
+  const ended = type === "user" ? text2.startsWith(INTERRUPT_MARK) : sidechain && endsSubagentTurn(line, value, text2, message.stop_reason);
   return { status: ended ? "idle" : "working", timestamp: Date.parse(timestamp) };
 };
-var endsSubagentTurn = (line, value, text2) => {
-  if (SUBAGENT_TURN_ENDS.has(text2)) return true;
+var endsSubagentTurn = (line, value, text2, stopReason) => {
+  if (stopReason === END_TURN || SUBAGENT_TURN_ENDS.has(text2)) return true;
   if (!line.includes(HANDBACK_TOOL)) return false;
   const entry = HANDBACK_ENTRY.safeParse(value);
   if (!entry.success) return false;
@@ -38444,11 +38478,11 @@ var TailFile = pollTailFile;
 var SERVER_NAME = "atomic-workflow";
 var REPOSITORY_SERVER = join3(
   import.meta.dirname,
-  basename2(import.meta.filename).replace("session-server", "repository-server")
+  basename3(import.meta.filename).replace("session-server", "repository-server")
 );
 var AWAIT_COMMAND = join3(
   import.meta.dirname,
-  basename2(import.meta.filename).replace("session-server", "await-command")
+  basename3(import.meta.filename).replace("session-server", "await-command")
 );
 var main = async () => {
   const server = new McpServer({ name: SERVER_NAME, version: "0.0.0" });
@@ -38470,11 +38504,13 @@ var main = async () => {
     server,
     context: {
       followSubagent: (sessionId, parentId, oneShot) => followSubagent(session, sessionId, parentId, oneShot),
-      listSkills: (sessionId) => listSkills(session, sessionId)
+      listSkills: (sessionId) => listSkills(session, sessionId),
+      subagentTaskId: (sessionId) => session.subagentTasks.get(sessionId)
     },
     attachment: void 0,
     transcript: void 0,
-    skills: /* @__PURE__ */ new Map()
+    skills: /* @__PURE__ */ new Map(),
+    subagentTasks: /* @__PURE__ */ new Map()
   };
   server.registerTool(
     "activate",
@@ -38595,6 +38631,7 @@ var logSubagent = async (session, attachment2, parent, sessionId, oneShot) => {
       if (oneShot && !logging.signal.aborted) await end();
       throw new Error("Found no transcript");
     }
+    if (transcript.backgroundTaskId !== void 0) session.subagentTasks.set(sessionId, transcript.backgroundTaskId);
     await logTranscript(transcript, session.directory, connection, logging.signal, { tailFile });
     if (logging.signal.aborted) return;
     await end();
@@ -38602,6 +38639,8 @@ var logSubagent = async (session, attachment2, parent, sessionId, oneShot) => {
     if (!logging.signal.aborted)
       process.stderr.write(`Could not log the subagent ${sessionId}: ${messageOf(error62)}
 `);
+  } finally {
+    session.subagentTasks.delete(sessionId);
   }
 };
 var registerTool = (server, connection, method) => {

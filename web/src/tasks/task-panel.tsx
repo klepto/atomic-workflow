@@ -28,47 +28,65 @@ export interface TaskPanelProps {
 }
 
 /**
- * The stages of a task in their order, each with the status of the task while it stands at that stage.
+ * The stages of a task in their order, each with its label and the words that the panel names the task by while it
+ * stands at that stage.
  */
 const STAGES = [
-  { status: 'plan-goals', label: 'Goals' },
-  { status: 'plan-design', label: 'Design' },
-  { status: 'plan-tickets', label: 'Tickets' },
-  { status: 'complete', label: 'Work' },
-  { status: 'done', label: 'Landed' },
+  { stage: 'plan', label: 'Plan', words: 'Planning' },
+  { stage: 'implement', label: 'Implement', words: 'Plan complete, tickets in work' },
+  { stage: 'review', label: 'Review', words: 'Every ticket landed, waiting for approval' },
+  { stage: 'done', label: 'Done', words: 'Landed on its base branch' },
 ] as const;
 
 /**
- * The words of each status of a task, as the panel names it.
+ * A stage of a task, as the panel shows it.
  */
-const STATUS_WORDS: Record<string, string> = {
+type Stage = (typeof STAGES)[number]['stage'];
+
+/**
+ * The words of each status of a task while it stands at the stage `plan`, which name the phase of planning.
+ */
+const PLAN_WORDS: Record<string, string> = {
   'plan-goals': 'Planning the goals',
   'plan-design': 'Planning the design',
   'plan-tickets': 'Planning the tickets',
-  complete: 'Plan complete, tickets in work',
-  done: 'Landed on its base branch',
 };
 
 /**
- * Returns the index in `STAGES` of the stage that the status `status` stands at, or -1 for a status that no stage has.
+ * Returns the stage that the task `task` stands at: `plan` while any phase of planning runs, `implement` once the plan
+ * is complete, `review` once the work of every ticket landed but the task did not, and `done` once the task landed. If
+ * the status of the task has no stage, returns `undefined` instead.
  */
-const stageIndexOf = (status: string) => STAGES.findIndex((stage) => stage.status === status);
+const stageOf = (task: TaskSummary): Stage | undefined => {
+  if (task.status === 'done') return 'done';
+  if (task.status === 'complete') {
+    return task.totalTickets > 0 && task.completedTickets === task.totalTickets ? 'review' : 'implement';
+  }
+  return task.status in PLAN_WORDS ? 'plan' : undefined;
+};
 
 /**
- * The stages of the task with the status `status`, as a row of bars with the name of each stage below its bar. The
- * stages before the current one are filled, the current one is filled in the primary color, and the ones after it are
- * empty. A task that has landed has every stage filled, none current.
+ * Returns the words that the panel names the status of the task `task` by: the phase of planning while it plans, else
+ * the words of its stage, else its status as it is.
  */
-const StageTrack = ({ status }: { status: string }) => {
-  const current = stageIndexOf(status);
-  const landed = status === 'done';
+const statusWordsOf = (task: TaskSummary) =>
+  PLAN_WORDS[task.status] ?? STAGES.find(({ stage }) => stage === stageOf(task))?.words ?? task.status;
+
+/**
+ * The stages of a task that stands at the stage `stage`, as a row of bars with the name of each stage below its bar.
+ * The stages before the current one are filled, the current one is filled in the primary color, and the ones after it
+ * are empty. A task that has landed has every stage filled, none current.
+ */
+const StageTrack = ({ stage: currentStage }: { stage: Stage | undefined }) => {
+  const current = STAGES.findIndex(({ stage }) => stage === currentStage);
+  const landed = currentStage === 'done';
   return (
-    <ol aria-label="Stages" className="grid grid-cols-5 gap-1">
+    <ol aria-label="Stages" className="grid grid-cols-4 gap-1">
       {STAGES.map((stage, index) => {
         const passed = index < current || landed;
         const isCurrent = index === current && !landed;
         return (
-          <li key={stage.status} aria-current={isCurrent ? 'step' : undefined} className="flex flex-col gap-1.5">
+          <li key={stage.stage} aria-current={isCurrent ? 'step' : undefined} className="flex flex-col gap-1.5">
             <span
               aria-hidden="true"
               className={cn('h-1.5 rounded-full', isCurrent ? 'bg-primary' : passed ? 'bg-foreground/45' : 'bg-muted')}
@@ -182,8 +200,8 @@ const TaskDetails = ({ task, onClose }: { task: TaskSummary; onClose: () => void
       </div>
     </div>
     <PanelSection title="Status">
-      <p className="font-medium text-base">{STATUS_WORDS[task.status] ?? task.status}</p>
-      <StageTrack status={task.status} />
+      <p className="font-medium text-base">{statusWordsOf(task)}</p>
+      <StageTrack stage={stageOf(task)} />
     </PanelSection>
     <PanelSection title="Tickets">
       <TicketCount task={task} />

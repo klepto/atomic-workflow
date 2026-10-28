@@ -1,6 +1,6 @@
 import { access, open, readdir, readFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { z } from 'zod';
 import type { MessageSender } from '../storage/message-log-store.ts';
@@ -14,8 +14,9 @@ import type {
 } from './find-transcript.ts';
 
 /**
- * Schema of the fields of an entry of a Claude Code transcript that a message needs. The format is internal to Claude
- * Code, so every field that a message does not need may be missing or change.
+ * Schema of the fields of an entry of a Claude Code transcript that a message or a status needs. `stop_reason` is
+ * `end_turn` on each entry of the agent that ends its turn. The format is internal to Claude Code, so every field that
+ * a message does not need may be missing or change.
  */
 const ENTRY = z.object({
   type: z.string(),
@@ -26,8 +27,14 @@ const ENTRY = z.object({
   isCompactSummary: z.boolean().optional(),
   message: z.object({
     content: z.union([z.string(), z.array(z.object({ type: z.string(), text: z.string().optional() }))]),
+    stop_reason: z.string().nullish().catch(undefined),
   }),
 });
+
+/**
+ * Stop reason of an entry of the agent that ends its turn.
+ */
+const END_TURN = 'end_turn';
 
 /**
  * Content of an entry of a Claude Code transcript: a text, or a list of blocks of which only the text blocks hold
@@ -220,6 +227,11 @@ const SUBAGENT_SEARCH_TIMEOUT = 10_000;
 const ONE_SHOT_SEARCH_TIMEOUT = 300_000;
 
 /**
+ * Text that the name of the transcript of a subagent starts with, before the agent id.
+ */
+const AGENT_FILE_PREFIX = 'agent-';
+
+/**
  * Number of bytes at the start of the transcript of a subagent that are searched for its session id. The first entry
  * holds the prompt, which names the session id in its first line.
  */
@@ -267,6 +279,7 @@ export const claudeFindTranscript: FindTranscriptFunction = async (environment, 
     agent: 'claude',
     sessionId,
     path,
+    backgroundTaskId: undefined,
     parse: entryParser(false),
     parseSkills: (line) => parseSkillListing(line, false),
     parseActivity: (line) => parseActivity(line, false),
@@ -334,11 +347,12 @@ const expectedTranscriptFile = (projects: string, name: string, environment: Nod
 /**
  * `FindSubagentTranscriptFunction` that finds the transcript of a subagent of a Claude Code session. Claude Code writes
  * it to `subagents/agent-<agent id>.jsonl` in a directory beside the transcript of the parent, named after the session
- * of the parent, and starts it with the prompt of the subagent. Beside it, `agent-<agent id>.meta.json` sets
- * `stoppedByUser` once the subagent is stopped, such as by `TaskStop`, and `finished` each time that the subagent ends
- * its turn. A subagent that waits in the background for its messages finishes many times, so only a one-shot subagent
- * ends when it finishes. The directory is searched every `POLL_INTERVAL` ms, until `SUBAGENT_SEARCH_TIMEOUT` ms have
- * passed, or `ONE_SHOT_SEARCH_TIMEOUT` ms for a one-shot subagent.
+ * of the parent, and starts it with the prompt of the subagent. The agent id is also the id of the background task that
+ * runs the subagent. Beside it, `agent-<agent id>.meta.json` sets `stoppedByUser` once the subagent is stopped, such
+ * as by `TaskStop`, and `finished` each time that the subagent ends its turn. A subagent that waits in the background
+ * for its messages finishes many times, so only a one-shot subagent ends when it finishes. The directory is searched
+ * every `POLL_INTERVAL` ms, until `SUBAGENT_SEARCH_TIMEOUT` ms have passed, or `ONE_SHOT_SEARCH_TIMEOUT` ms for a
+ * one-shot subagent.
  */
 export const claudeFindSubagentTranscript: FindSubagentTranscriptFunction = async (
   parent,
@@ -356,6 +370,7 @@ export const claudeFindSubagentTranscript: FindSubagentTranscriptFunction = asyn
         agent: 'claude',
         sessionId,
         path,
+        backgroundTaskId: basename(path, '.jsonl').slice(AGENT_FILE_PREFIX.length),
         parse: entryParser(true),
         parseSkills: (line) => parseSkillListing(line, true),
         parseActivity: (line) => parseActivity(line, true),
@@ -378,7 +393,7 @@ const findSubagentFile = async (directory: string, sessionId: string): Promise<s
     throw error;
   });
   const candidates = names
-    .filter((name) => name.startsWith('agent-') && name.endsWith('.jsonl'))
+    .filter((name) => name.startsWith(AGENT_FILE_PREFIX) && name.endsWith('.jsonl'))
     .map((name) => join(directory, name));
   const starts = await Promise.all(candidates.map(readStart));
   return candidates.find((_, index) => starts[index]?.includes(sessionId));
@@ -534,17 +549,27 @@ const parseActivity = (line: string, sidechain: boolean): TranscriptActivity | u
   if (!SENDERS.has(type) || isMeta || isSidechain !== sidechain || isCompactSummary) return undefined;
   const text = textOf(message.content).trim();
   if (type === 'user' && LOCAL_COMMAND_MARKS.some((mark) => text.startsWith(mark))) return undefined;
-  const ended = type === 'user' ? text.startsWith(INTERRUPT_MARK) : sidechain && endsSubagentTurn(line, value, text);
+  const ended =
+    type === 'user'
+      ? text.startsWith(INTERRUPT_MARK)
+      : sidechain && endsSubagentTurn(line, value, text, message.stop_reason);
   return { status: ended ? 'idle' : 'working', timestamp: Date.parse(timestamp) };
 };
 
 /**
  * Returns whether the entry `value` of an agent, from the line `line` of the transcript of a subagent, with the text
- * `text`, ends the turn of the subagent: a message whose text is one of `SUBAGENT_TURN_ENDS`, or a report through
- * `HANDBACK_TOOL` whose message is one of them.
+ * `text` and the stop reason `stopReason`, ends the turn of the subagent: an entry that Claude Code marks with
+ * `END_TURN`, a message whose text is one of `SUBAGENT_TURN_ENDS`, or a report through `HANDBACK_TOOL` whose message
+ * is one of them. The stop reason holds even when the subagent ends its turn with another text than its instructions
+ * name.
  */
-const endsSubagentTurn = (line: string, value: unknown, text: string): boolean => {
-  if (SUBAGENT_TURN_ENDS.has(text)) return true;
+const endsSubagentTurn = (
+  line: string,
+  value: unknown,
+  text: string,
+  stopReason: string | null | undefined,
+): boolean => {
+  if (stopReason === END_TURN || SUBAGENT_TURN_ENDS.has(text)) return true;
   if (!line.includes(HANDBACK_TOOL)) return false;
   const entry = HANDBACK_ENTRY.safeParse(value);
   if (!entry.success) return false;
