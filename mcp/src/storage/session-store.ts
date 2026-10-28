@@ -80,6 +80,43 @@ export interface RegisteredSession {
    * unique.
    */
   readonly alias: string | null;
+
+  /**
+   * Size of the context of the session in tokens, as the usage of its newest model request shows it, or `null` for a
+   * session with no known model request.
+   */
+  readonly contextTokens: number | null;
+
+  /**
+   * Identifier of the model that answered the newest model request of the session, such as `claude-opus-5-5`, or
+   * `null` while it is not known.
+   */
+  readonly model: string | null;
+
+  /**
+   * Reasoning effort of the newest model request of the session, such as `xhigh`, or `null` while it is not known.
+   */
+  readonly effort: string | null;
+}
+
+/**
+ * Token usage of the newest model request of a session.
+ */
+export interface SessionUsage {
+  /**
+   * Size of the context of the session in tokens.
+   */
+  readonly contextTokens: number;
+
+  /**
+   * Identifier of the model that answered the request, or `null` when it is not known.
+   */
+  readonly model: string | null;
+
+  /**
+   * Reasoning effort of the request, or `null` when it is not known.
+   */
+  readonly effort: string | null;
 }
 
 /**
@@ -109,6 +146,12 @@ export interface SessionStore {
   setTask(id: string, taskId: number): Promise<boolean>;
 
   /**
+   * Moves the session `id` to the task `taskId`, whatever task it works on, and returns `true`. The session then works
+   * on no ticket. If no such session is registered, or it works on the task `taskId` already, returns `false` instead.
+   */
+  moveTask(id: string, taskId: number): Promise<boolean>;
+
+  /**
    * Sets the ticket that the session `id` works on to `ticketId`, a ticket of the task that it works on, and returns
    * `true`. A session that works on a ticket already keeps it. If no such session is registered, it works on no task,
    * or it works on a ticket already, returns `false` instead.
@@ -120,6 +163,12 @@ export interface SessionStore {
    * registered, or it holds `alias` already, returns `false` instead.
    */
   setAlias(id: string, alias: string | null): Promise<boolean>;
+
+  /**
+   * Sets the context size, the model and the effort of the session `id` to the ones of `usage`, and returns `true`. If
+   * no such session is registered, or it holds all three already, returns `false` instead.
+   */
+  setUsage(id: string, usage: SessionUsage): Promise<boolean>;
 
   /**
    * Deletes the session `id` with its messages in the message log, and returns `true`. If no such session is

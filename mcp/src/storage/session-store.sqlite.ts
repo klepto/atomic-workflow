@@ -6,7 +6,7 @@ import type { RegisteredSession, SessionStore } from './session-store.ts';
  */
 const COLUMNS =
   'id, agent, directory, started_at AS startedAt, role, parent_id AS parentId, task_id AS taskId, job, ' +
-  'ticket_id AS ticketId, alias';
+  'ticket_id AS ticketId, alias, context_tokens AS contextTokens, model, effort';
 
 /**
  * Returns the `SessionStore` that keeps the sessions in the table `session` of `database`, and deletes the messages of
@@ -14,17 +14,27 @@ const COLUMNS =
  */
 export const sqliteSessionStore = (database: DatabaseSync): SessionStore => {
   const insert = database.prepare(
-    `INSERT INTO session (id, agent, directory, started_at, role, parent_id, task_id, job, ticket_id, alias)
-    VALUES (:id, :agent, :directory, :startedAt, :role, :parentId, :taskId, :job, :ticketId, :alias)
+    `INSERT INTO session
+      (id, agent, directory, started_at, role, parent_id, task_id, job, ticket_id, alias, context_tokens, model, effort)
+    VALUES
+      (:id, :agent, :directory, :startedAt, :role, :parentId, :taskId, :job, :ticketId, :alias, :contextTokens, :model,
+      :effort)
     ON CONFLICT (id) DO NOTHING`,
   );
   const select = database.prepare(`SELECT ${COLUMNS} FROM session WHERE id = :id`);
   const selectAll = database.prepare(`SELECT ${COLUMNS} FROM session ORDER BY started_at, id`);
   const updateTask = database.prepare('UPDATE session SET task_id = :taskId WHERE id = :id AND task_id IS NULL');
+  const moveToTask = database.prepare(
+    'UPDATE session SET task_id = :taskId, ticket_id = NULL WHERE id = :id AND task_id IS NOT :taskId',
+  );
   const updateTicket = database.prepare(
     'UPDATE session SET ticket_id = :ticketId WHERE id = :id AND task_id IS NOT NULL AND ticket_id IS NULL',
   );
   const updateAlias = database.prepare('UPDATE session SET alias = :alias WHERE id = :id AND alias IS NOT :alias');
+  const updateUsage = database.prepare(
+    `UPDATE session SET context_tokens = :contextTokens, model = :model, effort = :effort
+    WHERE id = :id AND (context_tokens IS NOT :contextTokens OR model IS NOT :model OR effort IS NOT :effort)`,
+  );
   const removeMessages = database.prepare('DELETE FROM message_log WHERE session_id = :id');
   const remove = database.prepare('DELETE FROM session WHERE id = :id');
   // The table is strict and checks the agent and the role, so each row has the shape of a registered session.
@@ -37,8 +47,10 @@ export const sqliteSessionStore = (database: DatabaseSync): SessionStore => {
     get: async (id) => get(id),
     list: async () => selectAll.all() as unknown as RegisteredSession[],
     setTask: async (id, taskId) => updateTask.run({ id, taskId }).changes > 0,
+    moveTask: async (id, taskId) => moveToTask.run({ id, taskId }).changes > 0,
     setTicket: async (id, ticketId) => updateTicket.run({ id, ticketId }).changes > 0,
     setAlias: async (id, alias) => updateAlias.run({ id, alias }).changes > 0,
+    setUsage: async (id, usage) => updateUsage.run({ id, ...usage }).changes > 0,
     delete: async (id) => {
       database.exec('BEGIN IMMEDIATE');
       try {

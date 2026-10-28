@@ -15,6 +15,8 @@ import { withoutWorkflowQuotes } from '@/conversation/workflow-quote.ts';
 import { cn } from '@/lib/utils.ts';
 import { ConsoleComposer } from './console-composer.tsx';
 import { useFollowScroll } from './follow-scroll.ts';
+import { SessionBar } from './session-bar.tsx';
+import { ThinkingRow } from './thinking-row.tsx';
 import { useChatLog } from './use-chat-log.ts';
 
 /**
@@ -337,16 +339,18 @@ const visibleMessages = (logged: readonly LoggedMessage[]): readonly LoggedMessa
 /**
  * The console, the chat `chat`: its messages in a scrolling log, oldest at the top, and the composer at the bottom. The
  * log is read at load and each time `messages` changes, and shows no notification that a background task ended and no
- * text of the atomic-workflow server. Where
- * the messages of the log pass from one session to the next, such as after a `/clear` of the orchestrator, a line says `New session`. A text of the composer goes to the
- * attached session of the chat with `messageDeliver`, and shows at the end of the log until it is delivered, or with
- * why it was not. A text that runs a skill of the session goes the same way in the chat of a subagent. In the chat of
- * the main session, it starts a new subagent with `subagentStart` instead, with the text as its first message, and
- * once the subagent attaches, the chat of the subagent opens. While the task `task` is open, it goes to the
- * orchestrator of the task with `taskOrchestratorDeliver` instead, which starts one first when none is attached, and
- * the chat of the orchestrator opens. The log follows new messages while it is scrolled to its end,
- * and offers a jump to the latest message once the user scrolled up. While the chat has no attached session, a line in
- * place of the composer says why.
+ * text of the atomic-workflow server. Where the messages of the log pass from one session to the next, such as after a
+ * `/clear` of the orchestrator, a line says `New session`. A text of the composer goes to the attached session of the
+ * chat with `messageDeliver`, and shows at the end of the log until it is delivered, or with why it was not. A text
+ * that runs a skill of the session goes the same way in the chat of a subagent. In the chat of the main session, it
+ * starts a new subagent with `subagentStart` instead, with the text as its first message, and once the subagent
+ * attaches, the chat of the subagent opens. While the task `task` is open, it goes to the orchestrator of the task with
+ * `taskOrchestratorDeliver` instead, which starts one first when none is attached, and the chat of the orchestrator
+ * opens. While the session of the chat works, a row at the end of the log says so, with the time of its turn and its
+ * newest tool call. The log follows new messages and that row while it is scrolled to its end, and offers a jump to
+ * the latest message once the user scrolled up. While the chat has no attached session, a line in place of the
+ * composer says why. Above the composer, or that line, a line shows how long the current session of the chat has run
+ * and the size of its context, counting up while it is attached, and still at its latest message once it ended.
  */
 export const ConsolePage = ({ chat, task, messages, online, onOpen, readSessions }: ConsolePageProps) => {
   const { entries: logged, loaded, failure } = useChatLog(chat.logQuery, messages);
@@ -356,7 +360,11 @@ export const ConsolePage = ({ chat, task, messages, online, onOpen, readSessions
   const [pending, setPending] = useState<readonly PendingMessage[]>([]);
   const lastKey = useRef(0);
   const mounted = useRef(true);
-  const content = useMemo(() => [entries, pending], [entries, pending]);
+  const working = chat.status === 'working';
+  const content = useMemo(
+    () => [entries, pending, working, chat.latestAction],
+    [entries, pending, working, chat.latestAction],
+  );
   const { box, following, handleScroll, jumpToEnd } = useFollowScroll(content);
 
   /**
@@ -470,6 +478,7 @@ export const ConsolePage = ({ chat, task, messages, online, onOpen, readSessions
             {pending.map((message) => (
               <PendingRow key={message.key} message={message} onDiscard={() => discard(message.key)} />
             ))}
+            {working && <ThinkingRow since={chat.turnStartedAt} action={chat.latestAction} />}
           </div>
         </div>
       </ScrollArea>
@@ -486,6 +495,13 @@ export const ConsolePage = ({ chat, task, messages, online, onOpen, readSessions
             <ArrowDown />
           </Button>
         )}
+        <SessionBar
+          startedAt={chat.startedAt}
+          stoppedAt={sessionId === undefined ? (chat.lastActivityAt ?? chat.startedAt) : null}
+          contextTokens={chat.contextTokens}
+          model={chat.model}
+          effort={chat.effort}
+        />
         {sessionId === undefined ? (
           <EndedNotice chat={chat} />
         ) : (

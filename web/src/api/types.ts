@@ -63,6 +63,39 @@ export interface ListedSession {
   status: 'ended' | 'idle' | 'working' | 'waiting';
 
   /**
+   * Time when the current turn of the session started, in ms since the epoch: the time of the first transcript entry
+   * of the turn. Non-null while `status` is `working` or `waiting`, and `null` while it is `idle` or `ended`.
+   */
+  turnStartedAt: number | null;
+
+  /**
+   * Newest tool call of the current turn, in one line: the name of the tool, a colon, and its main argument, such as
+   * `Bash: npm run typecheck` or `Read: C:/repo/src/app.ts`. At most 200 characters, cut with `…`. `null` while
+   * `status` is not `working`, and when the agent made no tool call since its newest text message, since the log shows
+   * that message already.
+   */
+  latestAction: string | null;
+
+  /**
+   * Size of the context of the session in tokens: `input_tokens + cache_creation_input_tokens +
+   * cache_read_input_tokens` of the usage of its newest model request in its transcript. `null` before its first model
+   * request. Kept for an ended session, across restarts of the server.
+   */
+  contextTokens: number | null;
+
+  /**
+   * Identifier of the model that answered the newest model request of the session, such as `claude-opus-5-5`. `null`
+   * while it is not known. Kept for an ended session, across restarts of the server.
+   */
+  model: string | null;
+
+  /**
+   * Reasoning effort of the newest model request of the session, such as `xhigh`. `null` while it is not known. Kept
+   * for an ended session, across restarts of the server.
+   */
+  effort: string | null;
+
+  /**
    * Alias of the session, a display name of 1 to 60 characters that a feature gave it, or `null` while it has none.
    * Aliases are not unique.
    */
@@ -140,6 +173,27 @@ export interface TaskSummary {
    * Number of every ticket of the task, completed or not.
    */
   totalTickets: number;
+}
+
+/**
+ * A goal of a task in the result of `taskGet`, with the fields that the web app reads, as `Goal` of
+ * `mcp/src/storage/task-store.ts` declares it.
+ */
+export interface Goal {
+  /**
+   * Identifier of the goal within its task, from 1 in the order of the goals.
+   */
+  id: number;
+
+  /**
+   * Short summary of the goal, on one line.
+   */
+  summary: string;
+
+  /**
+   * Further information and comments on the goal, or `null` for none.
+   */
+  details: string | null;
 }
 
 /**
@@ -254,6 +308,11 @@ export interface TaskDetail {
    * Identifier of the task.
    */
   id: number;
+
+  /**
+   * Goals of the task in the order of their ids.
+   */
+  goals: readonly Goal[];
 
   /**
    * Tickets of the task in the order of their ids.

@@ -67,8 +67,8 @@ const publishingTasks = (store: TaskStore, changes: ChangeFeed): TaskStore => {
 };
 
 /**
- * Wraps `store`, so that `setTask`, `setTicket` and `setAlias` publish `sessions` to `changes` once they resolve with
- * `true`, and `delete` publishes `sessions` and `messages` once it resolves with `true`.
+ * Wraps `store`, so that `setTask`, `moveTask`, `setTicket`, `setAlias` and `setUsage` publish `sessions` to `changes` once
+ * they resolve with `true`, and `delete` publishes `sessions` and `messages` once it resolves with `true`.
  */
 const publishingSessions = (store: SessionStore, changes: ChangeFeed): SessionStore => ({
   register: (session) => store.register(session),
@@ -79,6 +79,11 @@ const publishingSessions = (store: SessionStore, changes: ChangeFeed): SessionSt
     if (changed) changes.publish('sessions');
     return changed;
   },
+  moveTask: async (id, taskId) => {
+    const changed = await store.moveTask(id, taskId);
+    if (changed) changes.publish('sessions');
+    return changed;
+  },
   setTicket: async (id, ticketId) => {
     const changed = await store.setTicket(id, ticketId);
     if (changed) changes.publish('sessions');
@@ -86,6 +91,11 @@ const publishingSessions = (store: SessionStore, changes: ChangeFeed): SessionSt
   },
   setAlias: async (id, alias) => {
     const changed = await store.setAlias(id, alias);
+    if (changed) changes.publish('sessions');
+    return changed;
+  },
+  setUsage: async (id, usage) => {
+    const changed = await store.setUsage(id, usage);
     if (changed) changes.publish('sessions');
     return changed;
   },
@@ -136,13 +146,18 @@ const publishingSubagents = (subagents: Subagents, changes: ChangeFeed): Subagen
 });
 
 /**
- * Wraps `activity`, so that `report` publishes `sessions` to `changes` when the status changes.
+ * Wraps `activity`, so that `report`, `reportAction` and `forget` publish `sessions` to `changes` when the activity
+ * changes.
  */
-const publishingActivity = (activity: SessionActivity, changes: ChangeFeed): SessionActivity => ({
-  report: (sessionId, status, at) => {
-    const changed = activity.report(sessionId, status, at);
+const publishingActivity = (activity: SessionActivity, changes: ChangeFeed): SessionActivity => {
+  const write = (changed: boolean): boolean => {
     if (changed) changes.publish('sessions');
     return changed;
-  },
-  get: (sessionId) => activity.get(sessionId),
-});
+  };
+  return {
+    report: (sessionId, status, at) => write(activity.report(sessionId, status, at)),
+    reportAction: (sessionId, action, at) => write(activity.reportAction(sessionId, action, at)),
+    forget: (sessionId) => write(activity.forget(sessionId)),
+    get: (sessionId) => activity.get(sessionId),
+  };
+};

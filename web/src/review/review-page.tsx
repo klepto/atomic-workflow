@@ -191,33 +191,35 @@ const FileList = ({
         <LayoutToggle layout={layout} onChange={onLayout} />
       </div>
     </div>
-    <ul className="max-h-80 divide-y overflow-y-auto text-sm">
-      {files.map((file, index) => {
-        const { icon: Icon, words } = FILE_STATUSES[file.status];
-        const comments = draft.comments.filter((comment) => comment.path === file.path).length;
-        return (
-          <li key={file.path}>
-            <button
-              type="button"
-              onClick={() => onJump(index)}
-              className="flex w-full min-w-0 items-center gap-2 px-3 py-1.5 text-left outline-none hover:bg-accent focus-visible:bg-accent"
-            >
-              <Icon aria-hidden="true" className="size-4 shrink-0 text-muted-foreground" />
-              <span className="sr-only">{`${words}: `}</span>
-              <FilePath path={file.path} className="flex-1 text-xs" />
-              {comments > 0 && (
-                <span className="flex shrink-0 items-center gap-1 font-medium text-primary text-xs">
-                  <MessageSquare aria-hidden="true" className="size-3.5" />
-                  {comments}
-                  <span className="sr-only">{comments === 1 ? ' comment' : ' comments'}</span>
-                </span>
-              )}
-              <LineCounts additions={file.additions} deletions={file.deletions} />
-            </button>
-          </li>
-        );
-      })}
-    </ul>
+    <ScrollArea viewportClassName="max-h-80">
+      <ul className="divide-y text-sm">
+        {files.map((file, index) => {
+          const { icon: Icon, words } = FILE_STATUSES[file.status];
+          const comments = draft.comments.filter((comment) => comment.path === file.path).length;
+          return (
+            <li key={file.path}>
+              <button
+                type="button"
+                onClick={() => onJump(index)}
+                className="flex w-full min-w-0 items-center gap-2 px-3 py-1.5 text-left outline-none hover:bg-accent focus-visible:bg-accent"
+              >
+                <Icon aria-hidden="true" className="size-4 shrink-0 text-muted-foreground" />
+                <span className="sr-only">{`${words}: `}</span>
+                <FilePath path={file.path} className="flex-1 text-xs" />
+                {comments > 0 && (
+                  <span className="flex shrink-0 items-center gap-1 font-medium text-primary text-xs">
+                    <MessageSquare aria-hidden="true" className="size-3.5" />
+                    {comments}
+                    <span className="sr-only">{comments === 1 ? ' comment' : ' comments'}</span>
+                  </span>
+                )}
+                <LineCounts additions={file.additions} deletions={file.deletions} />
+              </button>
+            </li>
+          );
+        })}
+      </ul>
+    </ScrollArea>
   </nav>
 );
 
@@ -427,8 +429,8 @@ export const ReviewPage = ({
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <ScrollArea className="flex-1">
-        <div className="mx-auto flex w-full max-w-6xl flex-1 flex-col gap-6 px-4 pt-20 pb-10 md:px-6">
+      <ScrollArea className="mt-14 flex-1">
+        <div className="mx-auto flex w-full max-w-6xl flex-1 flex-col gap-6 px-4 pt-6 pb-10 md:px-6">
           <header className="flex flex-col gap-1.5">
             <h1 className="min-w-0 truncate font-semibold text-xl tracking-tight">
               <span className="mr-2 font-normal text-muted-foreground tabular-nums">{`#${ticket.id}`}</span>

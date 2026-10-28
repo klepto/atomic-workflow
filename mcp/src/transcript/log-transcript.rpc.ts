@@ -1,23 +1,27 @@
 import type { z } from 'zod';
 import { messageLogMethod } from '../rpc/method.message-log.ts';
+import { sessionActionReportMethod } from '../rpc/method.session-action-report.ts';
 import { sessionActivityReportMethod } from '../rpc/method.session-activity-report.ts';
 import { sessionAliasSetMethod } from '../rpc/method.session-alias-set.ts';
+import { sessionUsageSetMethod } from '../rpc/method.session-usage-set.ts';
 import { sessionRegisterMethod } from '../rpc/method.session-register.ts';
 import { sessionTaskSetMethod } from '../rpc/method.session-task-set.ts';
 import { sessionTicketSetMethod } from '../rpc/method.session-ticket-set.ts';
 import type { RpcConnection } from '../rpc/rpc-connection.ts';
 import { SESSION_ALIAS_MAX_LENGTH } from '../storage/session-store.ts';
-import type { Transcript, TranscriptActivity } from './find-transcript.ts';
+import type { Transcript, TranscriptAction, TranscriptActivity, TranscriptUsage } from './find-transcript.ts';
 import type { LogTranscriptFunction } from './log-transcript.ts';
 
 /**
  * `LogTranscriptFunction` that calls `sessionRegister` once and then `messageLog` for each message, one after the
  * other, so the log keeps the order of the transcript. For each result of `taskCreate` or `taskGet` in the transcript,
- * it calls `sessionTaskSet` with its task, and after a result of `taskCreate`, `sessionAliasSet` with the plan alias of
+ * it calls `sessionTaskSet` with its task, and whether the tool created it, and after a result of `taskCreate`, `sessionAliasSet` with the plan alias of
  * the task, as `planAlias` builds it. For each result of `worktreeCreate`, it calls `sessionTicketSet` with its
- * ticket. After the messages of each read of the transcript, it calls
- * `sessionActivityReport` once with the last status that the read shows. The end of the session stops the tail of the
- * transcript, which reads the file once more before it resolves.
+ * ticket. After the messages of each read of the transcript, it calls `sessionActivityReport` for each change of the
+ * status that the read shows, at the first line that shows it, then `sessionActionReport` once with the last action
+ * that the read shows, and then `sessionUsageSet` once with the context size, the model and the effort of the last
+ * token usage that the read shows, the lines from before the log included. The end of the session stops the tail of
+ * the transcript, which reads the file once more before it resolves.
  */
 export const rpcLogTranscript: LogTranscriptFunction = async (
   transcript,
@@ -47,9 +51,10 @@ export const rpcLogTranscript: LogTranscriptFunction = async (
 
 /**
  * Logs each message that the lines `lines` of `transcript` hold over `connection`, in order, with the task of each
- * result of a tool that holds one, and then reports the last
- * status of the agent that the lines show from the time `since` on. The lines that the transcript held before the log
- * began show the past, not the status now.
+ * result of a tool that holds one, and then reports each change of the status of the agent, and its last action, that
+ * the lines show from the time `since` on. The lines that the transcript held before the log began show the past, not
+ * the status now. Last, it reports the context size, the model and the effort of the last token usage that the lines
+ * show, at any time, since the newest usage gives the size of the context now.
  */
 const logLines = async (
   transcript: Transcript,
@@ -66,14 +71,32 @@ const logLines = async (
     const params: z.input<typeof messageLogMethod.params> = { sessionId: transcript.sessionId, ...message };
     await connection.request(messageLogMethod.name, params, signal);
   }
-  const activity = lastActivity(transcript, lines, since);
-  if (activity === undefined) return;
-  const params: z.input<typeof sessionActivityReportMethod.params> = {
+  for (const activity of statusChanges(transcript, lines, since)) {
+    const params: z.input<typeof sessionActivityReportMethod.params> = {
+      sessionId: transcript.sessionId,
+      status: activity.status,
+      at: activity.timestamp,
+    };
+    await connection.request(sessionActivityReportMethod.name, params, signal);
+  }
+  const action = lastAction(transcript, lines, since);
+  if (action !== undefined) {
+    const params: z.input<typeof sessionActionReportMethod.params> = {
+      sessionId: transcript.sessionId,
+      action: action.action,
+      at: action.timestamp,
+    };
+    await connection.request(sessionActionReportMethod.name, params, signal);
+  }
+  const usage = lastUsage(transcript, lines);
+  if (usage === undefined) return;
+  const params: z.input<typeof sessionUsageSetMethod.params> = {
     sessionId: transcript.sessionId,
-    status: activity.status,
-    at: activity.timestamp,
+    contextTokens: usage.contextTokens,
+    model: usage.model,
+    effort: usage.effort,
   };
-  await connection.request(sessionActivityReportMethod.name, params, signal);
+  await connection.request(sessionUsageSetMethod.name, params, signal);
 };
 
 /**
@@ -90,7 +113,11 @@ const reportTask = async (
   const task = transcript.parseTask(line);
   if (task === undefined) return;
   const { sessionId } = transcript;
-  const params: z.input<typeof sessionTaskSetMethod.params> = { sessionId, taskId: task.taskId };
+  const params: z.input<typeof sessionTaskSetMethod.params> = {
+    sessionId,
+    taskId: task.taskId,
+    created: task.created,
+  };
   await connection.request(sessionTaskSetMethod.name, params, signal);
   if (!task.created) return;
   const alias: z.input<typeof sessionAliasSetMethod.params> = { sessionId, alias: planAlias(task.slug) };
@@ -120,14 +147,33 @@ const reportTicket = async (
 const planAlias = (slug: string): string => `plan-${slug}`.slice(0, SESSION_ALIAS_MAX_LENGTH);
 
 /**
- * Returns the status of the agent that the last line of `lines` with a status shows, among the lines of `transcript`
- * from the time `since` on. If no such line shows a status, returns `undefined` instead.
+ * Returns the statuses of the agent that the lines `lines` of `transcript` show from the time `since` on, in order,
+ * each at the first line that shows it: the first status, and each status that differs from the one before. So the
+ * first line of a turn gives its start, even when the same lines show the rest of the turn.
  */
-const lastActivity = (
+const statusChanges = (
   transcript: Transcript,
   lines: readonly string[],
   since: number,
-): TranscriptActivity | undefined =>
-  lines
+): readonly TranscriptActivity[] => {
+  const activities = lines
     .map((line) => transcript.parseActivity(line))
-    .findLast((activity) => activity !== undefined && activity.timestamp >= since);
+    .filter((activity): activity is TranscriptActivity => activity !== undefined && activity.timestamp >= since);
+  return activities.filter((activity, index) => activities[index - 1]?.status !== activity.status);
+};
+
+/**
+ * Returns the action of the agent that the last line of `lines` with an action shows, among the lines of `transcript`
+ * from the time `since` on. If no such line shows an action, returns `undefined` instead.
+ */
+const lastAction = (transcript: Transcript, lines: readonly string[], since: number): TranscriptAction | undefined =>
+  lines
+    .map((line) => transcript.parseAction(line))
+    .findLast((action) => action !== undefined && action.timestamp >= since);
+
+/**
+ * Returns the token usage that the last line of `lines` with a usage shows, among the lines of `transcript`. If no line
+ * shows a usage, returns `undefined` instead.
+ */
+const lastUsage = (transcript: Transcript, lines: readonly string[]): TranscriptUsage | undefined =>
+  lines.map((line) => transcript.parseUsage(line)).findLast((usage) => usage !== undefined);

@@ -286,6 +286,15 @@
   }
 
   /*
+   * A box that scrolls with a scrollbar of the browser, such as a text field, shows a thin scrollbar in the colors of
+   * the scrollbars of the scroll areas.
+   */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: color-mix(in oklab, var(--muted-foreground) 45%, transparent) transparent;
+  }
+
+  /*
    * The window never scrolls and shows no scrollbar. Each part of the app that can overflow scrolls inside itself.
    */
   html,

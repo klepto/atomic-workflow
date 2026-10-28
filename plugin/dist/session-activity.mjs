@@ -19906,6 +19906,16 @@ var errorObject = (error62) => {
 // src/rpc/dispatch.ts
 var Dispatch = zodDispatch;
 
+// src/attachment/session-activity.map.ts
+var UNREPORTED = {
+  status: "idle",
+  at: Number.NEGATIVE_INFINITY,
+  turnStartedAt: null,
+  turnEndedAt: null,
+  action: null,
+  actionAt: null
+};
+
 // src/attachment/session-activity.ts
 var ACTIVITY_STATUSES = ["idle", "working", "waiting"];
 

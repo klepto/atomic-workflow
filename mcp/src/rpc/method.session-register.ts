@@ -17,15 +17,17 @@ const PARAMS = z.object({
 /**
  * `Method` named `sessionRegister`, which registers a session and returns it as registered. A session without a start
  * time gets the time of the call, and a session without a role is an orchestrator. A session that it registers works on
- * no task and no ticket, and has no job. A session that is registered already stays as it is.
+ * no task and no ticket, and has no job. A session that is registered already stays as it is. The activity that the
+ * session reported before is forgotten, since its log starts anew, so its next status starts a new turn.
  */
 export const sessionRegisterMethod: Method<typeof PARAMS, RegisteredSession> = {
   name: 'sessionRegister',
   description: 'Registers a session of an agent in the repository, so that its messages can be logged.',
   agent: false,
   params: PARAMS,
-  handle: ({ sessionId, agent, directory, startedAt = Date.now(), role, parentId = null }, { sessions }) =>
-    sessions.register({
+  handle: ({ sessionId, agent, directory, startedAt = Date.now(), role, parentId = null }, { sessions, activity }) => {
+    activity.forget(sessionId);
+    return sessions.register({
       id: sessionId,
       agent,
       directory,
@@ -36,5 +38,9 @@ export const sessionRegisterMethod: Method<typeof PARAMS, RegisteredSession> = {
       job: null,
       ticketId: null,
       alias: null,
-    }),
+      contextTokens: null,
+      model: null,
+      effort: null,
+    });
+  },
 };

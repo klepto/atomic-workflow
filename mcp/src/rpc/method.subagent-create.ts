@@ -55,6 +55,9 @@ export const subagentCreateMethod: Method<typeof PARAMS, { readonly sessionId: s
       job: ticketId === undefined ? null : 'implement',
       ticketId: ticketId ?? null,
       alias: null,
+      contextTokens: null,
+      model: null,
+      effort: null,
     });
     subagents.start(sessionId, parentId, caller);
     subagents.attach(sessionId);

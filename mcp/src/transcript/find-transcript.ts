@@ -44,6 +44,48 @@ export interface TranscriptActivity {
 }
 
 /**
+ * Newest action of the agent of a session that an entry of its transcript shows.
+ */
+export interface TranscriptAction {
+  /**
+   * Newest tool call of the agent in one line, such as `Bash: npm run typecheck`, or `null` once the agent wrote a
+   * text message after its newest tool call.
+   */
+  readonly action: string | null;
+
+  /**
+   * Time of the entry, in ms since the epoch.
+   */
+  readonly timestamp: number;
+}
+
+/**
+ * Token usage of a model request of the agent of a session that an entry of its transcript shows.
+ */
+export interface TranscriptUsage {
+  /**
+   * Size of the context of the request in tokens: its input tokens, the ones written to the cache and the ones read
+   * from it.
+   */
+  readonly contextTokens: number;
+
+  /**
+   * Identifier of the model that answered the request, such as `claude-opus-5-5`, or `null` when the entry names none.
+   */
+  readonly model: string | null;
+
+  /**
+   * Reasoning effort of the request, such as `xhigh`, or `null` when the entry names none.
+   */
+  readonly effort: string | null;
+
+  /**
+   * Time of the entry, in ms since the epoch.
+   */
+  readonly timestamp: number;
+}
+
+/**
  * Skill that the agent of a session can run, as its transcript lists it.
  */
 export interface TranscriptSkill {
@@ -141,6 +183,20 @@ export interface Transcript {
    * an entry that the agent writes after its turn, or is not valid, returns `undefined` instead.
    */
   parseActivity(line: string): TranscriptActivity | undefined;
+
+  /**
+   * Returns the newest action of the agent that the line `line` of the transcript shows: its last tool call, or none
+   * when its last block is a text message. If the line holds no tool call and no text message of the agent, or is not
+   * valid, returns `undefined` instead.
+   */
+  parseAction(line: string): TranscriptAction | undefined;
+
+  /**
+   * Returns the token usage of the model request that the line `line` of the transcript holds the reply of. If the
+   * line holds no reply of a model request, such as an error that the agent wrote in place of one, or is not valid,
+   * returns `undefined` instead.
+   */
+  parseUsage(line: string): TranscriptUsage | undefined;
 
   /**
    * Returns the task that the line `line` of the transcript holds as the result of a call to the tool `taskCreate` or

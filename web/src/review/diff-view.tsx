@@ -10,11 +10,13 @@ import {
   Pencil,
   Trash2,
 } from 'lucide-react';
-import { Fragment, type KeyboardEvent, type ReactNode, useState } from 'react';
+import { type CSSProperties, Fragment, type KeyboardEvent, type ReactNode, useState } from 'react';
+import type { ThemedToken } from 'shiki/core';
 import { Button } from '@/components/ui/button.tsx';
 import { Textarea } from '@/components/ui/textarea.tsx';
 import { MarkdownBody } from '@/conversation/markdown-body.tsx';
 import { cn } from '@/lib/utils.ts';
+import { type FileHighlight, useFileHighlight } from '@/review/highlight.ts';
 import type { DiffLine, FileDiff, FileStatus } from '@/review/patch.ts';
 import {
   anchorWords,
@@ -322,17 +324,52 @@ const numberTint = (line: DiffLine, mark: ReturnType<typeof markOf>): string => 
 };
 
 /**
- * The sign of the line `line` and its text, which wraps rather than scrolls. A screen reader hears whether the line
- * was added or deleted.
+ * Returns the inline style of the token `token`: its color, and whether it is italic, bold or underlined.
  */
-const Code = ({ line, className }: { line: DiffLine; className?: string }) => (
+const tokenStyle = (token: ThemedToken): CSSProperties => {
+  // The font style is a bit set: 1 for italic, 2 for bold and 4 for underline.
+  const fontStyle = token.fontStyle ?? 0;
+  return {
+    color: token.color,
+    fontStyle: fontStyle & 1 ? 'italic' : undefined,
+    fontWeight: fontStyle & 2 ? 'bold' : undefined,
+    textDecoration: fontStyle & 4 ? 'underline' : undefined,
+  };
+};
+
+/**
+ * The text of the line `line`, in the colors `tokens` once they loaded, and without colors before.
+ */
+const CodeText = ({ line, tokens }: { line: DiffLine; tokens: readonly ThemedToken[] | undefined }) => {
+  if (line.text === '') return ' ';
+  if (tokens === undefined) return line.text;
+  return tokens.map((token) => (
+    <span key={token.offset} style={tokenStyle(token)}>
+      {token.content}
+    </span>
+  ));
+};
+
+/**
+ * The sign of the line `line` and its text in the colors of `highlight`, which wraps rather than scrolls. A screen
+ * reader hears whether the line was added or deleted.
+ */
+const Code = ({
+  line,
+  highlight,
+  className,
+}: {
+  line: DiffLine;
+  highlight: FileHighlight | undefined;
+  className?: string;
+}) => (
   <div className={cn('flex min-w-0 px-2', className)}>
     <span aria-hidden="true" className="w-4 shrink-0 select-none text-muted-foreground">
       {line.kind === 'add' ? '+' : line.kind === 'delete' ? '-' : ' '}
     </span>
     {line.kind !== 'context' && <span className="sr-only">{line.kind === 'add' ? 'Added: ' : 'Deleted: '}</span>}
     <span className="min-w-0 whitespace-pre-wrap [overflow-wrap:anywhere]">
-      {line.text === '' ? ' ' : line.text}
+      <CodeText line={line} tokens={highlight?.get(line)} />
       {line.noNewline && <span className="ml-2 select-none text-muted-foreground">No newline at end of file</span>}
     </span>
   </div>
@@ -385,10 +422,18 @@ const HunkHeader = ({ header, columns }: { header: string; columns: string }) =>
 const UNIFIED_COLUMNS = 'grid-cols-[4px_6rem_minmax(0,1fr)]';
 
 /**
- * The hunks of the file of `review` in one column, each line with its old and its new number, and the threads of its
- * comments below the lines they end at.
+ * The hunks of the file of `review` in one column, each line with its old and its new number and its code in the
+ * colors of `highlight`, and the threads of its comments below the lines they end at.
  */
-const UnifiedBody = ({ file, review }: { file: FileDiff; review: FileReview }) =>
+const UnifiedBody = ({
+  file,
+  highlight,
+  review,
+}: {
+  file: FileDiff;
+  highlight: FileHighlight | undefined;
+  review: FileReview;
+}) =>
   file.hunks.map((hunk, hunkIndex) => (
     // biome-ignore lint/suspicious/noArrayIndexKey: the hunks of a file have no identity besides their place.
     <Fragment key={hunkIndex}>
@@ -410,7 +455,7 @@ const UnifiedBody = ({ file, review }: { file: FileDiff; review: FileReview }) =
                 <span>{line.oldNumber ?? ''}</span>
                 <span>{line.newNumber ?? ''}</span>
               </LineButton>
-              <Code line={line} className={codeTint(line, mark)} />
+              <Code line={line} highlight={highlight} className={codeTint(line, mark)} />
             </div>
             {threadOf(review, (anchor) => endsAt(anchor, line.oldNumber, line.newNumber))}
           </Fragment>
@@ -473,10 +518,20 @@ const splitRowsOf = (lines: readonly DiffLine[]): SplitRow[] => {
 const SPLIT_COLUMNS = 'grid-cols-[4px_3rem_minmax(0,1fr)_4px_3rem_minmax(0,1fr)]';
 
 /**
- * One side of a row of the split view: the line `line` of the side `side` with its bar and its number, or an empty
- * space when the side has no line in the row.
+ * One side of a row of the split view: the line `line` of the side `side` with its bar, its number and its code in the
+ * colors of `highlight`, or an empty space when the side has no line in the row.
  */
-const SplitHalf = ({ line, side, review }: { line: DiffLine | null; side: DiffSide; review: FileReview }) => {
+const SplitHalf = ({
+  line,
+  side,
+  highlight,
+  review,
+}: {
+  line: DiffLine | null;
+  side: DiffSide;
+  highlight: FileHighlight | undefined;
+  review: FileReview;
+}) => {
   const number = line === null ? null : numberOn(line, side);
   if (line === null || number === null) {
     return <span aria-hidden="true" className="col-span-3 bg-muted/50" />;
@@ -488,16 +543,24 @@ const SplitHalf = ({ line, side, review }: { line: DiffLine | null; side: DiffSi
       <LineButton side={side} number={number} review={review} className={numberTint(line, mark)}>
         {number}
       </LineButton>
-      <Code line={line} className={cn(codeTint(line, mark), side === 'old' && 'border-r')} />
+      <Code line={line} highlight={highlight} className={cn(codeTint(line, mark), side === 'old' && 'border-r')} />
     </>
   );
 };
 
 /**
- * The hunks of the file of `review` in two columns, the old lines at the left and the new ones at the right, and the
- * threads of the comments below the rows they end at.
+ * The hunks of the file of `review` in two columns, the old lines at the left and the new ones at the right, each with
+ * its code in the colors of `highlight`, and the threads of the comments below the rows they end at.
  */
-const SplitBody = ({ file, review }: { file: FileDiff; review: FileReview }) =>
+const SplitBody = ({
+  file,
+  highlight,
+  review,
+}: {
+  file: FileDiff;
+  highlight: FileHighlight | undefined;
+  review: FileReview;
+}) =>
   file.hunks.map((hunk, hunkIndex) => (
     // biome-ignore lint/suspicious/noArrayIndexKey: the hunks of a file have no identity besides their place.
     <Fragment key={hunkIndex}>
@@ -506,8 +569,8 @@ const SplitBody = ({ file, review }: { file: FileDiff; review: FileReview }) =>
         // biome-ignore lint/suspicious/noArrayIndexKey: the rows of a hunk have no identity besides their place.
         <Fragment key={rowIndex}>
           <div className={cn('grid', SPLIT_COLUMNS)}>
-            <SplitHalf line={row.left} side="old" review={review} />
-            <SplitHalf line={row.right} side="new" review={review} />
+            <SplitHalf line={row.left} side="old" highlight={highlight} review={review} />
+            <SplitHalf line={row.right} side="new" highlight={highlight} review={review} />
           </div>
           {threadOf(review, (anchor) => endsAt(anchor, row.left?.oldNumber ?? null, row.right?.newNumber ?? null))}
         </Fragment>
@@ -525,6 +588,19 @@ const noticeOf = (file: FileDiff): string => {
   if (file.status === 'copied') return `Copied from ${file.oldPath} with no change to its content.`;
   if (file.modeChange !== null) return `Mode changed from ${file.modeChange.old} to ${file.modeChange.new}.`;
   return 'Empty file.';
+};
+
+/**
+ * The lines of the file `file` in the layout `layout`, with the comments of `review` on them, and its code in colors
+ * once they loaded.
+ */
+const DiffBody = ({ file, layout, review }: { file: FileDiff; layout: DiffLayout; review: FileReview }) => {
+  const highlight = useFileHighlight(file);
+  return layout === 'unified' ? (
+    <UnifiedBody file={file} highlight={highlight} review={review} />
+  ) : (
+    <SplitBody file={file} highlight={highlight} review={review} />
+  );
 };
 
 /**
@@ -552,42 +628,44 @@ export const FileDiffView = ({
   const { icon: Icon, words } = FILE_STATUSES[file.status];
   const moved = file.oldPath !== null && file.oldPath !== file.path;
   return (
-    <section id={id} aria-label={file.path} className="scroll-mt-16">
-      <header
-        className={cn(
-          'sticky top-14 z-10 flex min-w-0 items-center gap-2 border bg-card px-2 py-1.5 text-sm',
-          collapsed ? 'rounded-lg' : 'rounded-t-lg',
-        )}
-      >
-        <Button
-          variant="ghost"
-          size="icon"
-          className="size-7"
-          aria-expanded={!collapsed}
-          aria-label={collapsed ? `Show ${file.path}` : `Hide ${file.path}`}
-          onClick={onToggle}
-        >
-          <ChevronRight
-            aria-hidden="true"
-            className={cn('transition-transform motion-reduce:transition-none', !collapsed && 'rotate-90')}
-          />
-        </Button>
-        <Icon aria-hidden="true" className="size-4 shrink-0 text-muted-foreground" />
-        <span className="sr-only">{words}</span>
-        <h3 className="flex min-w-0 flex-1 items-baseline gap-2">
-          <FilePath path={file.path} />
-          {moved && (
-            <span className="hidden min-w-0 truncate text-muted-foreground text-xs md:inline">
-              {`from ${file.oldPath}`}
-            </span>
+    <section id={id} aria-label={file.path}>
+      <header className="sticky top-0 z-10 bg-background">
+        <div
+          className={cn(
+            'flex min-w-0 items-center gap-2 border bg-card px-2 py-1.5 text-sm',
+            collapsed ? 'rounded-lg' : 'rounded-t-lg',
           )}
-        </h3>
-        <LineCounts additions={file.additions} deletions={file.deletions} />
-        <Button variant="ghost" size="sm" className="shrink-0" onClick={review.onSelectFile}>
-          <MessageSquarePlus aria-hidden="true" />
-          <span className="hidden sm:inline">Comment on file</span>
-          <span className="sr-only sm:hidden">Comment on file</span>
-        </Button>
+        >
+          <Button
+            variant="ghost"
+            size="icon"
+            className="size-7"
+            aria-expanded={!collapsed}
+            aria-label={collapsed ? `Show ${file.path}` : `Hide ${file.path}`}
+            onClick={onToggle}
+          >
+            <ChevronRight
+              aria-hidden="true"
+              className={cn('transition-transform motion-reduce:transition-none', !collapsed && 'rotate-90')}
+            />
+          </Button>
+          <Icon aria-hidden="true" className="size-4 shrink-0 text-muted-foreground" />
+          <span className="sr-only">{words}</span>
+          <h3 className="flex min-w-0 flex-1 items-baseline gap-2">
+            <FilePath path={file.path} />
+            {moved && (
+              <span className="hidden min-w-0 truncate text-muted-foreground text-xs md:inline">
+                {`from ${file.oldPath}`}
+              </span>
+            )}
+          </h3>
+          <LineCounts additions={file.additions} deletions={file.deletions} />
+          <Button variant="ghost" size="sm" className="shrink-0" onClick={review.onSelectFile}>
+            <MessageSquarePlus aria-hidden="true" />
+            <span className="hidden sm:inline">Comment on file</span>
+            <span className="sr-only sm:hidden">Comment on file</span>
+          </Button>
+        </div>
       </header>
       {!collapsed && (
         <div className="overflow-hidden rounded-b-lg border border-t-0 font-mono text-xs leading-5">
@@ -595,11 +673,7 @@ export const FileDiffView = ({
           {file.hunks.length === 0 && (
             <p className="px-4 py-3 font-sans text-muted-foreground text-sm">{noticeOf(file)}</p>
           )}
-          {layout === 'unified' ? (
-            <UnifiedBody file={file} review={review} />
-          ) : (
-            <SplitBody file={file} review={review} />
-          )}
+          <DiffBody file={file} layout={layout} review={review} />
         </div>
       )}
     </section>

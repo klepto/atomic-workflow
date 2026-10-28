@@ -182,6 +182,12 @@ const MIGRATIONS: readonly string[] = [
   ALTER TABLE session ADD COLUMN ticket_id INTEGER;`,
   // Step 13 adds the alias of a session, its display name. Each session stored before has none.
   `ALTER TABLE session ADD COLUMN alias TEXT CHECK (alias IS NULL OR length(alias) BETWEEN 1 AND 60);`,
+  // Step 14 adds the size of the context of a session in tokens. Each session stored before has none.
+  `ALTER TABLE session ADD COLUMN context_tokens INTEGER CHECK (context_tokens IS NULL OR context_tokens >= 0);`,
+  // Step 15 adds the model and the reasoning effort of the newest model request of a session. Each session stored
+  // before has neither.
+  `ALTER TABLE session ADD COLUMN model TEXT;
+  ALTER TABLE session ADD COLUMN effort TEXT;`,
 ];
 
 /**

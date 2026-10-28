@@ -74,6 +74,45 @@ export interface Chat {
   status: ChatStatus;
 
   /**
+   * The time when the current turn of the session of the chat started, in ms since the epoch, or `null` while it runs
+   * no turn.
+   */
+  turnStartedAt: number | null;
+
+  /**
+   * The newest tool call of the current turn of the session of the chat, in one line, or `null` while it has none to
+   * show.
+   */
+  latestAction: string | null;
+
+  /**
+   * The time when the current session of the chat started, in ms since the epoch, or `null` while it is not known.
+   */
+  startedAt: number | null;
+
+  /**
+   * The time of the latest message of the current session of the chat, in ms since the epoch, or `null` for none.
+   */
+  lastActivityAt: number | null;
+
+  /**
+   * The size of the context of the current session of the chat in tokens, or `null` before its first model request.
+   */
+  contextTokens: number | null;
+
+  /**
+   * The model of the newest model request of the current session of the chat, such as `claude-opus-5-5`, or `null`
+   * while it is not known.
+   */
+  model: string | null;
+
+  /**
+   * The reasoning effort of the newest model request of the current session of the chat, such as `xhigh`, or `null`
+   * while it is not known.
+   */
+  effort: string | null;
+
+  /**
    * The messages that the chat shows.
    */
   logQuery: ChatLogQuery;
@@ -81,7 +120,9 @@ export interface Chat {
 
 /**
  * Returns the chat of every orchestrator session of `sessions`. It sends to the orchestrator session that attached
- * last, and has its status. Returns `undefined` when `sessions` holds no orchestrator session.
+ * last, and has its status and its turn. Its current session is that session, else the one that started last, whose
+ * start, latest message, context size, model and effort it has. Returns `undefined` when `sessions` holds no
+ * orchestrator session.
  */
 const mainChat = (sessions: readonly ListedSession[]): Chat | undefined => {
   const orchestrators = sessions.filter((session) => session.role === 'orchestrator');
@@ -89,6 +130,7 @@ const mainChat = (sessions: readonly ListedSession[]): Chat | undefined => {
     return undefined;
   }
   const latest = orchestrators.findLast((session) => session.attached);
+  const current = latest ?? newestOf(orchestrators);
   return {
     key: MAIN,
     name: MAIN,
@@ -98,9 +140,23 @@ const mainChat = (sessions: readonly ListedSession[]): Chat | undefined => {
     taskOrchestrator: false,
     sessionId: latest?.sessionId,
     status: latest?.status ?? 'ended',
+    turnStartedAt: latest?.turnStartedAt ?? null,
+    latestAction: latest?.latestAction ?? null,
+    startedAt: current.startedAt,
+    lastActivityAt: current.lastActivityAt,
+    contextTokens: current.contextTokens,
+    model: current.model,
+    effort: current.effort,
     logQuery: { role: 'orchestrator' },
   };
 };
+
+/**
+ * Returns the session of `sessions` that started last. A session with no known start counts as the oldest.
+ * `sessions` holds at least one session.
+ */
+const newestOf = (sessions: readonly ListedSession[]): ListedSession =>
+  sessions.reduce((newest, session) => ((session.startedAt ?? 0) > (newest.startedAt ?? 0) ? session : newest));
 
 /**
  * Returns the chat of the subagent `session`, the orchestrator of the open task when `taskOrchestrator` is true.
@@ -114,6 +170,13 @@ const subagentChat = (session: ListedSession, taskOrchestrator: boolean): Chat =
   taskOrchestrator,
   sessionId: session.attached ? session.sessionId : undefined,
   status: session.status,
+  turnStartedAt: session.turnStartedAt,
+  latestAction: session.latestAction,
+  startedAt: session.startedAt,
+  lastActivityAt: session.lastActivityAt,
+  contextTokens: session.contextTokens,
+  model: session.model,
+  effort: session.effort,
   logQuery: { sessionId: session.sessionId },
 });
 

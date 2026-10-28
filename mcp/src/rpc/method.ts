@@ -21,6 +21,8 @@ import { taskListMethod } from './method.task-list.ts';
 import { taskDeleteMethod } from './method.task-delete.ts';
 import { sessionListMethod } from './method.session-list.ts';
 import { sessionActivityReportMethod } from './method.session-activity-report.ts';
+import { sessionActionReportMethod } from './method.session-action-report.ts';
+import { sessionUsageSetMethod } from './method.session-usage-set.ts';
 import { messageListMethod } from './method.message-list.ts';
 import { messageLogMethod } from './method.message-log.ts';
 import { messageLogDeleteMethod } from './method.message-log-delete.ts';
@@ -163,6 +165,8 @@ export const Methods: readonly Method[] = [
   messageListMethod,
   sessionListMethod,
   sessionActivityReportMethod,
+  sessionActionReportMethod,
+  sessionUsageSetMethod,
   messageDeliverMethod,
   subagentStartMethod,
   subagentCreateMethod,

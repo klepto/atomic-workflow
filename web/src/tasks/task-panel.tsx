@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button.tsx';
 import { cn } from '@/lib/utils.ts';
 import { TaskIdLabel } from '@/tasks/task-id-label.tsx';
 import { TicketList } from '@/tasks/ticket-list.tsx';
+import { useGoals } from '@/tasks/use-goals.ts';
 
 /**
  * The id of the task panel, which the tab of each task names as the region that it controls.
@@ -136,6 +137,33 @@ const TicketCount = ({ task }: { task: TaskSummary }) => {
 };
 
 /**
+ * The goals of the task `task` in the order of their ids, each with its id, its summary and its details below. It
+ * reads `No goals yet` while the task has none, and shows nothing until the first read of the goals answered.
+ */
+const GoalList = ({ task }: { task: TaskSummary }) => {
+  const goals = useGoals(task);
+  if (goals === undefined) return null;
+  if (goals.length === 0) {
+    return <p className="text-muted-foreground text-sm">No goals yet</p>;
+  }
+  return (
+    <ol aria-label="Goals" className="flex flex-col gap-2.5">
+      {goals.map((goal) => (
+        <li key={goal.id} className="flex gap-2 text-sm">
+          <span className="shrink-0 text-muted-foreground tabular-nums">{`${goal.id}.`}</span>
+          <div className="flex min-w-0 flex-col gap-0.5">
+            <p className="font-medium">{goal.summary}</p>
+            {goal.details !== null && (
+              <p className="whitespace-pre-line text-muted-foreground text-xs">{goal.details}</p>
+            )}
+          </div>
+        </li>
+      ))}
+    </ol>
+  );
+};
+
+/**
  * A section of the panel: its heading `title` above its content `children`.
  */
 const PanelSection = ({ title, children }: { title: string; children: ReactNode }) => (
@@ -178,8 +206,8 @@ const DeleteTask = ({ task }: { task: TaskSummary }) => (
 
 /**
  * The content of the panel for the task `task`: its slug, its id and the day it was created, with the buttons that
- * delete the task and close the panel, then its status with its stages, then its tickets with the buttons that review
- * and approve each of them.
+ * delete the task and close the panel, then its status with its stages, then its goals, then its tickets with the
+ * buttons that review and approve each of them.
  */
 const TaskDetails = ({
   task,
@@ -217,6 +245,9 @@ const TaskDetails = ({
     <PanelSection title="Status">
       <p className="font-medium text-base">{statusWordsOf(task)}</p>
       <StageTrack stage={stageOf(task)} />
+    </PanelSection>
+    <PanelSection title="Goals">
+      <GoalList task={task} />
     </PanelSection>
     <PanelSection title="Tickets">
       <TicketCount task={task} />

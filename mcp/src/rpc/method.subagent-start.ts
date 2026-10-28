@@ -99,6 +99,9 @@ export const startSubagent = async (
     job,
     ticketId: null,
     alias: null,
+    contextTokens: null,
+    model: null,
+    effort: null,
   });
   subagents.start(sessionId, parentId, connection);
   inboxes.open(sessionId, connection.closed);

@@ -8,10 +8,12 @@ import type {
   FindSubagentTranscriptFunction,
   FindTranscriptFunction,
   SkillListing,
+  TranscriptAction,
   TranscriptActivity,
   TranscriptMessage,
   TranscriptSkill,
   TranscriptTask,
+  TranscriptUsage,
 } from './find-transcript.ts';
 
 /**
@@ -206,6 +208,90 @@ const HANDBACK_ENTRY = z.object({
 });
 
 /**
+ * Schema of the fields of an entry of a Claude Code transcript that an action of the agent needs: the text of each text
+ * block, and the name and the input of each call of a tool. The format is internal to Claude Code, so every other field
+ * may be missing or change.
+ */
+const ACTION_ENTRY = z.object({
+  type: z.literal('assistant'),
+  timestamp: z.iso.datetime(),
+  isMeta: z.boolean().optional(),
+  isSidechain: z.boolean().optional(),
+  isCompactSummary: z.boolean().optional(),
+  message: z.object({
+    content: z.union([
+      z.string(),
+      z.array(
+        z.object({
+          type: z.string(),
+          text: z.string().optional(),
+          name: z.string().optional(),
+          input: z.record(z.string(), z.unknown()).optional().catch(undefined),
+        }),
+      ),
+    ]),
+  }),
+});
+
+/**
+ * Schema of the fields of an entry of a Claude Code transcript that the token usage of a model request needs. Claude
+ * Code writes one entry for each block of a reply, each with the usage of the whole request. The format is internal
+ * to Claude Code, so every other field may be missing or change.
+ */
+const USAGE_ENTRY = z.object({
+  type: z.literal('assistant'),
+  timestamp: z.iso.datetime(),
+  isMeta: z.boolean().optional(),
+  isSidechain: z.boolean().optional(),
+  effort: z.string().min(1).optional().catch(undefined),
+  message: z.object({
+    model: z.string().optional(),
+    usage: z.object({
+      input_tokens: z.number().int().nonnegative(),
+      cache_creation_input_tokens: z.number().int().nonnegative().nullish(),
+      cache_read_input_tokens: z.number().int().nonnegative().nullish(),
+    }),
+  }),
+});
+
+/**
+ * Model that Claude Code names in an entry that it wrote itself in place of a reply, such as an API error, whose usage
+ * is zero.
+ */
+const SYNTHETIC_MODEL = '<synthetic>';
+
+/**
+ * Text that each line of a Claude Code transcript with a token usage holds.
+ */
+const USAGE_MARK = '"usage"';
+
+/**
+ * Field of the input of a tool that names its target, by the name of the tool. A tool that is not listed uses its
+ * first field that holds a text.
+ */
+const MAIN_ARGUMENTS: ReadonlyMap<string, string> = new Map([
+  ['Bash', 'command'],
+  ['PowerShell', 'command'],
+  ['Read', 'file_path'],
+  ['Write', 'file_path'],
+  ['Edit', 'file_path'],
+  ['Grep', 'pattern'],
+  ['Glob', 'pattern'],
+  ['Skill', 'skill'],
+  ['Agent', 'description'],
+]);
+
+/**
+ * Greatest number of characters of an action, its ellipsis included.
+ */
+const ACTION_MAX_LENGTH = 200;
+
+/**
+ * Text that ends an action that was cut to `ACTION_MAX_LENGTH` characters.
+ */
+const ELLIPSIS = '…';
+
+/**
  * Text that Claude Code starts a message of the user with when the user interrupts a turn, which ends the turn without
  * a `Stop` hook.
  */
@@ -309,6 +395,8 @@ export const claudeFindTranscript: FindTranscriptFunction = async (environment, 
     parse: entryParser(false),
     parseSkills: (line) => parseSkillListing(line, false),
     parseActivity: (line) => parseActivity(line, false),
+    parseAction: (line) => parseAction(line, false),
+    parseUsage: (line) => parseUsage(line, false),
     parseTask: taskParser(),
     parseTicket: ticketParser(),
     waitForEnd: (signal) => waitForEnd(sessionFile, sessionId, signal),
@@ -401,6 +489,8 @@ export const claudeFindSubagentTranscript: FindSubagentTranscriptFunction = asyn
         parse: entryParser(true),
         parseSkills: (line) => parseSkillListing(line, true),
         parseActivity: (line) => parseActivity(line, true),
+        parseAction: (line) => parseAction(line, true),
+        parseUsage: (line) => parseUsage(line, true),
         parseTask: taskParser(),
         parseTicket: ticketParser(),
         waitForEnd: (signal) => waitForStop(path.replace(/\.jsonl$/, '.meta.json'), oneShot, signal),
@@ -615,6 +705,60 @@ const parseActivity = (line: string, sidechain: boolean): TranscriptActivity | u
       ? text.startsWith(INTERRUPT_MARK)
       : sidechain && endsSubagentTurn(line, value, text, message.stop_reason);
   return { status: ended ? 'idle' : 'working', timestamp: Date.parse(timestamp) };
+};
+
+/**
+ * Returns the newest action of the agent that the line `line` of a Claude Code transcript shows. With `sidechain`, only
+ * the entries of a subagent count, and without it, only the entries of the session itself. The blocks of the entry
+ * count in their order: a call of a tool sets the action, as `actionOf` words it, and a text block that is not empty
+ * clears it. If the entry holds neither, or is no entry of the agent, returns `undefined` instead.
+ */
+const parseAction = (line: string, sidechain: boolean): TranscriptAction | undefined => {
+  if (!line.includes('"assistant"')) return undefined;
+  const entry = ACTION_ENTRY.safeParse(parseJson(line));
+  if (!entry.success) return undefined;
+  const { timestamp, isMeta, isSidechain = false, isCompactSummary, message } = entry.data;
+  if (isMeta || isSidechain !== sidechain || isCompactSummary) return undefined;
+  const blocks = typeof message.content === 'string' ? [{ type: 'text', text: message.content }] : message.content;
+  let action: string | null | undefined;
+  for (const block of blocks) {
+    if (block.type === 'tool_use' && block.name !== undefined) action = actionOf(block.name, block.input ?? {});
+    else if (block.type === 'text' && (block.text ?? '').trim() !== '') action = null;
+  }
+  return action === undefined ? undefined : { action, timestamp: Date.parse(timestamp) };
+};
+
+/**
+ * Returns the token usage of the model request that the line `line` of a Claude Code transcript holds the reply of.
+ * With `sidechain`, only the entries of a subagent count, and without it, only the entries of the session itself. An
+ * entry of `SYNTHETIC_MODEL`, which Claude Code wrote in place of a reply, holds no usage of a request, so the
+ * function returns `undefined` for it, as for every other line.
+ */
+const parseUsage = (line: string, sidechain: boolean): TranscriptUsage | undefined => {
+  if (!line.includes(USAGE_MARK)) return undefined;
+  const entry = USAGE_ENTRY.safeParse(parseJson(line));
+  if (!entry.success) return undefined;
+  const { timestamp, isMeta, isSidechain = false, effort, message } = entry.data;
+  if (isMeta || isSidechain !== sidechain || message.model === SYNTHETIC_MODEL) return undefined;
+  const { input_tokens, cache_creation_input_tokens, cache_read_input_tokens } = message.usage;
+  const contextTokens = input_tokens + (cache_creation_input_tokens ?? 0) + (cache_read_input_tokens ?? 0);
+  const model = message.model || null;
+  return { contextTokens, model, effort: effort ?? null, timestamp: Date.parse(timestamp) };
+};
+
+/**
+ * Returns the action of a call of the tool `name` with the input `input`, in one line: the name of the tool, a colon,
+ * and its main argument, as `MAIN_ARGUMENTS` names it, with each line break as a space. A tool with no text in its
+ * input is its name only. The action is cut to `ACTION_MAX_LENGTH` characters, with `ELLIPSIS` at its end.
+ */
+const actionOf = (name: string, input: Readonly<Record<string, unknown>>): string => {
+  const field = MAIN_ARGUMENTS.get(name);
+  const main = field === undefined ? undefined : input[field];
+  const argument = typeof main === 'string' ? main : Object.values(input).find((value) => typeof value === 'string');
+  const action = typeof argument === 'string' ? `${name}: ${argument.replace(/\r\n|\r|\n/g, ' ')}` : name;
+  return action.length > ACTION_MAX_LENGTH
+    ? `${action.slice(0, ACTION_MAX_LENGTH - ELLIPSIS.length)}${ELLIPSIS}`
+    : action;
 };
 
 /**
