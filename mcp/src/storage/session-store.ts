@@ -57,6 +57,18 @@ export interface RegisteredSession {
    * Identifier of the task that the session works on, or `null` for a session that was started for no task.
    */
   readonly taskId: number | null;
+
+  /**
+   * Job of a subagent, such as the skill that it was started to run, `plan` or `implement`, or `orchestrator` for the
+   * orchestrator of a task. `null` for a session with no known job, such as an orchestrator session.
+   */
+  readonly job: string | null;
+
+  /**
+   * Identifier of the ticket of the task `taskId` that the session works on, or `null` for a session that works on no
+   * ticket.
+   */
+  readonly ticketId: number | null;
 }
 
 /**
@@ -84,6 +96,13 @@ export interface SessionStore {
    * already keeps it. If no such session is registered, or it works on a task already, returns `false` instead.
    */
   setTask(id: string, taskId: number): Promise<boolean>;
+
+  /**
+   * Sets the ticket that the session `id` works on to `ticketId`, a ticket of the task that it works on, and returns
+   * `true`. A session that works on a ticket already keeps it. If no such session is registered, it works on no task,
+   * or it works on a ticket already, returns `false` instead.
+   */
+  setTicket(id: string, ticketId: number): Promise<boolean>;
 
   /**
    * Deletes the session `id` with its messages in the message log, and returns `true`. If no such session is

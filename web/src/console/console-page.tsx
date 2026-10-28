@@ -1,7 +1,7 @@
 import { ArrowDown } from 'lucide-react';
 import { Fragment, type ReactNode, useEffect, useMemo, useRef, useState } from 'react';
 import { call } from '@/api/rpc.ts';
-import type { LoggedMessage } from '@/api/types.ts';
+import type { LoggedMessage, TaskSummary } from '@/api/types.ts';
 import type { Chat } from '@/chats/chat-list.ts';
 import { expandCommand, skillOf } from '@/commands/skill-commands.ts';
 import { useSkills } from '@/commands/use-skills.ts';
@@ -25,6 +25,12 @@ export interface ConsolePageProps {
    * The open chat, whose messages the console shows and to whose attached session it sends.
    */
   chat: Chat;
+
+  /**
+   * The open task, or `undefined` while no task is open. A skill sent from the chat of the main session while a task is
+   * open goes to the orchestrator of the task.
+   */
+  task: TaskSummary | undefined;
 
   /**
    * The counter of the changes of the message log. The console reads the chat again each time it changes.
@@ -63,9 +69,10 @@ interface PendingMessage {
 
   /**
    * Where the message goes: `deliver` to the session of the chat with `messageDeliver`, `subagent` to a new subagent
-   * with `subagentStart`, as the first message of the subagent.
+   * with `subagentStart`, as the first message of the subagent, and `task` to the orchestrator of the open task with
+   * `taskOrchestratorDeliver`.
    */
-  route: 'deliver' | 'subagent';
+  route: 'deliver' | 'subagent' | 'task';
 
   /**
    * Where the message stands: `sending` while its call runs, `failed` once it failed.
@@ -94,9 +101,9 @@ const messageOf = (error: unknown) => (error instanceof Error ? error.message : 
 const timeOf = (message: LoggedMessage) => new Date(message.timestamp).toISOString();
 
 /**
- * Returns the words by which the console names the chat `chat`: `the orchestrator`, or the name of a subagent.
+ * Returns the words by which the console names the chat `chat`: `the main session`, or the label of a subagent.
  */
-const chatWords = (chat: Chat) => (chat.role === 'orchestrator' ? 'the orchestrator' : chat.name);
+const chatWords = (chat: Chat) => (chat.role === 'orchestrator' ? 'the main session' : chat.label);
 
 /**
  * The foot of a row of the log: the name of the sender of its text, then the time it was sent, when there is one.
@@ -174,7 +181,7 @@ const UserRow = ({
 const AgentRow = ({ message, chat }: { message: LoggedMessage; chat: Chat }) => (
   <section aria-label={`Reply of ${chatWords(chat)}`} className="flex flex-col gap-1">
     <MarkdownBody text={message.content} className="leading-6" />
-    <RowFoot sender={chat.name} time={timeOf(message)} mono={chat.role === 'subagent'} className="self-start" />
+    <RowFoot sender={chat.label} time={timeOf(message)} mono={chat.role === 'subagent'} className="self-start" />
   </section>
 );
 
@@ -216,6 +223,7 @@ const sessionBreaks = (entries: readonly LoggedMessage[]): ReadonlySet<number> =
 const PENDING_LINES: Record<PendingMessage['route'], { sending: string; failed: string }> = {
   deliver: { sending: 'Sending…', failed: 'Not delivered' },
   subagent: { sending: 'Starting a subagent…', failed: 'No subagent started' },
+  task: { sending: 'Sending to the task orchestrator…', failed: 'Not delivered to the task orchestrator' },
 };
 
 /**
@@ -257,13 +265,13 @@ const EmptyState = ({ title, children }: { title: ReactNode; children: ReactNode
 );
 
 /**
- * The line that the chat `chat` shows while it has no message: what to ask the orchestrator, or who the subagent is.
+ * The line that the chat `chat` shows while it has no message: what to ask the main session, or who the subagent is.
  */
 const EmptyChat = ({ chat }: { chat: Chat }) =>
   chat.role === 'orchestrator' ? (
-    <EmptyState title="What should the orchestrator do?">Your messages and its replies show here.</EmptyState>
+    <EmptyState title="What should the main session do?">Your messages and its replies show here.</EmptyState>
   ) : (
-    <EmptyState title={<span className="font-mono">{chat.name}</span>}>
+    <EmptyState title={<span className="font-mono">{chat.label}</span>}>
       Nothing said yet. Your messages and its replies show here.
     </EmptyState>
   );
@@ -283,31 +291,36 @@ export const NoChat = () => (
 );
 
 /**
- * The line in place of the composer while the chat `chat` has no attached session: what attaches an orchestrator
- * session, or that the subagent has ended.
+ * The line in place of the composer while the chat `chat` has no attached session: what attaches the main session, or
+ * that the subagent has ended.
  */
 const EndedNotice = ({ chat }: { chat: Chat }) => (
   <p role="status" className="rounded-2xl border border-dashed px-4 py-3 text-center text-muted-foreground text-sm">
     {chat.role === 'orchestrator' ? (
-      `No orchestrator is attached. ${ATTACH_HINT}`
+      `No main session is attached. ${ATTACH_HINT}`
     ) : (
       <>
-        <span className="font-mono">{chat.name}</span> has ended. Its messages stay here to read.
+        <span className="font-mono">{chat.label}</span> has ended. Its messages stay here to read.
       </>
     )}
   </p>
 );
 
 /**
- * Returns where a skill that the chat `chat` sends runs: a new subagent for the orchestrator, and the subagent itself
- * for a subagent.
+ * Returns where a skill that the chat `chat` sends runs, while the task `task` is open: the orchestrator of the task
+ * for the main session with a task open, a new subagent for the main session with none, and the subagent itself for a
+ * subagent.
  */
-const runsInOf = (chat: Chat): ReactNode =>
-  chat.role === 'orchestrator' ? (
+const runsInOf = (chat: Chat, task: TaskSummary | undefined): ReactNode => {
+  if (chat.role === 'subagent') {
+    return <span className="font-mono text-foreground">{chat.label}</span>;
+  }
+  return task === undefined ? (
     <span className="text-foreground">a new subagent</span>
   ) : (
-    <span className="font-mono text-foreground">{chat.name}</span>
+    <span className="font-mono text-foreground">{`orchestrator-${task.slug}`}</span>
   );
+};
 
 /**
  * Returns the messages of `logged` that the log shows: none that notifies that a background task ended, and each
@@ -327,12 +340,14 @@ const visibleMessages = (logged: readonly LoggedMessage[]): readonly LoggedMessa
  * the messages of the log pass from one session to the next, such as after a `/clear` of the orchestrator, a line says `New session`. A text of the composer goes to the
  * attached session of the chat with `messageDeliver`, and shows at the end of the log until it is delivered, or with
  * why it was not. A text that runs a skill of the session goes the same way in the chat of a subagent. In the chat of
- * the orchestrator, it starts a new subagent with `subagentStart` instead, with the text as its first message, and once
- * the subagent attaches, the chat of the subagent opens. The log follows new messages while it is scrolled to its end,
+ * the main session, it starts a new subagent with `subagentStart` instead, with the text as its first message, and
+ * once the subagent attaches, the chat of the subagent opens. While the task `task` is open, it goes to the
+ * orchestrator of the task with `taskOrchestratorDeliver` instead, which starts one first when none is attached, and
+ * the chat of the orchestrator opens. The log follows new messages while it is scrolled to its end,
  * and offers a jump to the latest message once the user scrolled up. While the chat has no attached session, a line in
  * place of the composer says why.
  */
-export const ConsolePage = ({ chat, messages, online, onOpen, readSessions }: ConsolePageProps) => {
+export const ConsolePage = ({ chat, task, messages, online, onOpen, readSessions }: ConsolePageProps) => {
   const { entries: logged, loaded, failure } = useChatLog(chat.logQuery, messages);
   const entries = useMemo(() => visibleMessages(logged), [logged]);
   const skills = useSkills(chat.sessionId);
@@ -394,9 +409,22 @@ export const ConsolePage = ({ chat, messages, online, onOpen, readSessions }: Co
   };
 
   /**
-   * Sends the text `text` to the attached session `sessionId` of the chat: to a new subagent inside it when it runs a
-   * skill in the chat of the orchestrator, and to the session itself otherwise. A text that runs a skill is sent with
-   * the whole name of the skill in place of its command.
+   * Gives the text `text` to the orchestrator of the task `taskId`, then reads the sessions again and opens the chat
+   * of the orchestrator, unless the console closed meanwhile.
+   */
+  const deliverToTask = async (taskId: number, text: string) => {
+    const { sessionId } = await call<{ sessionId: string }>('taskOrchestratorDeliver', { taskId, content: text });
+    await readSessions();
+    if (mounted.current) {
+      onOpen(sessionId);
+    }
+  };
+
+  /**
+   * Sends the text `text` to the attached session `sessionId` of the chat. A text that runs a skill in the chat of the
+   * main session goes to the orchestrator of the open task, or to a new subagent inside the session while no task is
+   * open. Every other text goes to the session itself. A text that runs a skill is sent with the whole name of the
+   * skill in place of its command.
    */
   const send = (sessionId: string, text: string) => {
     const skill = skillOf(text, skills.skills ?? []);
@@ -404,9 +432,12 @@ export const ConsolePage = ({ chat, messages, online, onOpen, readSessions }: Co
       return track(text, 'deliver', () => call('messageDeliver', { sessionId, content: text }));
     }
     const expanded = expandCommand(text, skill);
-    return chat.role === 'orchestrator'
+    if (chat.role === 'subagent') {
+      return track(expanded, 'deliver', () => call('messageDeliver', { sessionId, content: expanded }));
+    }
+    return task === undefined
       ? track(expanded, 'subagent', () => startSubagent(sessionId, expanded))
-      : track(expanded, 'deliver', () => call('messageDeliver', { sessionId, content: expanded }));
+      : track(expanded, 'task', () => deliverToTask(task.id, expanded));
   };
 
   const { sessionId } = chat;
@@ -414,7 +445,7 @@ export const ConsolePage = ({ chat, messages, online, onOpen, readSessions }: Co
 
   return (
     <div className="relative flex min-h-0 flex-1 flex-col">
-      <h1 className="sr-only">{`Chat with ${chat.name}`}</h1>
+      <h1 className="sr-only">{`Chat with ${chat.label}`}</h1>
       <ScrollArea
         viewportRef={box}
         onScroll={handleScroll}
@@ -424,7 +455,7 @@ export const ConsolePage = ({ chat, messages, online, onOpen, readSessions }: Co
         <div className="mx-auto flex w-full max-w-3xl flex-1 flex-col gap-6 px-4 pt-8 pb-10 md:px-6 md:pt-10">
           {failure !== null && (
             <p role="alert" className="text-destructive text-sm">
-              {`The chat with ${chat.name} cannot be read: ${failure}`}
+              {`The chat with ${chat.label} cannot be read: ${failure}`}
             </p>
           )}
           {(loaded || failure !== null) && empty && <EmptyChat chat={chat} />}
@@ -462,7 +493,7 @@ export const ConsolePage = ({ chat, messages, online, onOpen, readSessions }: Co
             notice={online ? null : 'Server not reachable. A message sent now fails.'}
             skills={skills.skills}
             skillsFailure={skills.failure}
-            runsIn={runsInOf(chat)}
+            runsIn={runsInOf(chat, task)}
             onMenuOpen={skills.refresh}
             onSend={(text) => send(sessionId, text)}
           />

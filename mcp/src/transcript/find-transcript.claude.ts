@@ -107,6 +107,17 @@ const TASK_TOOL = /atomic-workflow__(?:taskCreate|taskGet)$/;
 const TASK_TOOL_MARK = 'atomic-workflow__task';
 
 /**
+ * Pattern of the name of the tool of the MCP server `atomic-workflow` whose result names a ticket, `worktreeCreate`,
+ * after the prefix that Claude Code gives the tools of the server.
+ */
+const TICKET_TOOL = /atomic-workflow__worktreeCreate$/;
+
+/**
+ * Text that every line of a Claude Code transcript with a call to the tool of `TICKET_TOOL` holds.
+ */
+const TICKET_TOOL_MARK = 'atomic-workflow__worktreeCreate';
+
+/**
  * Schema of the fields of an entry of a Claude Code transcript that a call to a tool or its result needs: the name and
  * the id of each call, and for each result the call that it answers, whether it failed, and its content. The format
  * is internal to Claude Code, so every other field may be missing or change.
@@ -127,7 +138,8 @@ const TASK_TOOL_ENTRY = z.object({
 });
 
 /**
- * Schema of the content of the result of a tool of `TASK_TOOL`: one text that holds the task as JSON, with its id.
+ * Schema of the content of the result of a tool of `TASK_TOOL` or `TICKET_TOOL`: one text that holds the result as
+ * JSON.
  */
 const TASK_RESULT = z.tuple([z.object({ type: z.literal('text'), text: z.string() })]);
 
@@ -135,6 +147,11 @@ const TASK_RESULT = z.tuple([z.object({ type: z.literal('text'), text: z.string(
  * Schema of the task that the result of a tool of `TASK_TOOL` holds, with only its id.
  */
 const TASK_ID = z.object({ id: z.number().int().positive() });
+
+/**
+ * Schema of the result of the tool of `TICKET_TOOL`, with only the id of its ticket.
+ */
+const TICKET_OF_RESULT = z.object({ ticket: z.object({ id: z.number().int().positive() }) });
 
 /**
  * Text that every line of a Claude Code transcript with a list of skills holds, which a line is searched for before
@@ -287,6 +304,7 @@ export const claudeFindTranscript: FindTranscriptFunction = async (environment, 
     parseSkills: (line) => parseSkillListing(line, false),
     parseActivity: (line) => parseActivity(line, false),
     parseTask: taskParser(),
+    parseTicket: ticketParser(),
     waitForEnd: (signal) => waitForEnd(sessionFile, sessionId, signal),
   };
 };
@@ -378,6 +396,7 @@ export const claudeFindSubagentTranscript: FindSubagentTranscriptFunction = asyn
         parseSkills: (line) => parseSkillListing(line, true),
         parseActivity: (line) => parseActivity(line, true),
         parseTask: taskParser(),
+        parseTicket: ticketParser(),
         waitForEnd: (signal) => waitForStop(path.replace(/\.jsonl$/, '.meta.json'), oneShot, signal),
       };
     if (signal.aborted || Date.now() >= deadline) return undefined;
@@ -446,25 +465,41 @@ const isStopped = async (path: string, oneShot: boolean): Promise<boolean> => {
  */
 const taskParser = (): ((line: string) => number | undefined) => {
   const calls = new Set<string>();
-  return (line) => parseTask(line, calls);
+  return (line) => parseResult(line, calls, TASK_TOOL, TASK_TOOL_MARK, taskIdOf);
 };
 
 /**
- * Returns the id of the task that the line `line` holds as the result of one of the calls `calls`, and removes that
- * call from `calls`. Adds to `calls` the id of each call to a tool of `TASK_TOOL` that the line holds. If the line holds
- * no result of such a call, or the call failed, returns `undefined` instead.
+ * Returns the function that returns the id of the ticket that a line of a Claude Code transcript holds as the result
+ * of a call to the tool of `TICKET_TOOL`. Like the function of `taskParser`, it must see the lines in their order.
  */
-const parseTask = (line: string, calls: Set<string>): number | undefined => {
-  if (!line.includes(TASK_TOOL_MARK) && (calls.size === 0 || !line.includes('"tool_result"'))) return undefined;
+const ticketParser = (): ((line: string) => number | undefined) => {
+  const calls = new Set<string>();
+  return (line) => parseResult(line, calls, TICKET_TOOL, TICKET_TOOL_MARK, ticketIdOf);
+};
+
+/**
+ * Returns the id that `idOf` finds in the line `line` as the result of one of the calls `calls`, and removes that call
+ * from `calls`. Adds to `calls` the id of each call to a tool of `tool` that the line holds. Only a line that holds
+ * `mark`, or a result while a call waits for one, is parsed. If the line holds no result of such a call, or the call
+ * failed, returns `undefined` instead.
+ */
+const parseResult = (
+  line: string,
+  calls: Set<string>,
+  tool: RegExp,
+  mark: string,
+  idOf: (content: unknown) => number | undefined,
+): number | undefined => {
+  if (!line.includes(mark) && (calls.size === 0 || !line.includes('"tool_result"'))) return undefined;
   const entry = TASK_TOOL_ENTRY.safeParse(parseJson(line));
   if (!entry.success) return undefined;
-  let taskId: number | undefined;
+  let id: number | undefined;
   for (const part of entry.data.message.content) {
-    if (part.type === 'tool_use' && part.id !== undefined && TASK_TOOL.test(part.name ?? '')) calls.add(part.id);
+    if (part.type === 'tool_use' && part.id !== undefined && tool.test(part.name ?? '')) calls.add(part.id);
     if (part.type === 'tool_result' && part.tool_use_id !== undefined && calls.delete(part.tool_use_id))
-      taskId ??= part.is_error === true ? undefined : taskIdOf(part.content);
+      id ??= part.is_error === true ? undefined : idOf(part.content);
   }
-  return taskId;
+  return id;
 };
 
 /**
@@ -476,6 +511,17 @@ const taskIdOf = (content: unknown): number | undefined => {
   if (!result.success) return undefined;
   const task = TASK_ID.safeParse(parseJson(result.data[0].text));
   return task.success ? task.data.id : undefined;
+};
+
+/**
+ * Returns the id of the ticket that the content `content` of the result of the tool of `TICKET_TOOL` holds. If it
+ * holds no ticket, such as the message of a failure, returns `undefined` instead.
+ */
+const ticketIdOf = (content: unknown): number | undefined => {
+  const result = TASK_RESULT.safeParse(content);
+  if (!result.success) return undefined;
+  const worktrees = TICKET_OF_RESULT.safeParse(parseJson(result.data[0].text));
+  return worktrees.success ? worktrees.data.ticket.id : undefined;
 };
 
 /**

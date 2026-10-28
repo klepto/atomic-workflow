@@ -27,6 +27,8 @@ import { messageLogDeleteMethod } from './method.message-log-delete.ts';
 import { repositoryGetMethod } from './method.repository-get.ts';
 import { sessionRegisterMethod } from './method.session-register.ts';
 import { sessionTaskSetMethod } from './method.session-task-set.ts';
+import { sessionTicketSetMethod } from './method.session-ticket-set.ts';
+import { taskOrchestratorDeliverMethod } from './method.task-orchestrator-deliver.ts';
 import { sessionDeleteMethod } from './method.session-delete.ts';
 import { skillListMethod } from './method.skill-list.ts';
 import { designSaveMethod } from './method.design-save.ts';
@@ -35,6 +37,8 @@ import { ticketsSaveMethod } from './method.tickets-save.ts';
 import { taskSetStatusMethod } from './method.task-set-status.ts';
 import { ticketNextMethod } from './method.ticket-next.ts';
 import { ticketSetStatusMethod } from './method.ticket-set-status.ts';
+import { ticketDiffMethod } from './method.ticket-diff.ts';
+import { ticketRequestChangesMethod } from './method.ticket-request-changes.ts';
 import { worktreeCreateMethod } from './method.worktree-create.ts';
 import { worktreeDeleteMethod } from './method.worktree-delete.ts';
 import { worktreeMergeMethod } from './method.worktree-merge.ts';
@@ -150,6 +154,7 @@ export const Methods: readonly Method[] = [
   repositoryGetMethod,
   sessionRegisterMethod,
   sessionTaskSetMethod,
+  sessionTicketSetMethod,
   sessionDeleteMethod,
   messageLogMethod,
   messageLogDeleteMethod,
@@ -161,6 +166,7 @@ export const Methods: readonly Method[] = [
   subagentCreateMethod,
   subagentStopMethod,
   subagentEndMethod,
+  taskOrchestratorDeliverMethod,
   skillListMethod,
   inboxAwaitCommandMethod,
   inboxAwaitMethod,
@@ -175,6 +181,8 @@ export const Methods: readonly Method[] = [
   taskSetStatusMethod,
   ticketNextMethod,
   ticketSetStatusMethod,
+  ticketDiffMethod,
+  ticketRequestChangesMethod,
   worktreeCreateMethod,
   worktreeMergeMethod,
   worktreeDeleteMethod,

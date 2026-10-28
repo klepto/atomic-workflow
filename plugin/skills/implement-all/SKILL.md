@@ -49,9 +49,10 @@ each ticket that a subagent starts, and can land it.
      true, each file of `copyFailures`, and each line of `warnings`.
 
    If no ticket of the wave is left, start the next wave at step 1.
-6. Call `subagentCreate` with the task id once for each ticket of the wave, one at a time, in the order of their ids,
-   and remember the `sessionId` that it returns for the ticket. So the chat of each subagent shows under the task in
-   the web app. If a call fails, print its message, and stop the run, since no subagent of the wave has started yet.
+6. Call `subagentCreate` with the task id and the ticket id once for each ticket of the wave, one at a time, in the
+   order of their ids, and remember the `sessionId` that it returns for the ticket. So the chat of each subagent shows
+   under the task in the web app, named for its ticket. If a call fails, such as for a ticket that another subagent
+   implements already, print its message, and stop the run, since no subagent of the wave has started yet.
 7. Start one subagent for each ticket of the wave with the Agent tool, all in one message, so that they run in
    parallel. Use the `subagent_type` `general-purpose`, since it has every tool that the work needs: Skill, the tools
    of the MCP server `atomic-workflow`, Bash, Read, Edit and Write. Do not set `run_in_background`. Use the

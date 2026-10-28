@@ -102,6 +102,22 @@ export interface MergedTicket {
 }
 
 /**
+ * Commit that holds the landed work of a ticket, with its changes.
+ */
+export interface TicketCommit {
+  /**
+   * Id of the commit.
+   */
+  readonly commit: string;
+
+  /**
+   * Changes of the commit against its parent, as the patch of `git show` with renames detected, and paths that are
+   * not quoted.
+   */
+  readonly patch: string;
+}
+
+/**
  * Work of a task after its task branch landed on its base branch.
  */
 export interface MergedTask {
@@ -185,7 +201,9 @@ export interface Worktrees {
   /**
    * Returns the work of the ticket `ticket` of the task `task` after it landed on the task branch: the commits of the
    * ticket branch since its fork point are squashed into one commit with the message `message`, rebased onto the task
-   * branch, and the task branch moves forward to it. A ticket branch without a fork point, made before fork points
+   * branch, and the task branch moves forward to it. The message ends with the trailers `Atomic-Workflow-Task` and
+   * `Atomic-Workflow-Ticket`, which name the task and the ticket as `<id>-<slug>`, so the commit stays found after a
+   * rebase. A ticket branch without a fork point, made before fork points
    * were recorded, starts at its merge base with the task branch instead. A ticket branch whose rebase stopped on a
    * conflict, and whose conflicting files are resolved and added, continues the rebase instead.
    * If the ticket has no worktree, its worktree has changes that no commit holds, the worktree of the task has a
@@ -193,6 +211,14 @@ export interface Worktrees {
    * conflict, rejects with `conflict`, and leaves the rebase stopped in the worktree of the ticket.
    */
   merge(task: WorkName, ticket: WorkName, message: string): Promise<MergedTicket>;
+
+  /**
+   * Returns the commit that holds the landed work of the ticket `ticket` of the task `task`: the latest commit whose
+   * trailers name both, on the task branch, or on the base branch `baseBranch` once the task branch is gone. If no
+   * such commit exists, such as for a ticket that changed nothing or that landed before the trailers were written,
+   * returns `undefined` instead.
+   */
+  ticketCommit(task: WorkName, ticket: WorkName, baseBranch: string | null): Promise<TicketCommit | undefined>;
 
   /**
    * Returns the work of the task `task` after its task branch landed on the base branch `baseBranch`: the task branch

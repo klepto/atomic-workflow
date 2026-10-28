@@ -176,6 +176,10 @@ const MIGRATIONS: readonly string[] = [
   `ALTER TABLE ticket ADD COLUMN fixes INTEGER CHECK (fixes < id);`,
   // Step 11 adds the task that a session works on. It has no foreign key, so a task with sessions can still be deleted.
   `ALTER TABLE session ADD COLUMN task_id INTEGER;`,
+  // Step 12 adds the job of a subagent and the ticket that it works on, which name its chat. Neither has a foreign key,
+  // so a task with sessions can still be deleted.
+  `ALTER TABLE session ADD COLUMN job TEXT;
+  ALTER TABLE session ADD COLUMN ticket_id INTEGER;`,
 ];
 
 /**

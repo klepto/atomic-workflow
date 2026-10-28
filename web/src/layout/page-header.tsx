@@ -2,7 +2,7 @@ import { type MouseEvent, useEffect, useRef } from 'react';
 import type { ListedSession, TaskSummary } from '@/api/types.ts';
 import { type Chat, listChats } from '@/chats/chat-list.ts';
 import { ScrollArea } from '@/components/ui/scroll-area.tsx';
-import { chatRefOf, routePath, taskRefOf } from '@/routing/route.ts';
+import { routePath, taskRefOf } from '@/routing/route.ts';
 import { isPlainClick, RouteLink } from '@/routing/route-link.tsx';
 import { TaskIdLabel } from '@/tasks/task-id-label.tsx';
 import { TASK_PANEL_ID } from '@/tasks/task-panel.tsx';
@@ -155,7 +155,8 @@ const revealCurrentTab = (row: HTMLElement) => {
  * title. The row of tabs is not shown while there is no task. The top right corner of the header stays free.
  */
 export const PageHeader = ({ repository, tasks, sessions, openTaskId, openChat }: PageHeaderProps) => {
-  const openChatRef = openChat && chatRefOf(openChat);
+  // A path to another view names the chat by its name, which every view finds.
+  const openChatRef = openChat?.name;
   const closeTarget = routePath(undefined, openChatRef);
 
   /**

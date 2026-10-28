@@ -262,6 +262,14 @@
   --color-chart-4: var(--chart-4);
   --color-chart-5: var(--chart-5);
   --color-command: color-mix(in oklab, var(--chart-1) 55%, var(--foreground));
+  /*
+   * The colors of the added and the deleted lines of a diff, the same in every theme, which the diff mixes into the
+   * background of the theme.
+   */
+  --color-diff-add: oklch(0.68 0.16 150);
+  --color-diff-delete: oklch(0.63 0.2 25);
+  --color-diff-add-foreground: color-mix(in oklab, var(--color-diff-add) 70%, var(--foreground));
+  --color-diff-delete-foreground: color-mix(in oklab, var(--color-diff-delete) 70%, var(--foreground));
   --color-sidebar: var(--sidebar);
   --color-sidebar-foreground: var(--sidebar-foreground);
   --color-sidebar-primary: var(--sidebar-primary);

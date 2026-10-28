@@ -97,4 +97,9 @@ export interface MessageLogStore {
    * Deletes every message of the session `sessionId` from the log, and returns how many it deleted.
    */
   deleteSession(sessionId: string): Promise<number>;
+
+  /**
+   * Returns the time of the latest message of each session that has a message in the log, by the id of the session.
+   */
+  latestTimes(): Promise<ReadonlyMap<string, number>>;
 }

@@ -1,7 +1,8 @@
 import { z } from 'zod';
 import type { ActivityStatus } from '../attachment/session-activity.ts';
-import type { SessionRole } from '../storage/session-store.ts';
+import type { RegisteredSession, SessionRole } from '../storage/session-store.ts';
 import type { Method, MethodContext } from './method.ts';
+import { baseNameOf, sessionNames } from './session-name.ts';
 
 /**
  * Schema of the parameters of `sessionList`.
@@ -46,6 +47,32 @@ interface ListedSession {
   readonly taskId: number | null;
 
   /**
+   * Identifier of the ticket of the task `taskId` that the session works on, or `null` for none.
+   */
+  readonly ticketId: number | null;
+
+  /**
+   * Job of a subagent, such as `plan`, `implement` or `orchestrator`, or `null` for a session with no known job.
+   */
+  readonly job: string | null;
+
+  /**
+   * Name of the chat of the session: `main` for an orchestrator session, and for a subagent its job with the slug of
+   * its target, such as `implement-cache-key-format`, unique among the subagents.
+   */
+  readonly name: string;
+
+  /**
+   * Time when the session started, in ms since the epoch, or `null` for an attached session that is not registered.
+   */
+  readonly startedAt: number | null;
+
+  /**
+   * Time of the latest message of the session in the message log, in ms since the epoch, or `null` for none.
+   */
+  readonly lastActivityAt: number | null;
+
+  /**
    * Whether the session is attached, so it can take a message of `messageDeliver` now.
    */
   readonly attached: boolean;
@@ -58,8 +85,9 @@ interface ListedSession {
 
 /**
  * `Method` named `sessionList`, which returns the sessions of the repository: the attached ones first, then the
- * registered ones that are not attached, in the order of their start, each with its status and the task that it works
- * on. With `attached`, it returns only the attached sessions or only the others.
+ * registered ones that are not attached, in the order of their start, each with its status, the task and the ticket
+ * that it works on, its job, the name of its chat, and the time of its latest message. With `attached`, it returns only
+ * the attached sessions or only the others.
  */
 export const sessionListMethod: Method<typeof PARAMS, { readonly sessions: readonly ListedSession[] }> = {
   name: 'sessionList',
@@ -69,37 +97,68 @@ export const sessionListMethod: Method<typeof PARAMS, { readonly sessions: reado
   params: PARAMS,
   handle: async ({ attached }, context) => {
     const registered = await context.sessions.list();
-    const taskIds = new Map(registered.map(({ id, taskId }) => [id, taskId]));
+    const details = await detailsOf(registered, context);
     const live = attachedSessions(context).map((session) => ({
       ...session,
-      taskId: taskIds.get(session.sessionId) ?? null,
+      ...details(session.sessionId, session.role),
     }));
     if (attached === true) return { sessions: live };
     const liveIds = new Set(live.map(({ sessionId }) => sessionId));
     const others = registered
       .filter(({ id }) => !liveIds.has(id))
-      .map(({ id, role, parentId, taskId }) => ({
+      .map(({ id, role, parentId }) => ({
         sessionId: id,
         role,
         parentId,
-        taskId,
         attached: false,
         status: 'ended' as const,
+        ...details(id, role),
       }));
     return { sessions: attached === false ? others : [...live, ...others] };
   },
 };
 
 /**
+ * The fields of a listed session that the store and the message log hold, rather than the attachment.
+ */
+type SessionDetails = Pick<ListedSession, 'taskId' | 'ticketId' | 'job' | 'name' | 'startedAt' | 'lastActivityAt'>;
+
+/**
+ * Returns the function that returns the details of the session with an id and a role, among the registered sessions
+ * `registered`, with the services of `context`. A session that is not registered works on no task, has no job, and
+ * has the name of its role.
+ */
+const detailsOf = async (
+  registered: readonly RegisteredSession[],
+  context: MethodContext,
+): Promise<(sessionId: string, role: SessionRole) => SessionDetails> => {
+  const names = await sessionNames(registered, context.tasks);
+  const latest = await context.messageLog.latestTimes();
+  const rows = new Map(registered.map((session) => [session.id, session]));
+  return (sessionId, role) => {
+    const row = rows.get(sessionId);
+    const fallback = { id: sessionId, role, job: null, taskId: null, ticketId: null };
+    return {
+      taskId: row?.taskId ?? null,
+      ticketId: row?.ticketId ?? null,
+      job: row?.job ?? null,
+      name: names.get(sessionId) ?? baseNameOf(fallback, undefined),
+      startedAt: row?.startedAt ?? null,
+      lastActivityAt: latest.get(sessionId) ?? null,
+    };
+  };
+};
+
+/**
  * Returns the sessions that attached session servers serve now, with the services of `context`, in the order in which
  * they were bound, the latest last, followed by the attached subagents, in the order of their start, each with the
- * status of its agent, without the task that it works on.
+ * status of its agent, without its details.
  */
 const attachedSessions = ({
   sessionConnections,
   subagents,
   activity,
-}: MethodContext): Omit<ListedSession, 'taskId'>[] => [
+}: MethodContext): Omit<ListedSession, keyof SessionDetails>[] => [
   ...sessionConnections.list().map((sessionId) => ({
     sessionId,
     role: 'orchestrator' as const,

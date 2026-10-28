@@ -129,6 +129,13 @@ export interface Transcript {
   parseTask(line: string): number | undefined;
 
   /**
+   * Returns the id of the ticket that the line `line` of the transcript holds as the result of a call to the tool
+   * `worktreeCreate` of the MCP server `atomic-workflow`, which an earlier line of the transcript made. If the line
+   * holds no such result, or the call failed, returns `undefined` instead. The lines must be passed in their order.
+   */
+  parseTicket(line: string): number | undefined;
+
+  /**
    * Resolves when the session of the transcript ends, such as when Claude Code moves on to a new session after
    * `/clear`, or when a subagent is stopped. The transcript grows no more after that. Also resolves when `signal` aborts.
    * If the agent cannot be asked for its session, rejects.

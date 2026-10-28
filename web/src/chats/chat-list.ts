@@ -1,14 +1,20 @@
 import type { ListedSession } from '@/api/types.ts';
 
 /**
- * The name and the key of the one chat of every orchestrator session.
+ * The name and the key of the one chat of every orchestrator session: the main session, which runs the
+ * atomic-workflow server.
  */
-export const ORCHESTRATOR = 'orchestrator';
+export const MAIN = 'main';
 
 /**
- * The number of characters of a session id that the sidebar shows, such as `1a2b3c4d`.
+ * The words that the app shows for the chat of the main session.
  */
-const SHORT_ID_LENGTH = 8;
+const MAIN_LABEL = 'main session';
+
+/**
+ * The job of the orchestrator of a task, and the ref of its chat in the view of its task.
+ */
+export const TASK_ORCHESTRATOR = 'orchestrator';
 
 /**
  * The status of a chat, as its dot shows it: `ended` while it has no attached session, and otherwise whether the agent
@@ -26,20 +32,36 @@ export type ChatLogQuery = { sessionId: string } | { role: ListedSession['role']
  */
 export interface Chat {
   /**
-   * The key of the chat, which no other chat has: `orchestrator`, or the session id of a subagent.
+   * The key of the chat, which no other chat has: `main`, or the session id of a subagent.
    */
   key: string;
 
   /**
-   * The name of the chat: `orchestrator`, or `agent-` with the first 8 characters of the session id of a subagent, such
-   * as `agent-5e6f7a8b`.
+   * The name of the chat, which no other chat has, and which names it in a URL in any view: `main`, or the name that
+   * the server gives a subagent, such as `plan-cache-layer-redis` or `agent-5e6f7a8b`.
    */
   name: string;
+
+  /**
+   * The words that the app shows for the chat: `main session`, or the name of a subagent.
+   */
+  label: string;
+
+  /**
+   * The canonical ref of the chat in the URL of the view that lists it: `orchestrator` for the orchestrator of the open
+   * task, and the name otherwise.
+   */
+  ref: string;
 
   /**
    * The role of the sessions of the chat.
    */
   role: ListedSession['role'];
+
+  /**
+   * Whether the chat is the orchestrator of the open task.
+   */
+  taskOrchestrator: boolean;
 
   /**
    * The id of the attached session that takes the messages of the chat, or `undefined` while none is attached.
@@ -58,24 +80,22 @@ export interface Chat {
 }
 
 /**
- * Returns the first 8 characters of the session id `sessionId`.
- */
-const shortIdOf = (sessionId: string) => sessionId.slice(0, SHORT_ID_LENGTH);
-
-/**
  * Returns the chat of every orchestrator session of `sessions`. It sends to the orchestrator session that attached
  * last, and has its status. Returns `undefined` when `sessions` holds no orchestrator session.
  */
-const orchestratorChat = (sessions: readonly ListedSession[]): Chat | undefined => {
+const mainChat = (sessions: readonly ListedSession[]): Chat | undefined => {
   const orchestrators = sessions.filter((session) => session.role === 'orchestrator');
   if (orchestrators.length === 0) {
     return undefined;
   }
   const latest = orchestrators.findLast((session) => session.attached);
   return {
-    key: ORCHESTRATOR,
-    name: ORCHESTRATOR,
+    key: MAIN,
+    name: MAIN,
+    label: MAIN_LABEL,
+    ref: MAIN,
     role: 'orchestrator',
+    taskOrchestrator: false,
     sessionId: latest?.sessionId,
     status: latest?.status ?? 'ended',
     logQuery: { role: 'orchestrator' },
@@ -83,31 +103,55 @@ const orchestratorChat = (sessions: readonly ListedSession[]): Chat | undefined 
 };
 
 /**
- * Returns the chat of the subagent `session`.
+ * Returns the chat of the subagent `session`, the orchestrator of the open task when `taskOrchestrator` is true.
  */
-const subagentChat = (session: ListedSession): Chat => ({
+const subagentChat = (session: ListedSession, taskOrchestrator: boolean): Chat => ({
   key: session.sessionId,
-  name: `agent-${shortIdOf(session.sessionId)}`,
+  name: session.name,
+  label: session.name,
+  ref: taskOrchestrator ? TASK_ORCHESTRATOR : session.name,
   role: 'subagent',
+  taskOrchestrator,
   sessionId: session.attached ? session.sessionId : undefined,
   status: session.status,
   logQuery: { sessionId: session.sessionId },
 });
 
 /**
- * Returns the chats of the sessions `sessions`, as `sessionList` lists them: the chat `orchestrator` first, while any
- * orchestrator session is known, then the subagents that are attached, the latest started first, then the subagents
- * that ended, the latest started first. With `taskId`, only the subagents that work on the task `taskId` are listed,
- * after the chat `orchestrator`.
+ * Returns the time of the last activity of the session `session`: the time of its latest message, else the time of
+ * its start.
+ */
+const activityOf = (session: ListedSession) => session.lastActivityAt ?? session.startedAt ?? 0;
+
+/**
+ * Returns the orchestrator of the task `taskId` among the subagents `subagents`: the latest started one that is
+ * attached, else the latest started one. Returns `undefined` while the task has none.
+ */
+const taskOrchestratorOf = (subagents: readonly ListedSession[], taskId: number): ListedSession | undefined => {
+  const orchestrators = subagents
+    .filter((session) => session.job === TASK_ORCHESTRATOR && session.taskId === taskId)
+    .toSorted((first, second) => (second.startedAt ?? 0) - (first.startedAt ?? 0));
+  return orchestrators.find((session) => session.attached) ?? orchestrators[0];
+};
+
+/**
+ * Returns the chats of the sessions `sessions`. The chat of the main session comes first, while any orchestrator
+ * session is known. With `taskId`, the orchestrator of the task `taskId` comes next, while it has one, then every
+ * other subagent that works on the task. Without it, every subagent comes next. The subagents after the fixed chats
+ * are in the order of their last activity, the latest first, whether attached or ended.
  */
 export const listChats = (sessions: readonly ListedSession[], taskId?: number): readonly Chat[] => {
-  const subagents = sessions
-    .filter((session) => session.role === 'subagent' && (taskId === undefined || session.taskId === taskId))
-    .toReversed();
-  const orchestrator = orchestratorChat(sessions);
+  const subagents = sessions.filter(
+    (session) => session.role === 'subagent' && (taskId === undefined || session.taskId === taskId),
+  );
+  const main = mainChat(sessions);
+  const orchestrator = taskId === undefined ? undefined : taskOrchestratorOf(subagents, taskId);
+  const others = subagents
+    .filter((session) => session !== orchestrator)
+    .toSorted((first, second) => activityOf(second) - activityOf(first));
   return [
-    ...(orchestrator === undefined ? [] : [orchestrator]),
-    ...subagents.filter((session) => session.attached).map(subagentChat),
-    ...subagents.filter((session) => !session.attached).map(subagentChat),
+    ...(main === undefined ? [] : [main]),
+    ...(orchestrator === undefined ? [] : [subagentChat(orchestrator, true)]),
+    ...others.map((session) => subagentChat(session, false)),
   ];
 };

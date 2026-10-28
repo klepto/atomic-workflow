@@ -66,10 +66,10 @@ const DeleteAgent = ({ chat }: { chat: Chat }) => (
         variant="ghost"
         size="icon"
         className={cn(ENTRY_ACTION, 'data-popup-open:opacity-100')}
-        aria-label={`Delete ${chat.name}`}
+        aria-label={`Delete ${chat.label}`}
       />
     }
-    title={`Delete ${chat.name}?`}
+    title={`Delete ${chat.label}?`}
     description="This deletes the agent with its chat. You cannot undo it."
     confirm="Delete agent"
     onDelete={async () => {
@@ -109,7 +109,7 @@ const StopAgent = ({ chat }: { chat: Chat }) => {
       variant="ghost"
       size="icon"
       className={cn(ENTRY_ACTION, (stopping || failure !== undefined) && 'opacity-100')}
-      aria-label={failure === undefined ? `Stop ${chat.name}` : `Stop ${chat.name}. The last stop failed: ${failure}`}
+      aria-label={failure === undefined ? `Stop ${chat.label}` : `Stop ${chat.label}. The last stop failed: ${failure}`}
       title={failure}
       disabled={stopping}
       onClick={stop}
@@ -124,8 +124,8 @@ const StopAgent = ({ chat }: { chat: Chat }) => {
 };
 
 /**
- * The entry of the chat `chat`: the dot of its status and its name. A screen reader hears the name, then the words of
- * the status. It is a link to `to`, and is marked as the current page when `current` is true. The entry of a subagent
+ * The entry of the chat `chat`: the dot of its status and its label. A screen reader hears the label, then the words
+ * of the status. It is a link to `to`, and is marked as the current page when `current` is true. The entry of a subagent
  * that runs has the button that stops it, and the entry of a subagent that ended has the button that deletes it.
  */
 const ChatEntry = ({ chat, current, to }: { chat: Chat; current: boolean; to: string }) => {
@@ -140,7 +140,7 @@ const ChatEntry = ({ chat, current, to }: { chat: Chat; current: boolean; to: st
         className={cn(ENTRY_LINK, 'cursor-pointer', (deletable || stoppable) && 'pr-8')}
       >
         <ChatDot status={chat.status} />
-        <span className="truncate">{chat.name}</span>
+        <span className="truncate">{chat.label}</span>
         <span className="sr-only">{`, ${CHAT_STATUSES[chat.status].words}`}</span>
       </RouteLink>
       {deletable && <DeleteAgent chat={chat} />}
@@ -230,12 +230,12 @@ const StartAgentButton = ({
 
 /**
  * The sidebar of the app: the button "Start new agent" at the top, then the section Chats, with its heading above a
- * line. The section lists every chat of the repository: the chat `orchestrator` first, which holds every orchestrator
- * session, then the subagents that are attached, the latest started first, then the ones that ended, the latest
- * started first. While a task is open, the section lists only the subagents that work on it, after the chat
- * `orchestrator`, its heading names the task, and a new agent works on the task. A task without subagents says so
- * below the chat `orchestrator`. The dot of each chat shows its status: a grey ring once ended, green while idle, yellow while working,
- * and red while it waits for the user. Each chat is a link to itself beside the open task, and the open chat is marked
+ * line. The section lists every chat of the repository: the chat `main session` first, which holds every
+ * orchestrator session, then every subagent by its last activity, the latest first. While a task is open, the section
+ * lists only the subagents that work on it, after the chat `main session` and the orchestrator of the task, its
+ * heading names the task, and a new agent works on the task. A task without subagents says so below the chat
+ * `main session`. The dot of each chat shows its status: a grey ring once ended, green while idle, yellow while
+ * working, and red while it waits for the user. Each chat is a link to itself beside the open task, and the open chat is marked
  * as the current page. A
  * subagent that runs can be stopped from its entry, and one that ended can be deleted with its chat from it. A
  * new agent starts inside the orchestrator session that attached last. It is the navigation of a column at the left of

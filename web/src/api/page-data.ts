@@ -78,7 +78,8 @@ const keepLastData = () => undefined;
 /**
  * Reads the data of the page and keeps it current by the one stream of the page at `/events`. At load it reads the
  * repository, the sessions and the tasks. On `sessions` it reads the sessions again, on `tasks` the tasks, and
- * on `messages` it adds one to `messages`. When the stream opens again after a drop, it reads everything again and adds
+ * on `messages` it reads the sessions again, since each holds the time of its latest message, and adds one to
+ * `messages`. When the stream opens again after a drop, it reads everything again and adds
  * one to `messages`, since events may have been lost meanwhile. Reads of one resource never overlap.
  */
 export const usePageData = (): PageData => {
@@ -119,6 +120,8 @@ export const usePageData = (): PageData => {
           void readers.tasks();
           break;
         case 'messages':
+          // The sessions hold the time of the latest message of each, which orders the chats.
+          void readers.sessions();
           setMessages((count) => count + 1);
           break;
       }

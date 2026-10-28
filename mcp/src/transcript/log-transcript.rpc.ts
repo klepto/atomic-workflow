@@ -3,6 +3,7 @@ import { messageLogMethod } from '../rpc/method.message-log.ts';
 import { sessionActivityReportMethod } from '../rpc/method.session-activity-report.ts';
 import { sessionRegisterMethod } from '../rpc/method.session-register.ts';
 import { sessionTaskSetMethod } from '../rpc/method.session-task-set.ts';
+import { sessionTicketSetMethod } from '../rpc/method.session-ticket-set.ts';
 import type { RpcConnection } from '../rpc/rpc-connection.ts';
 import type { Transcript, TranscriptActivity } from './find-transcript.ts';
 import type { LogTranscriptFunction } from './log-transcript.ts';
@@ -10,7 +11,8 @@ import type { LogTranscriptFunction } from './log-transcript.ts';
 /**
  * `LogTranscriptFunction` that calls `sessionRegister` once and then `messageLog` for each message, one after the
  * other, so the log keeps the order of the transcript. For each result of `taskCreate` or `taskGet` in the transcript,
- * it calls `sessionTaskSet` with its task. After the messages of each read of the transcript, it calls
+ * it calls `sessionTaskSet` with its task, and for each result of `worktreeCreate`, `sessionTicketSet` with its
+ * ticket. After the messages of each read of the transcript, it calls
  * `sessionActivityReport` once with the last status that the read shows. The end of the session stops the tail of the
  * transcript, which reads the file once more before it resolves.
  */
@@ -55,6 +57,7 @@ const logLines = async (
 ): Promise<void> => {
   for (const line of lines) {
     await reportTask(transcript, connection, line, signal);
+    await reportTicket(transcript, connection, line, signal);
     const message = transcript.parse(line);
     if (message === undefined) continue;
     const params: z.input<typeof messageLogMethod.params> = { sessionId: transcript.sessionId, ...message };
@@ -84,6 +87,22 @@ const reportTask = async (
   if (taskId === undefined) return;
   const params: z.input<typeof sessionTaskSetMethod.params> = { sessionId: transcript.sessionId, taskId };
   await connection.request(sessionTaskSetMethod.name, params, signal);
+};
+
+/**
+ * Tells the repository server over `connection` the ticket that the line `line` of `transcript` holds as the result of
+ * a tool, if it holds one, as the ticket that the session of the transcript works on.
+ */
+const reportTicket = async (
+  transcript: Transcript,
+  connection: RpcConnection,
+  line: string,
+  signal: AbortSignal,
+): Promise<void> => {
+  const ticketId = transcript.parseTicket(line);
+  if (ticketId === undefined) return;
+  const params: z.input<typeof sessionTicketSetMethod.params> = { sessionId: transcript.sessionId, ticketId };
+  await connection.request(sessionTicketSetMethod.name, params, signal);
 };
 
 /**

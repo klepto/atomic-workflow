@@ -1,4 +1,23 @@
 /**
+ * The failure of a call that the server answered with a JSON-RPC 2.0 error: its message, and the details of the error.
+ */
+export class RpcCallError extends Error {
+  /**
+   * The details of the error, such as the kind of a refusal of the worktrees, or `undefined` when it has none.
+   */
+  readonly data: unknown;
+
+  /**
+   * Creates the failure with the message `message` and the details `data`.
+   */
+  constructor(message: string, data: unknown) {
+    super(message);
+    this.name = 'RpcCallError';
+    this.data = data;
+  }
+}
+
+/**
  * The path at which the web server answers JSON-RPC 2.0 requests.
  */
 const RPC_PATH = '/rpc';
@@ -39,8 +58,8 @@ const readBody = async (response: Response, method: string): Promise<unknown> =>
 };
 
 /**
- * Returns the result of the JSON-RPC 2.0 response `body`, the answer to `method`. Throws an `Error` with the message of
- * its error, or when it holds neither an error nor a result.
+ * Returns the result of the JSON-RPC 2.0 response `body`, the answer to `method`. Throws an `RpcCallError` with the
+ * message and the details of its error, or an `Error` when it holds neither an error nor a result.
  */
 const resultOf = (body: unknown, method: string): unknown => {
   if (typeof body !== 'object' || body === null) {
@@ -52,7 +71,8 @@ const resultOf = (body: unknown, method: string): unknown => {
       typeof error === 'object' && error !== null && 'message' in error && typeof error.message === 'string'
         ? error.message
         : `The server answered ${method} with an error without a message`;
-    throw new Error(message);
+    const data = typeof error === 'object' && error !== null && 'data' in error ? error.data : undefined;
+    throw new RpcCallError(message, data);
   }
   if (!('result' in body)) {
     throw new Error(`The server answered ${method} with no result`);
@@ -61,9 +81,9 @@ const resultOf = (body: unknown, method: string): unknown => {
 };
 
 /**
- * Sends one JSON-RPC 2.0 request for `method` with `params` to `/rpc`, and returns its result. Throws an `Error` with
- * the message of the error of the response, or when the server is not reachable, answers a status other than 200, or
- * answers no JSON-RPC response.
+ * Sends one JSON-RPC 2.0 request for `method` with `params` to `/rpc`, and returns its result. Throws an
+ * `RpcCallError` with the message and the details of the error of the response. Throws an `Error` when the server is
+ * not reachable, answers a status other than 200, or answers no JSON-RPC response.
  */
 export const call = async <Result>(method: string, params?: Record<string, unknown>): Promise<Result> => {
   lastId += 1;

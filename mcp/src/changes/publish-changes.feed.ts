@@ -42,6 +42,7 @@ const publishingMessageLog = (store: MessageLogStore, changes: ChangeFeed): Mess
     if (deleted > 0) changes.publish('messages');
     return deleted;
   },
+  latestTimes: () => store.latestTimes(),
 });
 
 /**
@@ -66,8 +67,8 @@ const publishingTasks = (store: TaskStore, changes: ChangeFeed): TaskStore => {
 };
 
 /**
- * Wraps `store`, so that `setTask` publishes `sessions` to `changes` once it resolves with `true`, and `delete`
- * publishes `sessions` and `messages` once it resolves with `true`.
+ * Wraps `store`, so that `setTask` and `setTicket` publish `sessions` to `changes` once they resolve with `true`, and
+ * `delete` publishes `sessions` and `messages` once it resolves with `true`.
  */
 const publishingSessions = (store: SessionStore, changes: ChangeFeed): SessionStore => ({
   register: (session) => store.register(session),
@@ -75,6 +76,11 @@ const publishingSessions = (store: SessionStore, changes: ChangeFeed): SessionSt
   list: () => store.list(),
   setTask: async (id, taskId) => {
     const changed = await store.setTask(id, taskId);
+    if (changed) changes.publish('sessions');
+    return changed;
+  },
+  setTicket: async (id, ticketId) => {
+    const changed = await store.setTicket(id, ticketId);
     if (changed) changes.publish('sessions');
     return changed;
   },

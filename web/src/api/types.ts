@@ -25,6 +25,33 @@ export interface ListedSession {
   taskId: number | null;
 
   /**
+   * Identifier of the ticket of the task `taskId` that the session works on, or `null` for none.
+   */
+  ticketId: number | null;
+
+  /**
+   * Job of a subagent, such as `plan`, `implement` or `orchestrator` for the orchestrator of a task, or `null` for a
+   * session with no known job.
+   */
+  job: string | null;
+
+  /**
+   * Name of the chat of the session: `main` for an orchestrator session, and for a subagent its job with the slug of
+   * its target, such as `implement-cache-key-format`, unique among the subagents.
+   */
+  name: string;
+
+  /**
+   * Time when the session started, in ms since the epoch, or `null` when it is not known.
+   */
+  startedAt: number | null;
+
+  /**
+   * Time of the latest message of the session, in ms since the epoch, or `null` for none.
+   */
+  lastActivityAt: number | null;
+
+  /**
    * Whether the session is attached, so it can take a message of `messageDeliver` now.
    */
   attached: boolean;
@@ -107,6 +134,125 @@ export interface TaskSummary {
    * Number of every ticket of the task, completed or not.
    */
   totalTickets: number;
+}
+
+/**
+ * A ticket of a task in the result of `taskGet`, with the fields that the web app reads, as `Ticket` of
+ * `mcp/src/storage/task-store.ts` declares it.
+ */
+export interface Ticket {
+  /**
+   * Identifier of the ticket within its task, from 1 in the order of the tickets.
+   */
+  id: number;
+
+  /**
+   * Short name of the ticket in kebab case.
+   */
+  slug: string;
+
+  /**
+   * Summary of the ticket in one sentence.
+   */
+  summary: string;
+
+  /**
+   * Status of the ticket: `not-started` before its work starts, `in-progress` while it runs, `needs-review` once its
+   * work landed on the task branch, `blocked` while it waits for a cause, and `done` once its review passed. It is
+   * `TicketStatus` of `mcp/src/storage/task-store.ts`.
+   */
+  status: 'not-started' | 'in-progress' | 'needs-review' | 'blocked' | 'done';
+
+  /**
+   * Who does the work of the ticket: `unattended` for an agent alone, `attended` for an agent that needs the user
+   * between turns, and `manual` for the user. It is `TicketMode` of `mcp/src/storage/task-store.ts`.
+   */
+  mode: 'unattended' | 'attended' | 'manual';
+
+  /**
+   * How the work of the ticket runs: `code` in stages, `other` in one pass. It is `TicketType` of
+   * `mcp/src/storage/task-store.ts`.
+   */
+  type: 'code' | 'other';
+
+  /**
+   * Complexity of the work of the ticket, or `null` for a manual ticket. It is `TicketComplexity` of
+   * `mcp/src/storage/task-store.ts`.
+   */
+  complexity: 'simple' | 'complex' | null;
+
+  /**
+   * Description of the ticket in Markdown.
+   */
+  description: string;
+
+  /**
+   * Identifiers of the tickets of the same task that must be done before this one.
+   */
+  dependsOn: readonly number[];
+
+  /**
+   * Identifier of the earlier ticket whose landed work this ticket fixes, or `null` for none.
+   */
+  fixes: number | null;
+
+  /**
+   * Stage that the work of the ticket is in, `prototype`, `tests` or `refactor`, or `null` outside of the stages.
+   */
+  stage: 'prototype' | 'tests' | 'refactor' | null;
+
+  /**
+   * Cause that a blocked ticket waits for, or `null` for a ticket that is not blocked.
+   */
+  blockedReason: string | null;
+}
+
+/**
+ * The commit that holds the landed work of a ticket, the result of `ticketDiff`, as `TicketCommit` of
+ * `mcp/src/worktree/worktrees.ts` declares it.
+ */
+export interface TicketCommit {
+  /**
+   * Id of the commit.
+   */
+  commit: string;
+
+  /**
+   * Changes of the commit against its parent, as the patch of `git show`, with renames detected and paths not quoted.
+   */
+  patch: string;
+}
+
+/**
+ * The result of `ticketRequestChanges`, as `RequestedChanges` of `mcp/src/rpc/method.ticket-request-changes.ts`
+ * declares it.
+ */
+export interface RequestedChanges {
+  /**
+   * The new ticket that makes the changes that the review asked for.
+   */
+  ticket: Ticket;
+
+  /**
+   * Why the server refused to approve the reviewed ticket, or `null` when it approved it, or when it was done already.
+   */
+  approvalRefusal: string | null;
+}
+
+/**
+ * A task of the repository in the result of `taskGet`, with the fields that the web app reads, as `Task` of
+ * `mcp/src/storage/task-store.ts` declares it.
+ */
+export interface TaskDetail {
+  /**
+   * Identifier of the task.
+   */
+  id: number;
+
+  /**
+   * Tickets of the task in the order of their ids.
+   */
+  tickets: readonly Ticket[];
 }
 
 /**

@@ -6,6 +6,7 @@ import { DeleteDialog } from '@/components/delete-dialog.tsx';
 import { Button } from '@/components/ui/button.tsx';
 import { cn } from '@/lib/utils.ts';
 import { TaskIdLabel } from '@/tasks/task-id-label.tsx';
+import { TicketList } from '@/tasks/ticket-list.tsx';
 
 /**
  * The id of the task panel, which the tab of each task names as the region that it controls.
@@ -25,6 +26,12 @@ export interface TaskPanelProps {
    * Closes the panel.
    */
   onClose: () => void;
+
+  /**
+   * Opens the chat of the subagent `sessionId` beside the task, such as the orchestrator of the task once it took over
+   * an approval.
+   */
+  onOpenChat: (sessionId: string) => void;
 }
 
 /**
@@ -171,9 +178,18 @@ const DeleteTask = ({ task }: { task: TaskSummary }) => (
 
 /**
  * The content of the panel for the task `task`: its slug, its id and the day it was created, with the buttons that
- * delete the task and close the panel, then its status with its stages, then its tickets.
+ * delete the task and close the panel, then its status with its stages, then its tickets with the buttons that review
+ * and approve each of them.
  */
-const TaskDetails = ({ task, onClose }: { task: TaskSummary; onClose: () => void }) => (
+const TaskDetails = ({
+  task,
+  onClose,
+  onOpenChat,
+}: {
+  task: TaskSummary;
+  onClose: () => void;
+  onOpenChat: (sessionId: string) => void;
+}) => (
   <div className="flex flex-col gap-8 px-6 py-5">
     <div className="flex items-start gap-3">
       <div className="flex min-w-0 flex-1 flex-col gap-1">
@@ -204,6 +220,7 @@ const TaskDetails = ({ task, onClose }: { task: TaskSummary; onClose: () => void
     </PanelSection>
     <PanelSection title="Tickets">
       <TicketCount task={task} />
+      <TicketList task={task} onOpenChat={onOpenChat} />
     </PanelSection>
   </div>
 );
@@ -215,7 +232,7 @@ const TaskDetails = ({ task, onClose }: { task: TaskSummary; onClose: () => void
  * it. A click on its close button, or Escape inside it but outside its dialogs, calls `onClose`. While closed, nothing
  * in it takes focus.
  */
-export const TaskPanel = ({ task, onClose }: TaskPanelProps) => {
+export const TaskPanel = ({ task, onClose, onOpenChat }: TaskPanelProps) => {
   const [shown, setShown] = useState(task);
   if (task !== undefined && task !== shown) {
     setShown(task);
@@ -243,7 +260,7 @@ export const TaskPanel = ({ task, onClose }: TaskPanelProps) => {
       )}
     >
       <div className="h-full w-full overflow-y-auto md:w-[26rem] md:border-l">
-        {shown !== undefined && <TaskDetails task={shown} onClose={onClose} />}
+        {shown !== undefined && <TaskDetails task={shown} onClose={onClose} onOpenChat={onOpenChat} />}
       </div>
     </aside>
   );

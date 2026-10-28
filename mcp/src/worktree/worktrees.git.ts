@@ -12,6 +12,7 @@ import type {
   DeletedWorktrees,
   MergedTask,
   MergedTicket,
+  TicketCommit,
   WorkName,
   WorktreePlace,
   WorktreesDependencies,
@@ -42,6 +43,16 @@ const FORK_POINT_PREFIX = 'refs/atomic-workflow/fork-points/';
  * Start of the name of the reference of a branch.
  */
 const BRANCH_REF_PREFIX = 'refs/heads/';
+
+/**
+ * Key of the trailer that names the task of the commit of a ticket as `<id>-<slug>`.
+ */
+const TASK_TRAILER = 'Atomic-Workflow-Task';
+
+/**
+ * Key of the trailer that names the ticket of the commit of a ticket as `<id>-<slug>`.
+ */
+const TICKET_TRAILER = 'Atomic-Workflow-Ticket';
 
 /**
  * What a conflict of `merge` or `mergeTask` asks the caller to do once the files are resolved.
@@ -212,6 +223,7 @@ export const gitCreateWorktrees: CreateWorktreesFunction = (dependencies) => {
   return {
     create: (task, ticket, baseBranch) => queue(() => create(dependencies, task, ticket, baseBranch)),
     merge: (task, ticket, message) => queue(() => merge(dependencies, task, ticket, message)),
+    ticketCommit: (task, ticket, baseBranch) => queue(() => ticketCommit(dependencies, task, ticket, baseBranch)),
     mergeTask: (task, baseBranch) => queue(() => mergeTask(dependencies, task, baseBranch)),
     deleteTicket: (task, ticket, force) => queue(() => deleteTicket(dependencies, task, ticket, force)),
     deleteTask: (task, baseBranch, force) => queue(() => deleteTask(dependencies, task, baseBranch, force)),
@@ -532,7 +544,14 @@ const merge = async (
   await checkListed(layout, place);
   await checkNotRebasing(taskPlace);
   const rebase = await stoppedRebase(place.path);
-  if (rebase === undefined) await squashOnto(place, taskPlace.branch, message);
+  if (rebase === undefined)
+    await squashOnto(
+      place,
+      taskPlace.branch,
+      `${message.trimEnd()}
+
+${trailersOf(task, ticket)}`,
+    );
   else {
     await continueRebase(place, taskPlace.branch, MERGE_AGAIN);
     await setForkPoint(place.path, place.branch, rebase.onto);
@@ -541,6 +560,47 @@ const merge = async (
   // The task branch holds the whole ticket branch now, so a later commit of the ticket starts from its tip.
   await setForkPoint(place.path, place.branch, await gitOutput(place.path, ['rev-parse', 'HEAD']));
   return { taskBranch: taskPlace.branch, commit };
+};
+
+/**
+ * Returns the trailers that name the task `task` and its ticket `ticket` in the message of the commit of the ticket,
+ * one per line.
+ */
+const trailersOf = (task: WorkName, ticket: WorkName): string =>
+  `${TASK_TRAILER}: ${task.id}-${task.slug}
+${TICKET_TRAILER}: ${ticket.id}-${ticket.slug}`;
+
+/**
+ * Returns the commit that holds the landed work of the ticket `ticket` of the task `task`, with its patch: the latest
+ * commit whose trailers name both, on the task branch while it exists, else on the base branch `baseBranch`. If
+ * neither branch exists, or neither holds such a commit, returns `undefined` instead.
+ */
+const ticketCommit = async (
+  dependencies: WorktreesDependencies,
+  task: WorkName,
+  ticket: WorkName,
+  baseBranch: string | null,
+): Promise<TicketCommit | undefined> => {
+  const layout = await layoutOf(dependencies);
+  const taskBranch = taskPlaceOf(layout, task).branch;
+  const branch = (await branchExists(layout.checkout, taskBranch)) ? taskBranch : baseBranch;
+  if (branch === null || !(await branchExists(layout.checkout, branch))) return undefined;
+  const commit = await gitOutput(layout.checkout, [
+    'log',
+    '-1',
+    '--format=%H',
+    '--all-match',
+    // Each pattern matches a whole line, so ticket 1 does not match the trailer of ticket 11. A slug holds no
+    // character that a regular expression reads as special.
+    `--grep=^${TASK_TRAILER}: ${task.id}-${task.slug}$`,
+    `--grep=^${TICKET_TRAILER}: ${ticket.id}-${ticket.slug}$`,
+    `${BRANCH_REF_PREFIX}${branch}`,
+  ]);
+  if (commit === '') return undefined;
+  const commandLine = ['-c', 'core.quotePath=false', 'show', '--format=', '--no-color', '--no-ext-diff', '-M', commit];
+  const output = await runGit(layout.checkout, commandLine);
+  if (output.exitCode !== 0) throw new Error(`Git ${commandLine.join(' ')} failed: ${lastLines(output)}`);
+  return { commit, patch: output.stdout };
 };
 
 /**
