@@ -1,9 +1,11 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { ListedSession, TaskSummary } from '@/api/types.ts';
 import { type Chat, listChats } from '@/chats/chat-list.ts';
 import { Alert, AlertDescription } from '@/components/ui/alert.tsx';
 import { ScrollArea } from '@/components/ui/scroll-area.tsx';
 import { ConsolePage, NoChat } from '@/console/console-page.tsx';
+import { navigate, useRoute } from '@/routing/navigation.ts';
+import { chatRefOf, findChat, findTask, routePath, taskRefOf } from '@/routing/route.ts';
 import { useConnection } from './api/event-stream.ts';
 import { usePageData } from './api/page-data.ts';
 import { PageHeader, taskTabIdOf } from './layout/page-header.tsx';
@@ -24,94 +26,134 @@ const ConnectionBanner = () => (
 );
 
 /**
- * Returns the open chat among the chats of the sessions `sessions`, or `undefined` while no chat is open, with the
- * function that opens a chat by its key. The open chat lives in state, not in the URL. Once the sessions are known, the
- * first chat of the list opens whenever the open chat is not among them, such as at load. With no chat, no chat is
- * open.
+ * The view that the URL names: the open task, the chats that the sidebar lists, and the open chat. Each is
+ * `undefined` until both the sessions and the tasks are known.
  */
-const useOpenChat = (
-  sessions: readonly ListedSession[] | undefined,
-): [open: Chat | undefined, setOpenKey: (key: string | undefined) => void] => {
-  const [openKey, setOpenKey] = useState<string>();
-  const chats = sessions === undefined ? undefined : listChats(sessions);
-  const open = chats?.find((chat) => chat.key === openKey);
-  if (chats !== undefined && open === undefined) {
-    const fallback = chats[0]?.key;
-    if (fallback !== openKey) {
-      setOpenKey(fallback);
+interface View {
+  /**
+   * The task that the URL names, or `undefined` while it names none that exists.
+   */
+  openTask: TaskSummary | undefined;
+
+  /**
+   * The chats of the open task, or of the repository while no task is open.
+   */
+  chats: readonly Chat[] | undefined;
+
+  /**
+   * The chat that the URL names among `chats`, else the first of them, or `undefined` while there is none.
+   */
+  open: Chat | undefined;
+}
+
+/**
+ * Resolves the route of the URL against the sessions `sessions` and the tasks `tasks` into the view that it names, and
+ * replaces the URL with the canonical path of that view, with no new history entry, whenever the two differ. Until both
+ * the sessions and the tasks are known, nothing resolves and the URL stays as it is.
+ */
+const useView = (sessions: readonly ListedSession[] | undefined, tasks: readonly TaskSummary[] | undefined): View => {
+  const route = useRoute();
+  const known = sessions !== undefined && tasks !== undefined;
+  const openTask = known && route.taskRef !== undefined ? findTask(tasks, route.taskRef) : undefined;
+  const chats = known ? listChats(sessions, openTask?.id) : undefined;
+  const named = chats !== undefined && route.chatRef !== undefined ? findChat(chats, route.chatRef) : undefined;
+  const open = named ?? chats?.[0];
+  const canonical = known ? routePath(openTask && taskRefOf(openTask), open && chatRefOf(open)) : undefined;
+  // Runs again on each new route too, since back and forward can lead to a path that is not canonical.
+  useEffect(() => {
+    if (canonical !== undefined && canonical !== window.location.pathname) {
+      navigate(canonical, { replace: true });
     }
-  }
-  return [open, setOpenKey];
+  }, [canonical, route]);
+  return { openTask, chats, open };
 };
 
 /**
- * Returns the open task among the tasks `tasks`, or `undefined` while no task is open, with the function that opens a
- * task by its id or closes it while it is open, the one that closes the open task, and the one that opens a task by its
- * id. The open task lives in state, not in the URL. A task that is no longer among `tasks`, such as one deleted, counts
- * as closed. Closing the open task moves the focus to its tab.
- */
-const useOpenTask = (
-  tasks: readonly TaskSummary[] | undefined,
-): [
-  open: TaskSummary | undefined,
-  toggle: (taskId: number) => void,
-  close: () => void,
-  show: (taskId: number) => void,
-] => {
-  const [openId, setOpenId] = useState<number>();
-  const open = tasks?.find((task) => task.id === openId);
-  const toggle = (taskId: number) => setOpenId((current) => (current === taskId ? undefined : taskId));
-  const close = () => {
-    if (openId !== undefined) {
-      document.getElementById(taskTabIdOf(openId))?.focus();
-    }
-    setOpenId(undefined);
-  };
-  return [open, toggle, close, setOpenId];
-};
-
-/**
- * Calls `onFirstTask` with the id of the task of the open chat `open`, among the sessions `sessions`, when the subagent
- * of that chat gets its first task while its chat stays open, such as once it creates the task with its first goal. A
- * chat that already has a task when it opens does not call it.
+ * Opens the task of the open chat `open`, among the sessions `sessions` and the tasks `tasks`, when the subagent of that
+ * chat gets its first task while its chat stays open, such as once it creates the task with its first goal. It
+ * navigates as a click does, with a new history entry, once the task is among `tasks`, since the sessions can change
+ * before the tasks do. A chat that already has a task when it opens does not open it.
  */
 const useFirstTaskOfOpenChat = (
   open: Chat | undefined,
   sessions: readonly ListedSession[] | undefined,
-  onFirstTask: (taskId: number) => void,
+  tasks: readonly TaskSummary[] | undefined,
 ) => {
   const taskId =
     open?.role === 'subagent' ? (sessions?.find((session) => session.sessionId === open.key)?.taskId ?? null) : null;
   const [seen, setSeen] = useState({ key: open?.key, taskId });
+  const [pending, setPending] = useState<{ key: string; taskId: number }>();
   if (seen.key !== open?.key || seen.taskId !== taskId) {
     setSeen({ key: open?.key, taskId });
-    if (seen.key === open?.key && seen.taskId === null && taskId !== null) {
-      onFirstTask(taskId);
+    if (open !== undefined && seen.key === open.key && seen.taskId === null && taskId !== null) {
+      setPending({ key: open.key, taskId });
     }
   }
+  useEffect(() => {
+    if (pending === undefined) {
+      return;
+    }
+    if (open?.key !== pending.key) {
+      setPending(undefined);
+      return;
+    }
+    const task = tasks?.find((candidate) => candidate.id === pending.taskId);
+    if (task === undefined) {
+      return;
+    }
+    setPending(undefined);
+    navigate(routePath(taskRefOf(task), chatRefOf(open)));
+  }, [pending, open, tasks]);
 };
 
 /**
  * The app: the header, the banner while the stream is down, and below them the sidebar beside the main column, with
- * the panel of the open task at the right. The main column stays empty until the sessions are known. Then it shows the
- * open chat, or the line that no agent has run in the repository while there is no chat. The app fills the window, and
- * the window never scrolls: the sidebar, the tabs of the header, the main column and the task panel each scroll inside
- * themselves. While a task is open, the sidebar lists the chats of the task. The task of the open chat opens once its
- * subagent gets it. On a narrow screen the sidebar is a row above the main column, and the task panel covers both.
+ * the panel of the open task at the right. The URL holds the open chat and the open task, so a refresh, back and
+ * forward keep them, and each view that opens navigates. The main column stays empty until the sessions and the tasks
+ * are known. Then it shows the open chat, or the line that no agent has run in the repository while there is no chat.
+ * The app fills the window, and the window never scrolls: the sidebar, the tabs of the header, the main column and the
+ * task panel each scroll inside themselves. While a task is open, the sidebar lists the chats of the task. The task of
+ * the open chat opens once its subagent gets it. On a narrow screen the sidebar is a row above the main column, and the
+ * task panel covers both.
  */
 const Shell = () => {
   const { online } = useConnection();
   const { repository, sessions, tasks, messages, readSessions } = usePageData();
-  const [open, setOpenKey] = useOpenChat(sessions);
-  const [openTask, toggleTask, closeTask, showTask] = useOpenTask(tasks);
-  useFirstTaskOfOpenChat(open, sessions, showTask);
+  const { openTask, chats, open } = useView(sessions, tasks);
+  useFirstTaskOfOpenChat(open, sessions, tasks);
+  const openTaskRef = openTask && taskRefOf(openTask);
+  const openChatRef = open && chatRefOf(open);
+
+  /**
+   * Opens the chat of the subagent `sessionId` that just started beside the open task. The URL names it by its session
+   * id, which the shell then replaces with the name of its chat.
+   */
+  const openAgentChat = (sessionId: string) => navigate(routePath(openTaskRef, sessionId));
+
+  /**
+   * Opens the chat of the subagent `sessionId` that a skill started from the chat of the orchestrator, with no task
+   * open, since that subagent works on no task yet. Its task opens once it gets one.
+   */
+  const openSkillChat = (sessionId: string) => navigate(routePath(undefined, sessionId));
+
+  /**
+   * Closes the open task, keeps the open chat, and moves the focus to the tab of the task.
+   */
+  const closeTask = () => {
+    if (openTask !== undefined) {
+      document.getElementById(taskTabIdOf(openTask.id))?.focus();
+    }
+    navigate(routePath(undefined, openChatRef));
+  };
+
   return (
     <div className="flex h-dvh flex-col overflow-hidden">
       <PageHeader
         repository={repository?.name}
         tasks={tasks ?? []}
+        sessions={sessions ?? []}
         openTaskId={openTask?.id}
-        onToggleTask={toggleTask}
+        openChat={open}
       />
       {!online && <ConnectionBanner />}
       <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden md:flex-row">
@@ -120,12 +162,12 @@ const Shell = () => {
             sessions={sessions ?? []}
             open={open}
             task={openTask}
-            onOpen={setOpenKey}
+            onOpen={openAgentChat}
             readSessions={readSessions}
           />
         </ScrollArea>
         <main className="flex min-h-0 min-w-0 flex-1 flex-col">
-          {sessions !== undefined &&
+          {chats !== undefined &&
             (open === undefined ? (
               <NoChat />
             ) : (
@@ -134,7 +176,7 @@ const Shell = () => {
                 chat={open}
                 messages={messages}
                 online={online}
-                onOpen={setOpenKey}
+                onOpen={openSkillChat}
                 readSessions={readSessions}
               />
             ))}

@@ -7,9 +7,12 @@ import { type Chat, listChats } from '@/chats/chat-list.ts';
 import { DeleteDialog } from '@/components/delete-dialog.tsx';
 import { Button } from '@/components/ui/button.tsx';
 import { cn } from '@/lib/utils.ts';
+import { chatRefOf, routePath, taskRefOf } from '@/routing/route.ts';
+import { RouteLink } from '@/routing/route-link.tsx';
 
 /**
- * Props of the sidebar: the sessions, the open chat, the open task, and what opens a chat and reads the sessions again.
+ * Props of the sidebar: the sessions, the open chat, the open task, and what opens the chat of a new subagent and reads
+ * the sessions again.
  */
 export interface SidebarProps {
   /**
@@ -28,9 +31,9 @@ export interface SidebarProps {
   task: TaskSummary | undefined;
 
   /**
-   * Opens the chat with the key `key`.
+   * Opens the chat of the subagent with the session id `sessionId`, which just started.
    */
-  onOpen: (key: string) => void;
+  onOpen: (sessionId: string) => void;
 
   /**
    * Reads the sessions again. Resolves once a read that started after the call ended.
@@ -39,7 +42,7 @@ export interface SidebarProps {
 }
 
 /**
- * The classes of the button of every entry of the sidebar.
+ * The classes of the link of every entry of the sidebar.
  */
 const ENTRY_LINK =
   'flex min-w-0 flex-1 items-center gap-2 whitespace-nowrap rounded-md px-3 py-1.5 text-muted-foreground text-sm outline-none transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:ring-[3px] focus-visible:ring-sidebar-ring/50 aria-[current=page]:bg-sidebar-accent aria-[current=page]:font-medium aria-[current=page]:text-sidebar-accent-foreground';
@@ -122,26 +125,24 @@ const StopAgent = ({ chat }: { chat: Chat }) => {
 
 /**
  * The entry of the chat `chat`: the dot of its status and its name. A screen reader hears the name, then the words of
- * the status. A click on it calls `onOpen`. It is marked as the current page when `current` is true. The entry of a
- * subagent that runs has the button that stops it, and the entry of a subagent that ended has the button that deletes
- * it.
+ * the status. It is a link to `to`, and is marked as the current page when `current` is true. The entry of a subagent
+ * that runs has the button that stops it, and the entry of a subagent that ended has the button that deletes it.
  */
-const ChatEntry = ({ chat, current, onOpen }: { chat: Chat; current: boolean; onOpen: () => void }) => {
+const ChatEntry = ({ chat, current, to }: { chat: Chat; current: boolean; to: string }) => {
   const subagent = chat.role === 'subagent';
   const deletable = subagent && chat.status === 'ended';
   const stoppable = subagent && chat.status !== 'ended';
   return (
     <li className="group relative flex min-w-0">
-      <button
-        type="button"
-        onClick={onOpen}
+      <RouteLink
+        to={to}
         aria-current={current ? 'page' : undefined}
         className={cn(ENTRY_LINK, 'cursor-pointer', (deletable || stoppable) && 'pr-8')}
       >
         <ChatDot status={chat.status} />
         <span className="truncate">{chat.name}</span>
         <span className="sr-only">{`, ${CHAT_STATUSES[chat.status].words}`}</span>
-      </button>
+      </RouteLink>
       {deletable && <DeleteAgent chat={chat} />}
       {stoppable && <StopAgent chat={chat} />}
     </li>
@@ -234,7 +235,8 @@ const StartAgentButton = ({
  * started first. While a task is open, the section lists only the subagents that work on it, after the chat
  * `orchestrator`, its heading names the task, and a new agent works on the task. A task without subagents says so
  * below the chat `orchestrator`. The dot of each chat shows its status: a grey ring once ended, green while idle, yellow while working,
- * and red while it waits for the user. A click on a chat opens it, and the open chat is marked as the current page. A
+ * and red while it waits for the user. Each chat is a link to itself beside the open task, and the open chat is marked
+ * as the current page. A
  * subagent that runs can be stopped from its entry, and one that ended can be deleted with its chat from it. A
  * new agent starts inside the orchestrator session that attached last. It is the navigation of a column at the left of
  * the page on a wide screen, and of a row above the page on a narrow one.
@@ -252,7 +254,12 @@ export const Sidebar = ({ sessions, open, task, onOpen, readSessions }: SidebarP
       <SidebarSection title={task === undefined ? 'Chats' : `Chats of ${task.slug}`}>
         <ul aria-label="Chats" className="flex gap-1 md:flex-col md:gap-0.5">
           {chats.map((chat) => (
-            <ChatEntry key={chat.key} chat={chat} current={chat.key === open?.key} onOpen={() => onOpen(chat.key)} />
+            <ChatEntry
+              key={chat.key}
+              chat={chat}
+              current={chat.key === open?.key}
+              to={routePath(task && taskRefOf(task), chatRefOf(chat))}
+            />
           ))}
           {task !== undefined && chats.every((chat) => chat.role !== 'subagent') && (
             <li className="flex items-center whitespace-nowrap px-3 py-1.5 text-muted-foreground text-xs">

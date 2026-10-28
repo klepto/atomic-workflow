@@ -195,7 +195,7 @@ const TaskDetails = ({ task, onClose }: { task: TaskSummary; onClose: () => void
           aria-label="Close task"
           onClick={onClose}
         >
-          <X aria-hidden="true" className="size-[1.2rem]" />
+          <X aria-hidden="true" className="size-[1.452rem]" />
         </Button>
       </div>
     </div>

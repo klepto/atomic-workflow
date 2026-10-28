@@ -1,11 +1,14 @@
-import { useEffect, useRef } from 'react';
-import type { TaskSummary } from '@/api/types.ts';
+import { type MouseEvent, useEffect, useRef } from 'react';
+import type { ListedSession, TaskSummary } from '@/api/types.ts';
+import { type Chat, listChats } from '@/chats/chat-list.ts';
 import { ScrollArea } from '@/components/ui/scroll-area.tsx';
+import { chatRefOf, routePath, taskRefOf } from '@/routing/route.ts';
+import { isPlainClick, RouteLink } from '@/routing/route-link.tsx';
 import { TaskIdLabel } from '@/tasks/task-id-label.tsx';
 import { TASK_PANEL_ID } from '@/tasks/task-panel.tsx';
 
 /**
- * Props of the page header: the name of the repository, the tasks, the open task and what opens or closes a task.
+ * Props of the page header: the name of the repository, the tasks, the sessions, the open task and the open chat.
  */
 export interface PageHeaderProps {
   /**
@@ -19,37 +22,38 @@ export interface PageHeaderProps {
   tasks: readonly TaskSummary[];
 
   /**
+   * The sessions of the repository, attached or not, as `sessionList` lists them.
+   */
+  sessions: readonly ListedSession[];
+
+  /**
    * The id of the open task, or `undefined` while no task is open.
    */
   openTaskId: number | undefined;
 
   /**
-   * Opens the task with the id `taskId`, or closes it while it is the open task.
+   * The open chat, or `undefined` while no chat is open.
    */
-  onToggleTask: (taskId: number) => void;
+  openChat: Chat | undefined;
 }
 
 /**
- * The title of the app, `atomic-workflow / <repository>`, as a link to `/`. It reads `atomic-workflow` only while
+ * The title of the app, `atomic-workflow / <repository>`, as a link to `to`. It reads `atomic-workflow` only while
  * `repository` is `undefined`. On a narrow screen the name of the repository takes a line of its own when the title
- * does not fit on one. While `onCloseTask` is set, a plain click calls it instead of following the link, and a click
- * that opens the link elsewhere, such as with Ctrl, still follows it.
+ * does not fit on one. A click on it calls `onClick` before it follows the link.
  */
 const Title = ({
   repository,
-  onCloseTask,
+  to,
+  onClick,
 }: {
   repository: string | undefined;
-  onCloseTask: (() => void) | undefined;
+  to: string;
+  onClick: (event: MouseEvent<HTMLAnchorElement>) => void;
 }) => (
-  <a
-    href="/"
-    onClick={(event) => {
-      if (onCloseTask !== undefined && !(event.ctrlKey || event.metaKey || event.shiftKey || event.altKey)) {
-        event.preventDefault();
-        onCloseTask();
-      }
-    }}
+  <RouteLink
+    to={to}
+    onClick={onClick}
     className="flex min-w-0 flex-wrap items-center gap-x-1.5 rounded-md text-sm leading-5 outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50 md:flex-nowrap"
   >
     <span className="flex shrink-0 gap-1.5 text-muted-foreground">
@@ -69,7 +73,7 @@ const Title = ({
         </span>
       </>
     )}
-  </a>
+  </RouteLink>
 );
 
 /**
@@ -78,18 +82,21 @@ const Title = ({
 export const taskTabIdOf = (taskId: number) => `task-tab-${taskId}`;
 
 /**
- * The tabs of the tasks: one button for each task of `tasks`, with its slug and its id. A click on a tab calls
- * `onToggleTask` with the id of its task. The tab of the open task `openTaskId` is the current one, and is marked as
- * expanded. The row scrolls sideways when the tabs do not fit, and brings the current tab into view.
+ * The tabs of the tasks: one link for each task of `tasks`, with its slug and its id, to the path that `targetOf`
+ * returns for its task. A click on the tab of the open task `openTaskId` calls `onCloseClick` before it follows the
+ * link. That tab is the current one, and is marked as expanded. The row scrolls sideways when the tabs do not fit, and
+ * brings the current tab into view.
  */
 const TaskTabs = ({
   tasks,
   openTaskId,
-  onToggleTask,
+  targetOf,
+  onCloseClick,
 }: {
   tasks: readonly TaskSummary[];
   openTaskId: number | undefined;
-  onToggleTask: (taskId: number) => void;
+  targetOf: (task: TaskSummary) => string;
+  onCloseClick: (event: MouseEvent<HTMLAnchorElement>) => void;
 }) => {
   const row = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -103,17 +110,17 @@ const TaskTabs = ({
         <ul className="flex h-11 items-stretch gap-1 px-2 md:h-12 md:px-0">
           {tasks.map((task) => (
             <li key={task.id} className="flex">
-              <button
-                type="button"
+              <RouteLink
+                to={targetOf(task)}
                 id={taskTabIdOf(task.id)}
                 aria-expanded={task.id === openTaskId}
                 aria-controls={TASK_PANEL_ID}
-                onClick={() => onToggleTask(task.id)}
+                onClick={task.id === openTaskId ? onCloseClick : undefined}
                 className="relative flex cursor-pointer items-center whitespace-nowrap rounded-sm px-3 text-muted-foreground text-sm outline-none transition-colors after:absolute after:inset-x-3 after:bottom-0 after:h-0.5 after:rounded-full hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:ring-inset aria-expanded:font-medium aria-expanded:text-foreground aria-expanded:after:bg-primary"
               >
                 <span>{task.slug}</span>
                 <TaskIdLabel id={String(task.id)} />
-              </button>
+              </RouteLink>
             </li>
           ))}
         </ul>
@@ -141,20 +148,46 @@ const revealCurrentTab = (row: HTMLElement) => {
 };
 
 /**
- * The header across the top of the app: the title, which closes the open task or else leads to `/`, and one tab per
- * task, which opens the task or closes it while it is open. On a narrow screen the tabs take a row below the title. The row of tabs is not shown
- * while there is no task. The top right corner of the header stays free.
+ * The header across the top of the app: the title, and one tab per task. Each is a link. The title and the tab of the
+ * open task lead to the open chat with no task open, so they close the task, and a plain click on either moves the
+ * focus to the tab of the task. The tab of another task leads to that task with the open chat when the open chat is
+ * among the chats of the task, and with its first chat otherwise. On a narrow screen the tabs take a row below the
+ * title. The row of tabs is not shown while there is no task. The top right corner of the header stays free.
  */
-export const PageHeader = ({ repository, tasks, openTaskId, onToggleTask }: PageHeaderProps) => (
-  <header className="border-b bg-background">
-    <div className="flex flex-col md:flex-row md:items-stretch md:gap-6 md:pr-44 md:pl-6">
-      <div className="flex min-h-12 min-w-0 items-center py-1.5 pr-36 pl-4 md:h-12 md:max-w-sm md:shrink-0 md:py-0 md:pr-0 md:pl-0">
-        <Title
-          repository={repository}
-          onCloseTask={openTaskId === undefined ? undefined : () => onToggleTask(openTaskId)}
-        />
+export const PageHeader = ({ repository, tasks, sessions, openTaskId, openChat }: PageHeaderProps) => {
+  const openChatRef = openChat && chatRefOf(openChat);
+  const closeTarget = routePath(undefined, openChatRef);
+
+  /**
+   * Returns the path that the tab of the task `task` leads to.
+   */
+  const targetOf = (task: TaskSummary) => {
+    if (task.id === openTaskId) {
+      return closeTarget;
+    }
+    const keepsChat = openChat !== undefined && listChats(sessions, task.id).some((chat) => chat.key === openChat.key);
+    return routePath(taskRefOf(task), keepsChat ? openChatRef : undefined);
+  };
+
+  /**
+   * Moves the focus to the tab of the open task on a plain click `event`, which closes the task in place.
+   */
+  const focusOpenTab = (event: MouseEvent<HTMLAnchorElement>) => {
+    if (openTaskId !== undefined && isPlainClick(event)) {
+      document.getElementById(taskTabIdOf(openTaskId))?.focus();
+    }
+  };
+
+  return (
+    <header className="border-b bg-background">
+      <div className="flex flex-col md:flex-row md:items-stretch md:gap-6 md:pr-44 md:pl-6">
+        <div className="flex min-h-12 min-w-0 items-center py-1.5 pr-36 pl-4 md:h-12 md:max-w-sm md:shrink-0 md:py-0 md:pr-0 md:pl-0">
+          <Title repository={repository} to={closeTarget} onClick={focusOpenTab} />
+        </div>
+        {tasks.length > 0 && (
+          <TaskTabs tasks={tasks} openTaskId={openTaskId} targetOf={targetOf} onCloseClick={focusOpenTab} />
+        )}
       </div>
-      {tasks.length > 0 && <TaskTabs tasks={tasks} openTaskId={openTaskId} onToggleTask={onToggleTask} />}
-    </div>
-  </header>
-);
+    </header>
+  );
+};
