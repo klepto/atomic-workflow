@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import type { ListedSession, TaskSummary } from '@/api/types.ts';
 import { type Chat, listChats } from '@/chats/chat-list.ts';
 import { Alert, AlertDescription } from '@/components/ui/alert.tsx';
+import { HintProvider } from '@/components/ui/hint.tsx';
 import { ScrollArea } from '@/components/ui/scroll-area.tsx';
 import { ConsolePage, NoChat } from '@/console/console-page.tsx';
 import { navigate, useRoute } from '@/routing/navigation.ts';
@@ -231,20 +232,21 @@ const Shell = () => {
             ))
           )}
         </main>
-        <TaskPanel task={openTask} onClose={closeTask} onOpenChat={openTaskChat} />
+        <TaskPanel task={openTask} sessions={sessions ?? []} onClose={closeTask} onOpenChat={openTaskChat} />
       </div>
     </div>
   );
 };
 
 /**
- * The web app of atomic-workflow, with the theme picker at the top right of every page.
+ * The web app of atomic-workflow, with the theme picker at the top right of every page, and the provider of the hints
+ * of its buttons around both.
  */
 export const App = () => (
-  <>
+  <HintProvider>
     <Shell />
     <div className="absolute top-2 right-4 z-50">
       <ThemePicker />
     </div>
-  </>
+  </HintProvider>
 );

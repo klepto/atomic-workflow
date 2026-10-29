@@ -61,7 +61,8 @@ const main = async (): Promise<void> => {
 /**
  * Serves as the repository server at `address`, for the repository that holds `directory` and has the main worktree
  * `mainWorktree`, with the stores of `storage`, until the last session server leaves. The services that hold the state
- * publish their changes to a change feed, which the web server streams.
+ * publish their changes to a change feed, which the web server streams. Once it listens on `address`, it ends each run
+ * of a task that is still active, since the repository server that recorded it stopped.
  */
 const serve = async (address: string, directory: string, mainWorktree: string, storage: Storage): Promise<void> => {
   const changes = CreateChangeFeed();
@@ -98,6 +99,9 @@ const serve = async (address: string, directory: string, mainWorktree: string, s
     await ServeRepository(address, webServer.url, Methods, context, {
       dispatch: Dispatch,
       openConnection: OpenRpcConnection,
+      listening: async () => {
+        await context.tasks.endRuns(Date.now());
+      },
     });
   } finally {
     await webServer.close();

@@ -1023,6 +1023,130 @@ Rejected:
 - A ticket agent that changes a contract that no started ticket uses yet. Two tickets of a wave can rely on it at
   once, so a change of a contract always goes through the user.
 
+## Phase 28
+
+The stages of planning run without the user in unattended mode, so a run of a task can plan it to its end with no
+question.
+
+- `/atomic-workflow:plan-goals`, `/atomic-workflow:plan-design` and `/atomic-workflow:plan-tickets` accept the word
+  `--unattended` after the task id, such as `/atomic-workflow:plan-design 5 --unattended`. Without it, each stage
+  behaves as before. The mode needs a task id.
+- In unattended mode, a stage asks no question and waits for no answer. It works on the stored plan, applies the rules
+  of pushback to its own draft in place of a request of the user, settles each choice itself, stores the result, and
+  finishes as if the user were satisfied: `plan-goals` sets `plan-design`, `plan-design` sets `plan-tickets`, and
+  `plan-tickets` sets `complete`.
+- `plan-goals` keeps the stored goals, and only sharpens or splits a goal that pushback flags. Each goal that it adds
+  has the source `agent`.
+- `plan-design` records each choice that it settled in place of the user in the section `## Decisions` of the design,
+  with the alternatives and the reason. The format of the design in `plugin/references/planning.md` lists the section.
+- A task that is `complete` or `done` runs no stage in unattended mode: the stage prints the status and stops, with no
+  amend.
+- The rules of the mode sit once in `## Unattended` of `plugin/references/planning.md`, and each stage skill adds only
+  what is its own.
+
+Rejected:
+
+- Unattended planning as skills of their own. They would copy every rule of the three stages, and drift from them.
+- An amend in unattended mode. An amend changes a plan whose tickets are worked on, which only the user can weigh.
+
+## Phase 29
+
+`/atomic-workflow:run <task>` drives a task to its end with no user: from any stage of planning or a complete plan,
+until every ticket in the mode `unattended` landed. The run button of the task panel sends it to the orchestrator of
+the task, with `taskOrchestratorDeliver` and the content `/atomic-workflow:run <task id>`.
+
+- A task that is `done` ends the run at once, with one line. While the status is `plan-goals`, `plan-design` or
+  `plan-tickets`, the run invokes `atomic-workflow:<status>` with `<task id> --unattended`, then reads the status
+  again. A stage that leaves the status as it was ends the run, since a second try would do the same.
+- Once the task is `complete`, the run invokes `atomic-workflow:implement-all <task id>` in passes. After each pass it
+  reads the task again. It ends when every `unattended` ticket is `needs-review` or `done`, or when a pass lands no
+  ticket, so a ticket that keeps failing cannot hold it in a loop.
+- The run asks the user nothing. The stages of planning run in unattended mode, and each ticket runs in a subagent
+  with `--no-land`, which blocks the ticket where it would ask. A refused tool call that the run cannot get past ends
+  the run.
+- The report names each ticket that landed in the run, by comparing the tickets that were `needs-review` or `done`
+  before the first pass with those after the last one. It names each ticket that is left with its mode, its status and
+  its reason: it needs the user, it is blocked with its reason, it waits for a ticket that is left, or it is in
+  progress in another session.
+- A pass runs the waves of `implement-all` inside the orchestrator, which is itself a subagent of the main session.
+  Phase 26 said that a subagent cannot start subagents. That no longer holds: in Claude Code 2.1.312 a subagent has
+  the Agent tool, and its subagents run. The Agent tool of a subagent runs each of them in the background, whatever
+  `run_in_background` says, and a notice tells the subagent when each one ends. Claude Code writes their transcripts
+  beside the others of the main session, in `subagents/`, so `subagentCreate` follows them as it follows the ones
+  that the main session starts. Their tool calls go over the connection of the main session, so the claims of their
+  tickets belong to it, as before.
+
+Rejected:
+
+- The tickets of a pass one at a time in the orchestrator, with `/atomic-workflow:implement <task> <ticket>`. It was
+  the fallback for a subagent without the Agent tool. With the Agent tool, `implement-all` runs them in parallel, and
+  the run keeps one description of the waves.
+- A limit on the number of passes. Each pass that does not end the run lands at least one ticket, so the passes are at
+  most as many as the tickets.
+
+## Phase 30
+
+`taskStop` stops every subagent that works on a task at once, for the stop button of the task panel of the web app.
+The main session of Claude Code keeps running, and a later run resumes the tickets where they stopped.
+
+- `taskStop({ taskId })` returns `{ stopped }`, the session id of each started subagent of the task that it stopped:
+  the orchestrator of the task, and each one-shot subagent that `subagentCreate` registered for a ticket of it. It
+  stops each one as `subagentStop` does, and never stops a session with the role `orchestrator`. It has
+  `agent: false`.
+- A one-shot subagent runs inside the orchestrator of the task, but its transcript sits beside the transcript of the
+  main session, so the session server of the main session knows its background task too. `taskStop` stops each one on
+  its own, so a one-shot subagent ends even when the stop of its orchestrator leaves it running, and a later
+  `subagentCreate` for its ticket is no longer refused as busy.
+- Every subagent of the main session calls the server over the connection of the main session, so a claim of a ticket
+  does not tell which subagent holds it. `taskStop` releases each claim of a ticket of the task that has not landed
+  and that the connection of a stopped subagent holds. Each ticket keeps its status, its stage and its worktree, so
+  `ticketNext` offers an `in-progress` ticket again. A claim that another session holds stays.
+- A task that does not exist fails with invalid parameters. A subagent that fails to stop does not stop the others:
+  the method stops every other one, then fails with an internal error that names each failure.
+
+```
+node src/cli.main.ts taskStop '{"taskId":5}'
+```
+
+Rejected:
+
+- Setting each `in-progress` ticket back to `not-started`. It clears the stage, and `ticketNext` resumes an
+  `in-progress` ticket already.
+
+## Phase 31
+
+The repository server records the start and the end of the latest unattended run of each task, so the task panel of
+the web app shows how long it has run.
+
+- Each task has `runStartedAt` and `runEndedAt`, in ms since the epoch, which `taskList` and `taskGet` return.
+  `runStartedAt` is `null` when the task never ran, and `runEndedAt` is `null` while its latest run is active or the
+  task never ran. A run is active while `runStartedAt` is not `null` and `runEndedAt` is `null`. Step 16 of the
+  schema adds both as columns of the table `task`, `null` for each task stored before.
+- `taskRunStart({ taskId })` sets `runStartedAt` to now and `runEndedAt` to `null`, and returns the task. A run that
+  was active already restarts from now.
+- `taskRunEnd({ taskId })` sets `runEndedAt` to now while a run is active, else changes nothing, and returns the
+  task.
+- Both have `agent: true`, and fail with invalid parameters for a task that does not exist.
+- `taskStop` ends the active run of the task as `taskRunEnd` does, also when it stops no subagent.
+- A run ends when the connection that called `taskRunStart` closes, unless it ended or another run started before.
+  The connection of an agent is the one of its session server, so a run ends with the session that started it. A call
+  through the command line tool closes its connection at once, so its run ends right after the call. A call without a
+  connection, such as one to the web server, ties the run to no connection.
+- Once a repository server listens on its address, it ends each run that is still active, at the time of its start:
+  the repository server that recorded it stopped, and its agent with it.
+- Each change of `runStartedAt` or `runEndedAt` publishes `tasks` to the change feed. A call that changes nothing
+  publishes nothing.
+
+```
+node src/cli.main.ts taskRunStart '{"taskId":5}'
+node src/cli.main.ts taskRunEnd '{"taskId":5}'
+```
+
+Rejected:
+
+- A run that lasts only while a session is bound to the connection. A subagent calls over the connection of the main
+  session, which stays bound across `/clear`, so the connection is the holder that matches the claims of tickets.
+
 ## Layout
 
 ```
@@ -1039,6 +1163,8 @@ plugin/                           the plugin, and the local marketplace that hol
                                   task branch, or with `--no-land` stops after the check
   skills/implement-all/SKILL.md   the implementation of every unattended ticket of a task, in waves of parallel
                                   subagents, which lands each one on the task branch in the order of their ids
+  skills/run/SKILL.md             the run of a task with no user, from any stage of planning until every unattended
+                                  ticket landed
   skills/implement-prototype/SKILL.md the first stage, which writes the code of a ticket without tests
   skills/implement-tests/SKILL.md     the stage that locks the behavior of the code of a ticket with tests
   skills/implement-refactor/SKILL.md  the last stage of a complex ticket, which brings its code to its final shape

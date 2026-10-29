@@ -13,11 +13,34 @@ Once the task branch lands, the status is `done`, and the plan is frozen.
 
 1. Activate as `activate.md` says, in the directory of this file.
 2. With a task id, call `taskGet`. If its status is `done`, tell the user that the task is done and its plan cannot
-   change, and stop. If its status is `complete`, the stage runs in amend mode, as `## Amend` says: skip step 3.
+   change, and stop. If its status is `complete`, the stage runs in amend mode, as `## Amend` says: skip step 3. In
+   unattended mode, a task that is `complete` or `done` runs no stage, as `## Unattended` says.
 3. Call `taskSetStatus` with the stage of the skill. If it fails because the task lacks an earlier part, name the skill
    of that part to the user, and stop.
 
 Start the first reply with the web URL that `activate.md` names.
+
+## Unattended
+
+A stage runs in unattended mode when the word `--unattended` follows the task id in its arguments, such as
+`5 --unattended`. The word counts only there, and is not part of a prompt. Without it, the stage runs as the rest of
+these rules say. Unattended mode needs a task id: without one, say so, and stop.
+
+In unattended mode, no user takes part, so the stage runs in one reply:
+
+1. Follow `## Start`. If the status of the task is `complete` or `done`, print `Task <id> is <status>, so no stage of
+   planning runs.`, and stop. There is no amend in unattended mode.
+2. Do the work of the stage on the stored plan, as its skill says.
+3. Apply `## Pushback` to your own draft in place of a request of the user. Where a rule flags the draft, change the
+   draft to the better choice. Where the rule would ask the user, settle the choice yourself. Write no objection,
+   since no user keeps a choice over it.
+4. Settle each choice that the stage would leave to the user, with the best option you can defend.
+5. Store the result, and follow the cascade.
+6. Finish as `## Finish` of the skill says outside amend mode, as if the user were satisfied: call `taskSetStatus`
+   with the status that comes next, print the final part, and name the next step.
+
+Never ask the user a question, and never wait for an answer. `## Each turn` applies to the finish alone, with no
+question at its end.
 
 ## Cascade
 
@@ -80,6 +103,7 @@ since the terminal shows no blank line between list items.
 A goal has a summary of one line that names it, and details on any further lines: context, constraints, comments.
 
 - Store a goal only once the user approves its exact wording. "All good" on a list of suggestions approves each one.
+  In unattended mode, no approval comes, as `## Unattended` says.
 - Store the first goal of a new task with `taskCreate`, and each later goal with `goalSave`.
 - Set `source` to `user` for a goal the user wrote, and to `agent` for a suggestion of yours that the user accepted.
 - Edit a goal with `goalSave` and its `goalId`. Pass its summary and its details in full, since details that you leave
@@ -127,6 +151,8 @@ Write it in Markdown, like a section of a README, in this order:
   there is none.
 - `## Rejected`: each alternative to a contract that you rejected, and why.
 - `## Objections`: each objection that the user kept a choice over. Leave it out when there is none.
+- `## Decisions`: each choice that a stage settled in place of the user, in unattended mode: the choice, the
+  alternatives, and the reason. Leave it out when there is none.
 
 Describe the result, never the conversation: "Reads go through Redis", not "We agreed on Redis". Every goal has a part
 that meets it, every part serves a goal, and every point where two parts meet has a contract. The user names a section

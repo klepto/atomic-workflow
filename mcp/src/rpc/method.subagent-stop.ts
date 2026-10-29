@@ -24,13 +24,22 @@ export const subagentStopMethod: Method<typeof PARAMS, void> = {
   agent: false,
   params: PARAMS,
   handle: async ({ sessionId }, context) => {
-    const { subagents, inboxes } = context;
-    const subagent = subagents.list().find((started) => started.sessionId === sessionId);
-    if (subagent !== undefined) await killTask(context, sessionId, subagent.parentId);
-    if (!subagents.stop(sessionId))
+    if (!(await stopSubagent(context, sessionId)))
       throw new RpcError(RpcErrorCode.INVALID_PARAMS, `No subagent ${sessionId} is started`);
-    inboxes.close(sessionId);
   },
+};
+
+/**
+ * Stops the started subagent `sessionId` at once, as `subagentStop` does, with the services of `context`, and returns
+ * `true`. If no such subagent is started, returns `false` instead.
+ */
+export const stopSubagent = async (context: MethodContext, sessionId: string): Promise<boolean> => {
+  const { subagents, inboxes } = context;
+  const subagent = subagents.list().find((started) => started.sessionId === sessionId);
+  if (subagent !== undefined) await killTask(context, sessionId, subagent.parentId);
+  if (!subagents.stop(sessionId)) return false;
+  inboxes.close(sessionId);
+  return true;
 };
 
 /**

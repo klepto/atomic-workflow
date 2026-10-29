@@ -16,6 +16,12 @@ export interface ServeRepositoryDependencies {
    * Function that opens a JSON-RPC 2.0 connection over each connection of a client.
    */
   readonly openConnection: OpenRpcConnectionFunction;
+
+  /**
+   * Function that runs once the repository server listens on its address, or `undefined` for none. A repository server
+   * that another one keeps from listening never runs it.
+   */
+  readonly listening?: () => Promise<void>;
 }
 
 /**
@@ -24,7 +30,8 @@ export interface ServeRepositoryDependencies {
  * which run with the services of `context`. A client counts as an attached session server once it says hello in the
  * role `session`. An attached session server calls `bindSession` for each session that it serves, which binds the
  * session to its connection in the session connections of `context`, and gives it an inbox in the inboxes of
- * `context`. A repository server that no session server attaches to in its first seconds ends as well.
+ * `context`. A repository server that no session server attaches to in its first seconds ends as well. Once it
+ * listens on `address`, it runs `listening` of `dependencies`.
  * If another repository server serves `address` already, rejects.
  */
 export type ServeRepositoryFunction = (

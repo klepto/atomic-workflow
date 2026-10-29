@@ -252,6 +252,16 @@ export interface Task {
   readonly baseBranch: string | null;
 
   /**
+   * Start of the latest run of the task, in ms since the epoch, or `null` when the task never ran.
+   */
+  readonly runStartedAt: number | null;
+
+  /**
+   * End of the latest run of the task, in ms since the epoch, or `null` while that run is active or the task never ran.
+   */
+  readonly runEndedAt: number | null;
+
+  /**
    * Tickets of the task, in the order of their identifiers.
    */
   readonly tickets: readonly Ticket[];
@@ -291,6 +301,16 @@ export interface TaskSummary {
    * Number of every ticket of the task, completed or not.
    */
   readonly totalTickets: number;
+
+  /**
+   * Start of the latest run of the task, in ms since the epoch, or `null` when the task never ran.
+   */
+  readonly runStartedAt: number | null;
+
+  /**
+   * End of the latest run of the task, in ms since the epoch, or `null` while that run is active or the task never ran.
+   */
+  readonly runEndedAt: number | null;
 }
 
 /**
@@ -365,4 +385,22 @@ export interface TaskStore {
    * no such ticket, returns `false` instead.
    */
   setTicketProgress(taskId: number, ticketId: number, progress: TicketProgress): Promise<boolean>;
+
+  /**
+   * Starts a run of the task `taskId` at `at`: sets its `runStartedAt` to `at` and its `runEndedAt` to `null`, and
+   * returns `true`. If no such task exists, returns `false` instead.
+   */
+  startRun(taskId: number, at: number): Promise<boolean>;
+
+  /**
+   * Ends the active run of the task `taskId` at `at`: sets its `runEndedAt` to `at`, and returns `true`. With
+   * `startedAt`, only a run that started at `startedAt` ends. If the task has no such active run, changes nothing and
+   * returns `false` instead.
+   */
+  endRun(taskId: number, at: number, startedAt?: number): Promise<boolean>;
+
+  /**
+   * Ends the active run of every task at `at`, and returns the number of runs that it ended.
+   */
+  endRuns(at: number): Promise<number>;
 }

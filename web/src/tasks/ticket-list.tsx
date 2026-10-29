@@ -1,8 +1,9 @@
 import { useState } from 'react';
 import type { TaskSummary, Ticket } from '@/api/types.ts';
 import { Button, buttonVariants } from '@/components/ui/button.tsx';
+import { Hint } from '@/components/ui/hint.tsx';
 import { cn } from '@/lib/utils.ts';
-import { RouteLink } from '@/routing/route-link.tsx';
+import { RouteLink, type RouteLinkProps } from '@/routing/route-link.tsx';
 import { taskRefOf, ticketPath, ticketRefOf } from '@/routing/route.ts';
 import { approveTicket } from '@/tasks/approve-ticket.ts';
 import { useTickets } from '@/tasks/use-tickets.ts';
@@ -19,10 +20,41 @@ export const STATUS_WORDS: Record<Ticket['status'], string> = {
 };
 
 /**
+ * The note of the hint of a button that is disabled until the work of its ticket landed.
+ */
+const NOT_LANDED = 'The work of the ticket has not landed yet';
+
+/**
+ * Returns whether the work of the ticket `ticket` landed on the task branch, so that it can be reviewed.
+ */
+const landed = (ticket: Ticket) => ticket.status === 'needs-review' || ticket.status === 'done';
+
+/**
+ * Returns why the button `Approve` of the ticket `ticket` is disabled, or `undefined` while it is enabled: the ticket
+ * is approved already, its work has not landed, or an approval runs, of this ticket while `approving` is true, or of
+ * another one while `busy` is true.
+ */
+const approveDisabledReason = (ticket: Ticket, approving: boolean, busy: boolean) => {
+  if (ticket.status === 'done') return 'The ticket is approved already';
+  if (ticket.status !== 'needs-review') return NOT_LANDED;
+  if (approving) return 'The approval is running';
+  return busy ? 'Another approval is running' : undefined;
+};
+
+/**
+ * A `RouteLink` that a hint can describe. A hint makes its button focusable while disabled with the prop
+ * `focusableWhenDisabled`, which a link, never disabled, drops instead of passing it to its anchor.
+ */
+const HintLink = ({ focusableWhenDisabled: _, ...props }: RouteLinkProps & { focusableWhenDisabled?: boolean }) => (
+  <RouteLink {...props} />
+);
+
+/**
  * The row of the ticket `ticket` of the task `task`: its id, its slug and its status, with the buttons `Review` and
- * `Approve` on the right. The slug links to the summary of the ticket, and `Review` to its review, which it offers
- * once the work of the ticket landed. `Approve` is enabled only while the ticket needs review and `busy` is false, and
- * calls `onApprove`. It reads `Approving` while `approving` is true. The full summary of the ticket shows on hover.
+ * `Approve` on the right, each with a hint that says what it does, and why while it is disabled. The slug links to the
+ * summary of the ticket, and `Review` to its review, which it offers once the work of the ticket landed. `Approve` is
+ * enabled only while the ticket needs review and `busy` is false, and calls `onApprove`. It reads `Approving` while
+ * `approving` is true. The full summary of the ticket shows on hover.
  */
 const TicketRow = ({
   task,
@@ -58,27 +90,36 @@ const TicketRow = ({
       </p>
     </div>
     <div className="flex shrink-0 items-center gap-1.5">
-      {ticket.status === 'needs-review' || ticket.status === 'done' ? (
-        <RouteLink
-          to={ticketPath(taskRefOf(task), ticketRefOf(ticket), 'review')}
-          aria-label={`Review ticket ${ticket.id}, ${ticket.slug}`}
-          className={buttonVariants({ variant: 'outline', size: 'sm' })}
-        >
-          Review
-        </RouteLink>
+      {landed(ticket) ? (
+        <Hint description={`Review the work of ticket ${ticket.id}`}>
+          <HintLink
+            to={ticketPath(taskRefOf(task), ticketRefOf(ticket), 'review')}
+            aria-label={`Review ticket ${ticket.id}, ${ticket.slug}`}
+            className={buttonVariants({ variant: 'outline', size: 'sm' })}
+          >
+            Review
+          </HintLink>
+        </Hint>
       ) : (
-        <Button variant="outline" size="sm" disabled>
-          Review
-        </Button>
+        <Hint description={`Review the work of ticket ${ticket.id}`} note={NOT_LANDED}>
+          <Button variant="outline" size="sm" disabled>
+            Review
+          </Button>
+        </Hint>
       )}
-      <Button
-        size="sm"
-        disabled={ticket.status !== 'needs-review' || busy}
-        aria-label={`Approve ticket ${ticket.id}, ${ticket.slug}`}
-        onClick={onApprove}
+      <Hint
+        description={`Approve ticket ${ticket.id} and set it done`}
+        note={approveDisabledReason(ticket, approving, busy)}
       >
-        {approving ? 'Approving' : 'Approve'}
-      </Button>
+        <Button
+          size="sm"
+          disabled={ticket.status !== 'needs-review' || busy}
+          aria-label={`Approve ticket ${ticket.id}, ${ticket.slug}`}
+          onClick={onApprove}
+        >
+          {approving ? 'Approving' : 'Approve'}
+        </Button>
+      </Hint>
     </div>
   </li>
 );

@@ -10,9 +10,20 @@ import {
   Pencil,
   Trash2,
 } from 'lucide-react';
-import { type CSSProperties, Fragment, type KeyboardEvent, type ReactNode, useState } from 'react';
+import {
+  type CSSProperties,
+  Fragment,
+  type KeyboardEvent,
+  memo,
+  type ReactNode,
+  useCallback,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from 'react';
 import type { ThemedToken } from 'shiki/core';
 import { Button } from '@/components/ui/button.tsx';
+import { Hint } from '@/components/ui/hint.tsx';
 import { Textarea } from '@/components/ui/textarea.tsx';
 import { MarkdownBody } from '@/conversation/markdown-body.tsx';
 import { cn } from '@/lib/utils.ts';
@@ -112,12 +123,13 @@ export const LineCounts = ({ additions, deletions }: { additions: number; deleti
 );
 
 /**
- * The path `path` with its directory muted and its name in full color, so the name stands out.
+ * The path `path` with its directory muted and its name in full color, so the name stands out. While `titled` is not
+ * `false`, the path shows in full as its native tooltip too, for a path that does not fit.
  */
-export const FilePath = ({ path, className }: { path: string; className?: string }) => {
+export const FilePath = ({ path, titled, className }: { path: string; titled?: boolean; className?: string }) => {
   const slash = path.lastIndexOf('/');
   return (
-    <span className={cn('min-w-0 truncate font-mono', className)} title={path}>
+    <span className={cn('min-w-0 truncate font-mono', className)} title={titled === false ? undefined : path}>
       <span className="text-muted-foreground">{path.slice(0, slash + 1)}</span>
       <span className="font-medium">{path.slice(slash + 1)}</span>
     </span>
@@ -126,19 +138,21 @@ export const FilePath = ({ path, className }: { path: string; className?: string
 
 /**
  * A field for the text of a comment, with its buttons: `Cancel`, and `submitLabel`, which hands the trimmed text to
- * `onSubmit` once it is not empty. Ctrl+Enter, or Cmd+Enter, submits too, and Escape cancels. It takes the focus when
- * it opens, and starts with the text `initial`.
+ * `onSubmit` once it is not empty, with `submitDescription` as its hint. Ctrl+Enter, or Cmd+Enter, submits too, and
+ * Escape cancels. It takes the focus when it opens, and starts with the text `initial`.
  */
 export const CommentComposer = ({
   label,
   initial = '',
   submitLabel,
+  submitDescription,
   onSubmit,
   onCancel,
 }: {
   label: string;
   initial?: string;
   submitLabel: string;
+  submitDescription: string;
   onSubmit: (body: string) => void;
   onCancel: () => void;
 }) => {
@@ -186,12 +200,16 @@ export const CommentComposer = ({
       />
       <div className="flex items-center justify-end gap-2">
         <span className="mr-auto hidden text-muted-foreground text-xs sm:inline">Ctrl+Enter to save</span>
-        <Button type="button" variant="ghost" size="sm" onClick={onCancel}>
-          Cancel
-        </Button>
-        <Button type="submit" size="sm" disabled={empty}>
-          {submitLabel}
-        </Button>
+        <Hint description="Close the field without saving the comment">
+          <Button type="button" variant="ghost" size="sm" onClick={onCancel}>
+            Cancel
+          </Button>
+        </Hint>
+        <Hint description={submitDescription} note={empty ? 'Write a comment first' : undefined}>
+          <Button type="submit" size="sm" disabled={empty}>
+            {submitLabel}
+          </Button>
+        </Hint>
       </div>
     </form>
   );
@@ -215,18 +233,22 @@ const CommentCard = ({
   >
     <MarkdownBody text={comment.body} className="min-w-0 flex-1 leading-6" />
     <div className="-mr-1.5 flex shrink-0 gap-0.5">
-      <Button variant="ghost" size="icon" className="size-7" aria-label="Edit comment" onClick={onEdit}>
-        <Pencil aria-hidden="true" className="size-3.5" />
-      </Button>
-      <Button
-        variant="ghost"
-        size="icon"
-        className="size-7 text-destructive hover:bg-destructive/10 hover:text-destructive"
-        aria-label="Delete comment"
-        onClick={onDelete}
-      >
-        <Trash2 aria-hidden="true" className="size-3.5" />
-      </Button>
+      <Hint description="Edit the comment">
+        <Button variant="ghost" size="icon" className="size-7" aria-label="Edit comment" onClick={onEdit}>
+          <Pencil aria-hidden="true" className="size-3.5" />
+        </Button>
+      </Hint>
+      <Hint description="Delete the comment">
+        <Button
+          variant="ghost"
+          size="icon"
+          className="size-7 text-destructive hover:bg-destructive/10 hover:text-destructive"
+          aria-label="Delete comment"
+          onClick={onDelete}
+        >
+          <Trash2 aria-hidden="true" className="size-3.5" />
+        </Button>
+      </Hint>
     </div>
   </article>
 );
@@ -249,6 +271,7 @@ const threadOf = (review: FileReview, matches: (anchor: CommentAnchor) => boolea
             label={`Edit the comment on ${anchorWords(comment.anchor)}`}
             initial={comment.body}
             submitLabel="Save"
+            submitDescription="Save the changes to the comment"
             onSubmit={(body) => review.onSave(comment.id, body)}
             onCancel={review.onCancel}
           />
@@ -265,6 +288,7 @@ const threadOf = (review: FileReview, matches: (anchor: CommentAnchor) => boolea
         <CommentComposer
           label={`Comment on ${anchorWords(selection)}`}
           submitLabel="Add comment"
+          submitDescription="Add the comment to the review"
           onSubmit={review.onAdd}
           onCancel={review.onCancel}
         />
@@ -376,34 +400,43 @@ const Code = ({
 );
 
 /**
- * The button that selects the line `number` of the side `side` to comment on. Shift and a click extend the selection
- * to it instead. It shows `children`, the numbers of the line.
+ * The button that selects the line `number` of the side `side` to comment on, through `onSelect`. Shift and a click
+ * extend the selection to it instead. It shows `oldNumber` and `newNumber`, each that is not `undefined`, and `null`
+ * as an empty cell. Its hint says that a click comments on the line, and that a shift and a click extend the
+ * selection. It renders again only when one of its props changes, so a diff of many lines keeps the cost of the hints
+ * low while the review changes.
  */
-const LineButton = ({
-  side,
-  number,
-  review,
-  className,
-  children,
-}: {
-  side: DiffSide;
-  number: number;
-  review: FileReview;
-  className: string;
-  children: ReactNode;
-}) => (
-  <button
-    type="button"
-    title="Comment on this line. Shift-click to extend."
-    aria-label={`Comment on ${side === 'old' ? 'old ' : ''}line ${number}`}
-    onClick={(event) => review.onSelectLine(side, number, event.shiftKey)}
-    className={cn(
-      'cursor-pointer select-none px-2 text-right text-muted-foreground tabular-nums outline-none hover:bg-primary/15 hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset',
-      className,
-    )}
-  >
-    {children}
-  </button>
+const LineButton = memo(
+  ({
+    side,
+    number,
+    oldNumber,
+    newNumber,
+    className,
+    onSelect,
+  }: {
+    side: DiffSide;
+    number: number;
+    oldNumber?: number | null;
+    newNumber?: number | null;
+    className: string;
+    onSelect: FileReview['onSelectLine'];
+  }) => (
+    <Hint description="Comment on this line" note="Shift-click to extend the selection">
+      <button
+        type="button"
+        aria-label={`Comment on ${side === 'old' ? 'old ' : ''}line ${number}`}
+        onClick={(event) => onSelect(side, number, event.shiftKey)}
+        className={cn(
+          'cursor-pointer select-none px-2 text-right text-muted-foreground tabular-nums outline-none hover:bg-primary/15 hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset',
+          className,
+        )}
+      >
+        {oldNumber !== undefined && <span>{oldNumber ?? ''}</span>}
+        {newNumber !== undefined && <span>{newNumber ?? ''}</span>}
+      </button>
+    </Hint>
+  ),
 );
 
 /**
@@ -449,12 +482,11 @@ const UnifiedBody = ({
               <LineButton
                 side={side}
                 number={numberOn(line, side) ?? 0}
-                review={review}
+                oldNumber={line.oldNumber}
+                newNumber={line.newNumber}
                 className={cn('grid grid-cols-2 gap-2', numberTint(line, mark))}
-              >
-                <span>{line.oldNumber ?? ''}</span>
-                <span>{line.newNumber ?? ''}</span>
-              </LineButton>
+                onSelect={review.onSelectLine}
+              />
               <Code line={line} highlight={highlight} className={codeTint(line, mark)} />
             </div>
             {threadOf(review, (anchor) => endsAt(anchor, line.oldNumber, line.newNumber))}
@@ -540,9 +572,14 @@ const SplitHalf = ({
   return (
     <>
       <Rail mark={mark} />
-      <LineButton side={side} number={number} review={review} className={numberTint(line, mark)}>
-        {number}
-      </LineButton>
+      <LineButton
+        side={side}
+        number={number}
+        oldNumber={side === 'old' ? number : undefined}
+        newNumber={side === 'new' ? number : undefined}
+        className={numberTint(line, mark)}
+        onSelect={review.onSelectLine}
+      />
       <Code line={line} highlight={highlight} className={cn(codeTint(line, mark), side === 'old' && 'border-r')} />
     </>
   );
@@ -592,15 +629,30 @@ const noticeOf = (file: FileDiff): string => {
 
 /**
  * The lines of the file `file` in the layout `layout`, with the comments of `review` on them, and its code in colors
- * once they loaded.
+ * once they loaded. The line buttons get one `onSelectLine` for the life of the body, so they do not render again each
+ * time `review` changes.
  */
 const DiffBody = ({ file, layout, review }: { file: FileDiff; layout: DiffLayout; review: FileReview }) => {
   const highlight = useFileHighlight(file);
+  const onSelectLine = useStableCallback(review.onSelectLine);
+  const stableReview = { ...review, onSelectLine };
   return layout === 'unified' ? (
-    <UnifiedBody file={file} highlight={highlight} review={review} />
+    <UnifiedBody file={file} highlight={highlight} review={stableReview} />
   ) : (
-    <SplitBody file={file} highlight={highlight} review={review} />
+    <SplitBody file={file} highlight={highlight} review={stableReview} />
   );
+};
+
+/**
+ * Returns a function that stays the same for the life of the component, and calls the latest `callback` that the
+ * component rendered with.
+ */
+const useStableCallback = <Arguments extends unknown[]>(callback: (...values: Arguments) => void) => {
+  const latest = useRef(callback);
+  useLayoutEffect(() => {
+    latest.current = callback;
+  });
+  return useCallback((...values: Arguments) => latest.current(...values), []);
 };
 
 /**
@@ -636,19 +688,21 @@ export const FileDiffView = ({
             collapsed ? 'rounded-lg' : 'rounded-t-lg',
           )}
         >
-          <Button
-            variant="ghost"
-            size="icon"
-            className="size-7"
-            aria-expanded={!collapsed}
-            aria-label={collapsed ? `Show ${file.path}` : `Hide ${file.path}`}
-            onClick={onToggle}
-          >
-            <ChevronRight
-              aria-hidden="true"
-              className={cn('transition-transform motion-reduce:transition-none', !collapsed && 'rotate-90')}
-            />
-          </Button>
+          <Hint description={collapsed ? 'Show the changes of the file' : 'Hide the changes of the file'}>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="size-7"
+              aria-expanded={!collapsed}
+              aria-label={collapsed ? `Show ${file.path}` : `Hide ${file.path}`}
+              onClick={onToggle}
+            >
+              <ChevronRight
+                aria-hidden="true"
+                className={cn('transition-transform motion-reduce:transition-none', !collapsed && 'rotate-90')}
+              />
+            </Button>
+          </Hint>
           <Icon aria-hidden="true" className="size-4 shrink-0 text-muted-foreground" />
           <span className="sr-only">{words}</span>
           <h3 className="flex min-w-0 flex-1 items-baseline gap-2">
@@ -660,11 +714,13 @@ export const FileDiffView = ({
             )}
           </h3>
           <LineCounts additions={file.additions} deletions={file.deletions} />
-          <Button variant="ghost" size="sm" className="shrink-0" onClick={review.onSelectFile}>
-            <MessageSquarePlus aria-hidden="true" />
-            <span className="hidden sm:inline">Comment on file</span>
-            <span className="sr-only sm:hidden">Comment on file</span>
-          </Button>
+          <Hint description="Comment on the whole file">
+            <Button variant="ghost" size="sm" className="shrink-0" onClick={review.onSelectFile}>
+              <MessageSquarePlus aria-hidden="true" />
+              <span className="hidden sm:inline">Comment on file</span>
+              <span className="sr-only sm:hidden">Comment on file</span>
+            </Button>
+          </Hint>
         </div>
       </header>
       {!collapsed && (

@@ -48,6 +48,9 @@ import { worktreeMergeMethod } from './method.worktree-merge.ts';
 import { subagentCreateMethod } from './method.subagent-create.ts';
 import { subagentStartMethod } from './method.subagent-start.ts';
 import { subagentStopMethod } from './method.subagent-stop.ts';
+import { taskStopMethod } from './method.task-stop.ts';
+import { taskRunStartMethod } from './method.task-run-start.ts';
+import { taskRunEndMethod } from './method.task-run-end.ts';
 
 /**
  * Services of the repository server that a method uses to do its work.
@@ -173,6 +176,9 @@ export const Methods: readonly Method[] = [
   subagentStopMethod,
   subagentEndMethod,
   taskOrchestratorDeliverMethod,
+  taskStopMethod,
+  taskRunStartMethod,
+  taskRunEndMethod,
   skillListMethod,
   inboxAwaitCommandMethod,
   inboxAwaitMethod,

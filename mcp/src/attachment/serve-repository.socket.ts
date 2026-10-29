@@ -70,6 +70,7 @@ export const socketServeRepository: ServeRepositoryFunction = async (address, ur
   };
   server.on('connection', (socket) => serve(repository, socket));
   await listenReclaiming(server, address);
+  await dependencies.listening?.();
   repository.firstAttachTimer = setTimeout(() => server.close(), FIRST_ATTACH_TIMEOUT);
   await closed;
 };

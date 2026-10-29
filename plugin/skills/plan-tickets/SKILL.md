@@ -1,7 +1,7 @@
 ---
 name: plan-tickets
 description: Last stage of planning. Splits the design of a task into tickets, and revises the split with the user until they accept it. On a complete task, amends the tickets whose work has not started, and adds follow-up tickets that fix landed work.
-argument-hint: "<task id>"
+argument-hint: "<task id> [--unattended]"
 allowed-tools: mcp__plugin_atomic-workflow_atomic-workflow__activate, mcp__plugin_atomic-workflow_atomic-workflow__taskGet, mcp__plugin_atomic-workflow_atomic-workflow__taskCreate, mcp__plugin_atomic-workflow_atomic-workflow__goalSave, mcp__plugin_atomic-workflow_atomic-workflow__goalDelete, mcp__plugin_atomic-workflow_atomic-workflow__designSave, mcp__plugin_atomic-workflow_atomic-workflow__ticketsSave, mcp__plugin_atomic-workflow_atomic-workflow__taskSetStatus, Bash(node:*), Read, Grep, Glob, WebSearch, WebFetch
 ---
 
@@ -12,9 +12,13 @@ Split the design of a task into tickets, then revise the split with the user unt
 Before anything else, read `../../references/planning.md`, relative to the base directory of this skill. It holds the
 rules that every stage of planning shares: start, cascade, pushback, and the format of each part of the plan.
 
-Arguments: `$ARGUMENTS`. The first word is the id of the task. Without one, ask for it.
+Arguments: `$ARGUMENTS`. The first word is the id of the task. Without one, ask for it. The word `--unattended` after
+the task id selects unattended mode, as `## Unattended` says. Without it, the stage runs as the rest of this skill
+says.
 
 ## Start
+
+With `--unattended`, follow `## Unattended` below in place of this section.
 
 Follow the start of planning with the stage `plan-tickets`. Then:
 
@@ -40,11 +44,21 @@ When the user asks for a follow-up ticket of a ticket that needs review, ask wha
 so. Then add the follow-up ticket at the end of the list, with `fixes` set to the id of that ticket, as the tickets of
 the planning rules say.
 
+## Unattended
+
+With `--unattended`, follow `## Unattended` of the planning rules, and ask nothing. The work of this stage:
+
+1. Follow the start of planning with the stage `plan-tickets`.
+2. Without tickets, look up where the parts of the design live, as `## Start` says, and split the design into
+   tickets. With tickets, check the stored split against the design.
+3. Apply `## Pushback` to the split, and settle each choice that you would ask the user about.
+4. Store the tickets with `ticketsSave`, and finish as `## Finish` says. The split counts as accepted.
+
 ## Finish
 
-Outside amend mode, when the user accepts the split, call `taskSetStatus` with `complete`. Then print the final ticket
-list, and tell the user that planning is done. Name the next step, with its two choices:
-`/atomic-workflow:implement <task id>`, which implements the next ready ticket, or
+Outside amend mode, when the user accepts the split, or at the end of unattended mode, call `taskSetStatus` with
+`complete`. Then print the final ticket list, and tell the user that planning is done. Name the next step, with its
+two choices: `/atomic-workflow:implement <task id>`, which implements the next ready ticket, or
 `/atomic-workflow:implement-all <task id>`, which implements every ticket in the mode `unattended`, the ready ones in
 parallel subagents.
 

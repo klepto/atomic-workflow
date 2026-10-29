@@ -6,6 +6,7 @@ import { CHAT_STATUSES, ChatDot } from '@/chats/chat-dot.tsx';
 import { type Chat, listChats } from '@/chats/chat-list.ts';
 import { DeleteDialog } from '@/components/delete-dialog.tsx';
 import { Button } from '@/components/ui/button.tsx';
+import { Hint } from '@/components/ui/hint.tsx';
 import { cn } from '@/lib/utils.ts';
 import { chatRefOf, routePath, taskRefOf } from '@/routing/route.ts';
 import { RouteLink } from '@/routing/route-link.tsx';
@@ -69,6 +70,7 @@ const DeleteAgent = ({ chat }: { chat: Chat }) => (
         aria-label={`Delete ${chat.label}`}
       />
     }
+    hint="Delete the subagent with its chat"
     title={`Delete ${chat.label}?`}
     description="This deletes the agent with its chat. You cannot undo it."
     confirm="Delete agent"
@@ -84,7 +86,7 @@ const DeleteAgent = ({ chat }: { chat: Chat }) => (
  * The button that stops the subagent of the chat `chat` at once with `subagentStop`, even in the middle of a turn. It
  * sits at the right end of the entry of the chat, and shows only while the pointer is over the entry, or while it has
  * the focus. Once clicked, it shows a spinner and stays disabled until the subagent ends and the button goes away. A
- * failure enables it again, keeps it shown, and names the failure in its label and its tooltip.
+ * failure enables it again, keeps it shown, and shows its message as the note of the hint of the button.
  */
 const StopAgent = ({ chat }: { chat: Chat }) => {
   const [stopping, setStopping] = useState(false);
@@ -105,21 +107,22 @@ const StopAgent = ({ chat }: { chat: Chat }) => {
   };
 
   return (
-    <Button
-      variant="ghost"
-      size="icon"
-      className={cn(ENTRY_ACTION, (stopping || failure !== undefined) && 'opacity-100')}
-      aria-label={failure === undefined ? `Stop ${chat.label}` : `Stop ${chat.label}. The last stop failed: ${failure}`}
-      title={failure}
-      disabled={stopping}
-      onClick={stop}
-    >
-      {stopping ? (
-        <LoaderCircle aria-hidden="true" className="size-3.5 motion-safe:animate-spin" />
-      ) : (
-        <Square aria-hidden="true" className="size-3.5" />
-      )}
-    </Button>
+    <Hint description="Stop the subagent at once" note={failure ?? (stopping ? 'The subagent is stopping' : undefined)}>
+      <Button
+        variant="ghost"
+        size="icon"
+        className={cn(ENTRY_ACTION, (stopping || failure !== undefined) && 'opacity-100')}
+        aria-label={`Stop ${chat.label}`}
+        disabled={stopping}
+        onClick={stop}
+      >
+        {stopping ? (
+          <LoaderCircle aria-hidden="true" className="size-3.5 motion-safe:animate-spin" />
+        ) : (
+          <Square aria-hidden="true" className="size-3.5" />
+        )}
+      </Button>
+    </Hint>
   );
 };
 
@@ -171,7 +174,8 @@ const messageOf = (error: unknown) => (error instanceof Error ? error.message : 
  * attached last, which works on the task `taskId`, or on no task while `taskId` is `undefined`. Until the subagent
  * attaches, the button is disabled and shows `Starting…`. Then it reads the sessions
  * again with `readSessions`, and opens the chat of the new subagent with `onOpen`. A failure shows its message below
- * the button until the next click. The button is disabled while `ready` is false.
+ * the button and as the note of its hint until the next click. The button is disabled while `ready` is false, and its
+ * hint then says why.
  */
 const StartAgentButton = ({
   ready,
@@ -206,19 +210,24 @@ const StartAgentButton = ({
 
   return (
     <div className="flex shrink-0 flex-col justify-center gap-1">
-      <Button variant="outline" size="sm" className="md:w-full" disabled={!ready || starting} onClick={start}>
-        {starting ? (
-          <>
-            <LoaderCircle aria-hidden="true" className="motion-safe:animate-spin" />
-            Starting…
-          </>
-        ) : (
-          <>
-            <Plus aria-hidden="true" />
-            Start new agent
-          </>
-        )}
-      </Button>
+      <Hint
+        description={taskId === undefined ? 'Start a new agent on no task' : `Start a new agent on task ${taskId}`}
+        note={failure ?? (ready ? (starting ? 'The agent is starting' : undefined) : 'No main session is attached')}
+      >
+        <Button variant="outline" size="sm" className="md:w-full" disabled={!ready || starting} onClick={start}>
+          {starting ? (
+            <>
+              <LoaderCircle aria-hidden="true" className="motion-safe:animate-spin" />
+              Starting…
+            </>
+          ) : (
+            <>
+              <Plus aria-hidden="true" />
+              Start new agent
+            </>
+          )}
+        </Button>
+      </Hint>
       {failure !== undefined && (
         <p role="alert" className="text-destructive text-xs">
           {failure}

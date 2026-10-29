@@ -1,10 +1,12 @@
-import { Trash2, X } from 'lucide-react';
+import { LoaderCircle, Play, Square, Trash2, X } from 'lucide-react';
 import { type KeyboardEvent, type ReactNode, useState } from 'react';
 import { call } from '@/api/rpc.ts';
-import type { TaskSummary } from '@/api/types.ts';
+import type { ListedSession, TaskSummary } from '@/api/types.ts';
 import { DeleteDialog } from '@/components/delete-dialog.tsx';
 import { Button } from '@/components/ui/button.tsx';
+import { Hint } from '@/components/ui/hint.tsx';
 import { cn } from '@/lib/utils.ts';
+import { RunTimer, isRunActive } from '@/tasks/run-timer.tsx';
 import { TaskIdLabel } from '@/tasks/task-id-label.tsx';
 import { TicketList } from '@/tasks/ticket-list.tsx';
 import { useGoals } from '@/tasks/use-goals.ts';
@@ -22,6 +24,12 @@ export interface TaskPanelProps {
    * The open task, or `undefined` while no task is open.
    */
   task: TaskSummary | undefined;
+
+  /**
+   * Every session of the repository, attached or not, from which the panel learns whether a run of the open task is
+   * active.
+   */
+  sessions: readonly ListedSession[];
 
   /**
    * Closes the panel.
@@ -189,6 +197,7 @@ const DeleteTask = ({ task }: { task: TaskSummary }) => (
         aria-label="Delete task"
       />
     }
+    hint="Delete the task with its plan, branches and chats"
     title={`Delete ${task.slug}?`}
     description="This deletes the task with its goals, design and tickets, removes its worktrees and branches, and deletes the chats of its agents. You cannot undo it."
     confirm="Delete task"
@@ -205,56 +214,181 @@ const DeleteTask = ({ task }: { task: TaskSummary }) => (
 );
 
 /**
+ * Whether a run of a task is active, and whether any of its subagents runs.
+ */
+interface RunState {
+  /**
+   * Whether a subagent of the task is `working` or `waiting`.
+   */
+  active: boolean;
+
+  /**
+   * Whether a subagent of the task has a status other than `ended`.
+   */
+  running: boolean;
+}
+
+/**
+ * Returns the run state of the task `taskId` among the sessions `sessions`, whose subagents of the task are the ones
+ * with the role `subagent` and the task id `taskId`.
+ */
+const runStateOf = (taskId: number, sessions: readonly ListedSession[]): RunState => {
+  const subagents = sessions.filter((session) => session.role === 'subagent' && session.taskId === taskId);
+  return {
+    active: subagents.some((session) => session.status === 'working' || session.status === 'waiting'),
+    running: subagents.some((session) => session.status !== 'ended'),
+  };
+};
+
+/**
+ * A ghost icon button in the header of the panel, labeled `label`, which shows `icon`, with the hint `description`. A
+ * click calls `action`. From the click until the call answers, it shows a spinner and is disabled. A failure of the
+ * call shows its message as the note of the hint, until the next click. The button is also disabled while
+ * `disabledReason` is set, which its hint then names as its note, unless a failure shows.
+ */
+const HeaderAction = ({
+  label,
+  description,
+  icon,
+  disabledReason,
+  action,
+}: {
+  label: string;
+  description: string;
+  icon: ReactNode;
+  disabledReason: string | undefined;
+  action: () => Promise<unknown>;
+}) => {
+  const [pending, setPending] = useState(false);
+  const [failure, setFailure] = useState<string>();
+
+  /**
+   * Calls the action, and keeps the message of a failure.
+   */
+  const click = async () => {
+    setFailure(undefined);
+    setPending(true);
+    try {
+      await action();
+    } catch (error) {
+      setFailure(messageOf(error));
+    } finally {
+      setPending(false);
+    }
+  };
+
+  return (
+    <Hint description={description} note={failure ?? disabledReason}>
+      <Button
+        variant="ghost"
+        size="icon"
+        className="size-[1.625rem] shrink-0"
+        aria-label={label}
+        disabled={disabledReason !== undefined || pending}
+        onClick={click}
+      >
+        {pending ? <LoaderCircle aria-hidden="true" className="motion-safe:animate-spin" /> : icon}
+      </Button>
+    </Hint>
+  );
+};
+
+/**
+ * Returns the message of the failure `error`.
+ */
+const messageOf = (error: unknown) => (error instanceof Error ? error.message : String(error));
+
+/**
+ * The button that runs the task `task` unattended to its end: it sends `/atomic-workflow:run <task id>` to the
+ * orchestrator of the task with `taskOrchestratorDeliver`, which starts the orchestrator if none is attached. It is
+ * disabled while the run of the task is active, as `active` says, and while the task is `done`.
+ */
+const RunTask = ({ task, active }: { task: TaskSummary; active: boolean }) => (
+  <HeaderAction
+    label="Run task"
+    description="Run the task unattended to its end"
+    icon={<Play aria-hidden="true" />}
+    disabledReason={task.status === 'done' ? 'The task is done' : active ? 'The task is already running' : undefined}
+    action={() => call('taskOrchestratorDeliver', { taskId: task.id, content: `/atomic-workflow:run ${task.id}` })}
+  />
+);
+
+/**
+ * The button that stops every subagent of the task `task` with `taskStop`: its orchestrator and each subagent that
+ * implements one of its tickets. The call also ends the active run of the task. It is disabled while no subagent of
+ * the task runs and no run of it is active, as `stoppable` says, so a run that its agent left open can still be ended.
+ */
+const StopTask = ({ task, stoppable }: { task: TaskSummary; stoppable: boolean }) => (
+  <HeaderAction
+    label="Stop task"
+    description="Stop every agent of the task"
+    icon={<Square aria-hidden="true" />}
+    disabledReason={stoppable ? undefined : 'No agent or run of the task is active'}
+    action={() => call('taskStop', { taskId: task.id })}
+  />
+);
+
+/**
  * The content of the panel for the task `task`: its slug, its id and the day it was created, with the buttons that
- * delete the task and close the panel, then its status with its stages, then its goals, then its tickets with the
- * buttons that review and approve each of them.
+ * run, stop and delete the task and close the panel, then its status with its stages and the timer of its latest
+ * unattended run, then its goals, then its tickets with the buttons that review and approve each of them.
  */
 const TaskDetails = ({
   task,
+  sessions,
   onClose,
   onOpenChat,
 }: {
   task: TaskSummary;
+  sessions: readonly ListedSession[];
   onClose: () => void;
   onOpenChat: (sessionId: string) => void;
-}) => (
-  <div className="flex flex-col gap-8 px-6 py-5">
-    <div className="flex items-start gap-3">
-      <div className="flex min-w-0 flex-1 flex-col gap-1">
-        <h2 className="truncate font-semibold text-lg leading-7 tracking-tight">
-          {task.slug}
-          <TaskIdLabel id={String(task.id)} />
-        </h2>
-        <p className="text-muted-foreground text-xs">
-          {`Created ${new Date(task.createdAt).toLocaleDateString(undefined, { dateStyle: 'medium' })}`}
-        </p>
+}) => {
+  const { active, running } = runStateOf(task.id, sessions);
+  return (
+    <div className="flex flex-col gap-8 px-6 py-5">
+      <div className="flex items-start gap-3">
+        <div className="flex min-w-0 flex-1 flex-col gap-1">
+          <h2 className="truncate font-semibold text-lg leading-7 tracking-tight">
+            {task.slug}
+            <TaskIdLabel id={String(task.id)} />
+          </h2>
+          <p className="text-muted-foreground text-xs">
+            {`Created ${new Date(task.createdAt).toLocaleDateString(undefined, { dateStyle: 'medium' })}`}
+          </p>
+        </div>
+        <div className="-mr-1 flex shrink-0 items-center gap-0.5">
+          <RunTask key={`run-${task.id}`} task={task} active={active} />
+          <StopTask key={`stop-${task.id}`} task={task} stoppable={running || isRunActive(task)} />
+          <DeleteTask task={task} />
+          <Hint description="Close the task panel">
+            <Button
+              variant="ghost"
+              size="icon"
+              className="size-[1.725rem] shrink-0"
+              aria-label="Close task"
+              onClick={onClose}
+            >
+              <X aria-hidden="true" className="size-[1.452rem]" />
+            </Button>
+          </Hint>
+        </div>
       </div>
-      <div className="-mr-1 flex shrink-0 items-center gap-0.5">
-        <DeleteTask task={task} />
-        <Button
-          variant="ghost"
-          size="icon"
-          className="size-[1.725rem] shrink-0"
-          aria-label="Close task"
-          onClick={onClose}
-        >
-          <X aria-hidden="true" className="size-[1.452rem]" />
-        </Button>
-      </div>
+      <PanelSection title="Status">
+        <p className="font-medium text-base">{statusWordsOf(task)}</p>
+        <StageTrack stage={stageOf(task)} />
+        <RunTimer task={task} />
+      </PanelSection>
+      <PanelSection title="Goals">
+        <GoalList task={task} />
+      </PanelSection>
+      <PanelSection title="Tickets">
+        <TicketCount task={task} />
+        <TicketList task={task} onOpenChat={onOpenChat} />
+      </PanelSection>
     </div>
-    <PanelSection title="Status">
-      <p className="font-medium text-base">{statusWordsOf(task)}</p>
-      <StageTrack stage={stageOf(task)} />
-    </PanelSection>
-    <PanelSection title="Goals">
-      <GoalList task={task} />
-    </PanelSection>
-    <PanelSection title="Tickets">
-      <TicketCount task={task} />
-      <TicketList task={task} onOpenChat={onOpenChat} />
-    </PanelSection>
-  </div>
-);
+  );
+};
 
 /**
  * The task panel at the right of the page, which shows the open task `task` beside the open chat. It slides out from
@@ -263,7 +397,7 @@ const TaskDetails = ({
  * it. A click on its close button, or Escape inside it but outside its dialogs, calls `onClose`. While closed, nothing
  * in it takes focus.
  */
-export const TaskPanel = ({ task, onClose, onOpenChat }: TaskPanelProps) => {
+export const TaskPanel = ({ task, sessions, onClose, onOpenChat }: TaskPanelProps) => {
   const [shown, setShown] = useState(task);
   if (task !== undefined && task !== shown) {
     setShown(task);
@@ -287,11 +421,13 @@ export const TaskPanel = ({ task, onClose, onOpenChat }: TaskPanelProps) => {
       onKeyDown={closeOnEscape}
       className={cn(
         'absolute inset-0 z-20 overflow-hidden bg-background transition-[translate,width] duration-300 ease-out motion-reduce:transition-none md:static md:inset-auto md:shrink-0 md:translate-x-0',
-        open ? 'translate-x-0 md:w-[26rem]' : 'translate-x-full md:w-0',
+        open ? 'translate-x-0 md:w-[28.6rem]' : 'translate-x-full md:w-0',
       )}
     >
-      <div className="h-full w-full overflow-y-auto md:w-[26rem] md:border-l">
-        {shown !== undefined && <TaskDetails task={shown} onClose={onClose} onOpenChat={onOpenChat} />}
+      <div className="h-full w-full overflow-y-auto md:w-[28.6rem] md:border-l">
+        {shown !== undefined && (
+          <TaskDetails task={shown} sessions={sessions} onClose={onClose} onOpenChat={onOpenChat} />
+        )}
       </div>
     </aside>
   );

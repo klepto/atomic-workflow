@@ -8,6 +8,7 @@ import {
   AlertDialogTrigger,
 } from '@/components/ui/alert-dialog.tsx';
 import { Button } from '@/components/ui/button.tsx';
+import { Hint } from '@/components/ui/hint.tsx';
 
 /**
  * Props of the delete dialog.
@@ -22,6 +23,12 @@ export interface DeleteDialogProps {
    * The content of the button that opens the dialog, such as its icon.
    */
   children: ReactNode;
+
+  /**
+   * What the deletion deletes, as the description of the hint of the button that opens the dialog and of the button
+   * that deletes, such as `Delete the task with its plan, branches and chats`.
+   */
+  hint: string;
 
   /**
    * The title of the dialog, which asks whether to delete.
@@ -54,11 +61,14 @@ export interface DeleteDialogProps {
  * The button `trigger` that deletes something for good, which asks first in a dialog above the whole window, dimmed,
  * with the title `title`, the description `description`, and the buttons `Cancel` and `confirm`. Until the deletion
  * ends, the buttons show `Deleting…` and are disabled, and the dialog stays open. A failure shows its message in the
- * dialog, with the retry `retry` while it is set. Once the deletion succeeds, the dialog closes.
+ * dialog, with the retry `retry` while it is set. Once the deletion succeeds, the dialog closes. The button `trigger`
+ * and the button that deletes show `hint` in their hints, and the buttons of the dialog say in their hints why they are
+ * disabled while the deletion runs.
  */
 export const DeleteDialog = ({
   trigger,
   children,
+  hint,
   title,
   description,
   confirm,
@@ -69,6 +79,7 @@ export const DeleteDialog = ({
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string>();
   const retrying = error !== undefined && retry !== undefined;
+  const pendingNote = pending ? 'The deletion is running' : undefined;
 
   /**
    * Opens or closes the dialog, which stays open while the deletion runs. Each opening clears the last failure.
@@ -100,7 +111,9 @@ export const DeleteDialog = ({
 
   return (
     <AlertDialog open={open} onOpenChange={changeOpen}>
-      <AlertDialogTrigger render={trigger}>{children}</AlertDialogTrigger>
+      <Hint description={hint}>
+        <AlertDialogTrigger render={trigger}>{children}</AlertDialogTrigger>
+      </Hint>
       <AlertDialogContent>
         <AlertDialogTitle>{title}</AlertDialogTitle>
         <AlertDialogDescription>{description}</AlertDialogDescription>
@@ -111,12 +124,16 @@ export const DeleteDialog = ({
           </div>
         )}
         <div className="flex justify-end gap-2 pt-2">
-          <AlertDialogClose disabled={pending} render={<Button variant="outline" />}>
-            Cancel
-          </AlertDialogClose>
-          <Button variant="destructive" disabled={pending} onClick={remove}>
-            {pending ? 'Deleting…' : retrying ? retry.confirm : confirm}
-          </Button>
+          <Hint description="Close the dialog and delete nothing" note={pendingNote}>
+            <AlertDialogClose disabled={pending} render={<Button variant="outline" />}>
+              Cancel
+            </AlertDialogClose>
+          </Hint>
+          <Hint description={hint} note={pendingNote}>
+            <Button variant="destructive" disabled={pending} onClick={remove}>
+              {pending ? 'Deleting…' : retrying ? retry.confirm : confirm}
+            </Button>
+          </Hint>
         </div>
       </AlertDialogContent>
     </AlertDialog>

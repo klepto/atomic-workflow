@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 import { call } from '@/api/rpc.ts';
 import type { RequestedChanges, TaskSummary, Ticket, TicketCommit } from '@/api/types.ts';
 import { Button } from '@/components/ui/button.tsx';
+import { Hint } from '@/components/ui/hint.tsx';
 import { ScrollArea } from '@/components/ui/scroll-area.tsx';
 import { Textarea } from '@/components/ui/textarea.tsx';
 import { cn } from '@/lib/utils.ts';
@@ -141,23 +142,24 @@ const LayoutToggle = ({ layout, onChange }: { layout: DiffLayout; onChange: (lay
   <div role="group" aria-label="Diff layout" className="flex rounded-md border bg-background p-0.5">
     {(
       [
-        { value: 'unified', label: 'Unified', icon: Rows2 },
-        { value: 'split', label: 'Split', icon: Columns2 },
+        { value: 'unified', label: 'Unified', description: 'Show the diff in one column', icon: Rows2 },
+        { value: 'split', label: 'Split', description: 'Show the old and the new lines side by side', icon: Columns2 },
       ] as const
-    ).map(({ value, label, icon: Icon }) => (
-      <button
-        key={value}
-        type="button"
-        aria-pressed={layout === value}
-        onClick={() => onChange(value)}
-        className={cn(
-          'flex items-center gap-1.5 rounded-[calc(var(--radius)-4px)] px-2 py-1 text-xs outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50',
-          layout === value ? 'bg-secondary font-medium text-secondary-foreground' : 'text-muted-foreground',
-        )}
-      >
-        <Icon aria-hidden="true" className="size-3.5" />
-        {label}
-      </button>
+    ).map(({ value, label, description, icon: Icon }) => (
+      <Hint key={value} description={description}>
+        <button
+          type="button"
+          aria-pressed={layout === value}
+          onClick={() => onChange(value)}
+          className={cn(
+            'flex items-center gap-1.5 rounded-[calc(var(--radius)-4px)] px-2 py-1 text-xs outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50',
+            layout === value ? 'bg-secondary font-medium text-secondary-foreground' : 'text-muted-foreground',
+          )}
+        >
+          <Icon aria-hidden="true" className="size-3.5" />
+          {label}
+        </button>
+      </Hint>
     ))}
   </div>
 );
@@ -198,23 +200,25 @@ const FileList = ({
           const comments = draft.comments.filter((comment) => comment.path === file.path).length;
           return (
             <li key={file.path}>
-              <button
-                type="button"
-                onClick={() => onJump(index)}
-                className="flex w-full min-w-0 items-center gap-2 px-3 py-1.5 text-left outline-none hover:bg-accent focus-visible:bg-accent"
-              >
-                <Icon aria-hidden="true" className="size-4 shrink-0 text-muted-foreground" />
-                <span className="sr-only">{`${words}: `}</span>
-                <FilePath path={file.path} className="flex-1 text-xs" />
-                {comments > 0 && (
-                  <span className="flex shrink-0 items-center gap-1 font-medium text-primary text-xs">
-                    <MessageSquare aria-hidden="true" className="size-3.5" />
-                    {comments}
-                    <span className="sr-only">{comments === 1 ? ' comment' : ' comments'}</span>
-                  </span>
-                )}
-                <LineCounts additions={file.additions} deletions={file.deletions} />
-              </button>
+              <Hint description={`Scroll to the changes of ${file.path}`}>
+                <button
+                  type="button"
+                  onClick={() => onJump(index)}
+                  className="flex w-full min-w-0 items-center gap-2 px-3 py-1.5 text-left outline-none hover:bg-accent focus-visible:bg-accent"
+                >
+                  <Icon aria-hidden="true" className="size-4 shrink-0 text-muted-foreground" />
+                  <span className="sr-only">{`${words}: `}</span>
+                  <FilePath path={file.path} titled={false} className="flex-1 text-xs" />
+                  {comments > 0 && (
+                    <span className="flex shrink-0 items-center gap-1 font-medium text-primary text-xs">
+                      <MessageSquare aria-hidden="true" className="size-3.5" />
+                      {comments}
+                      <span className="sr-only">{comments === 1 ? ' comment' : ' comments'}</span>
+                    </span>
+                  )}
+                  <LineCounts additions={file.additions} deletions={file.deletions} />
+                </button>
+              </Hint>
             </li>
           );
         })}
@@ -268,6 +272,37 @@ const ChangesNotice = ({ changes, landed }: { changes: Changes; landed: boolean 
 };
 
 /**
+ * An action of the bar at the bottom of the review: the approval of the ticket, or the request of changes.
+ */
+type ReviewAction = 'approving' | 'requesting';
+
+/**
+ * The failure of the latest click of an action: the action, and the message of its failure.
+ */
+interface ActionFailure {
+  /**
+   * The action whose click failed.
+   */
+  action: ReviewAction;
+
+  /**
+   * The message of the failure.
+   */
+  message: string;
+}
+
+/**
+ * Returns the second line of the hint of the button of the action `action`: the message of `failure` when the latest
+ * click of that action failed, else the first of `reasons` that is not `false`, which says why the button is disabled.
+ * Returns `undefined` when there is neither.
+ */
+const actionNoteOf = (
+  action: ReviewAction,
+  failure: ActionFailure | undefined,
+  reasons: readonly (string | false)[],
+): string | undefined => (failure?.action === action ? failure.message : reasons.find((reason) => reason !== false));
+
+/**
  * The review of the ticket `ticket` of the task `task`, as a page of its changes: the list of the changed files at the
  * top, then the diff of each file, then a field for the overall comment, with the bar of the actions at the bottom. A
  * click on a line number selects that line to comment on, and a shift and a click extend the selection. Each file
@@ -293,8 +328,8 @@ export const ReviewPage = ({
   const [selection, setSelection] = useState<Selection>();
   const [editing, setEditing] = useState<string>();
   const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(new Set());
-  const [action, setAction] = useState<'approving' | 'requesting'>();
-  const [failure, setFailure] = useState<string>();
+  const [action, setAction] = useState<ReviewAction>();
+  const [failure, setFailure] = useState<ActionFailure>();
   const [created, setCreated] = useState<{ ticket: Ticket; refusal: string }>();
   const files = changes.state === 'loaded' ? changes.files : [];
   const count = commentCountOf(draft);
@@ -371,15 +406,15 @@ export const ReviewPage = ({
     });
 
   /**
-   * Runs the action `name` with `run`, and keeps the message of its failure.
+   * Runs the action `name` with `run`, and keeps the message of its failure with its name.
    */
-  const runAction = async (name: 'approving' | 'requesting', run: () => Promise<void>) => {
+  const runAction = async (name: ReviewAction, run: () => Promise<void>) => {
     setAction(name);
     setFailure(undefined);
     try {
       await run();
     } catch (error) {
-      setFailure(error instanceof Error ? error.message : String(error));
+      setFailure({ action: name, message: error instanceof Error ? error.message : String(error) });
     } finally {
       setAction(undefined);
     }
@@ -426,6 +461,8 @@ export const ReviewPage = ({
       ? `Commit ${changes.commit.slice(0, 7)}, ${counted(changes.files.length, 'file', 'files')} changed`
       : undefined;
   const busy = action !== undefined;
+  const busyReason =
+    action === 'approving' ? `Ticket ${ticket.id} is being approved` : 'The changes are being requested';
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -472,7 +509,7 @@ export const ReviewPage = ({
           <div className="mx-auto flex w-full max-w-6xl flex-wrap items-center gap-x-4 gap-y-2 px-4 py-3 md:px-6">
             <div role="status" className="min-w-0 flex-1 text-sm">
               {failure !== undefined ? (
-                <span className="text-destructive">{failure}</span>
+                <span className="text-destructive">{failure.message}</span>
               ) : created !== undefined ? (
                 <span>
                   {'Added ticket '}
@@ -496,12 +533,28 @@ export const ReviewPage = ({
               )}
             </div>
             <div className="flex shrink-0 items-center gap-2">
-              <Button variant="outline" disabled={busy || isEmptyDraft(draft)} onClick={() => void requestChanges()}>
-                {action === 'requesting' ? 'Requesting changes' : 'Request changes'}
-              </Button>
-              <Button disabled={busy || ticket.status !== 'needs-review'} onClick={() => void approve()}>
-                {ticket.status === 'done' ? 'Approved' : action === 'approving' ? 'Approving' : 'Approve'}
-              </Button>
+              <Hint
+                description={`Send the comments as a new ticket that fixes ticket ${ticket.id}`}
+                note={actionNoteOf('requesting', failure, [
+                  busy && busyReason,
+                  isEmptyDraft(draft) && 'Add a comment first',
+                ])}
+              >
+                <Button variant="outline" disabled={busy || isEmptyDraft(draft)} onClick={() => void requestChanges()}>
+                  {action === 'requesting' ? 'Requesting changes' : 'Request changes'}
+                </Button>
+              </Hint>
+              <Hint
+                description={`Approve ticket ${ticket.id} and set it done`}
+                note={actionNoteOf('approving', failure, [
+                  busy && busyReason,
+                  ticket.status === 'done' && `Ticket ${ticket.id} is approved already`,
+                ])}
+              >
+                <Button disabled={busy || ticket.status !== 'needs-review'} onClick={() => void approve()}>
+                  {ticket.status === 'done' ? 'Approved' : action === 'approving' ? 'Approving' : 'Approve'}
+                </Button>
+              </Hint>
             </div>
           </div>
         </div>

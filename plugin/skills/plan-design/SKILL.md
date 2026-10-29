@@ -1,7 +1,7 @@
 ---
 name: plan-design
 description: Second stage of planning. Drafts the design that implements the goals of a task, and revises it with the user until they are satisfied. On a complete task, amends the design.
-argument-hint: "<task id>"
+argument-hint: "<task id> [--unattended]"
 allowed-tools: mcp__plugin_atomic-workflow_atomic-workflow__activate, mcp__plugin_atomic-workflow_atomic-workflow__taskGet, mcp__plugin_atomic-workflow_atomic-workflow__taskCreate, mcp__plugin_atomic-workflow_atomic-workflow__goalSave, mcp__plugin_atomic-workflow_atomic-workflow__goalDelete, mcp__plugin_atomic-workflow_atomic-workflow__designSave, mcp__plugin_atomic-workflow_atomic-workflow__ticketsSave, mcp__plugin_atomic-workflow_atomic-workflow__taskSetStatus, Bash(node:*), Read, Grep, Glob, WebSearch, WebFetch
 ---
 
@@ -14,9 +14,13 @@ whole design. The internals of each part are left to the agents of the tickets.
 Before anything else, read `../../references/planning.md`, relative to the base directory of this skill. It holds the
 rules that every stage of planning shares: start, cascade, pushback, and the format of each part of the plan.
 
-Arguments: `$ARGUMENTS`. The first word is the id of the task. Without one, ask for it.
+Arguments: `$ARGUMENTS`. The first word is the id of the task. Without one, ask for it. The word `--unattended` after
+the task id selects unattended mode, as `## Unattended` says. Without it, the stage runs as the rest of this skill
+says.
 
 ## Start
+
+With `--unattended`, follow `## Unattended` below in place of this section.
 
 Follow the start of planning with the stage `plan-design`. Then:
 
@@ -45,10 +49,23 @@ depends on, and that a quick look cannot settle, goes to `## Open questions`, wi
 Research is done when every goal has a part that meets it, every point where two parts meet has a contract, and each
 contract fits the code it builds on.
 
+## Unattended
+
+With `--unattended`, follow `## Unattended` of the planning rules, and ask nothing. The work of this stage:
+
+1. Follow the start of planning with the stage `plan-design`.
+2. Without a design, research, and draft the design. With a design, check it against the goals and `## Research`,
+   with no new research where it holds.
+3. Apply `## Pushback` to the draft, and settle each choice that you would ask the user about.
+4. Write each choice that you settled in place of the user into the section `## Decisions` of the design: the choice,
+   the alternatives, and the reason. Keep the decisions that the stored design has already.
+5. Store the design with `designSave`, and finish as `## Finish` says.
+
 ## Finish
 
-Outside amend mode, when the user is satisfied with the design, call `taskSetStatus` with `plan-tickets`. Then print
-the final design, and name the next stage: `/atomic-workflow:plan-tickets <task id>`.
+Outside amend mode, when the user is satisfied with the design, or at the end of unattended mode, call
+`taskSetStatus` with `plan-tickets`. Then print the final design, and name the next stage:
+`/atomic-workflow:plan-tickets <task id>`.
 
 In amend mode, when the user is satisfied with the design, do not call `taskSetStatus`, and name no next stage. Print what changed, as `## Amend` of the planning
 rules says, and tell the user that the task stays `complete`.

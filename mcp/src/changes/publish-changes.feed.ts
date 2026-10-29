@@ -46,7 +46,8 @@ const publishingMessageLog = (store: MessageLogStore, changes: ChangeFeed): Mess
 });
 
 /**
- * Wraps `store`, so that each write publishes `tasks` to `changes` once it resolves.
+ * Wraps `store`, so that each write publishes `tasks` to `changes` once it resolves, and `startRun`, `endRun` and
+ * `endRuns` publish `tasks` only once they resolve with a change.
  */
 const publishingTasks = (store: TaskStore, changes: ChangeFeed): TaskStore => {
   const write = <T>(result: Promise<T>): Promise<T> => published(result, changes, 'tasks');
@@ -63,6 +64,21 @@ const publishingTasks = (store: TaskStore, changes: ChangeFeed): TaskStore => {
     setStatus: (taskId, status) => write(store.setStatus(taskId, status)),
     setBaseBranch: (taskId, branch) => write(store.setBaseBranch(taskId, branch)),
     setTicketProgress: (taskId, ticketId, progress) => write(store.setTicketProgress(taskId, ticketId, progress)),
+    startRun: async (taskId, at) => {
+      const changed = await store.startRun(taskId, at);
+      if (changed) changes.publish('tasks');
+      return changed;
+    },
+    endRun: async (taskId, at, startedAt) => {
+      const changed = await store.endRun(taskId, at, startedAt);
+      if (changed) changes.publish('tasks');
+      return changed;
+    },
+    endRuns: async (at) => {
+      const ended = await store.endRuns(at);
+      if (ended > 0) changes.publish('tasks');
+      return ended;
+    },
   };
 };
 

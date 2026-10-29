@@ -6,6 +6,7 @@ import type { Chat } from '@/chats/chat-list.ts';
 import { expandCommand, skillOf } from '@/commands/skill-commands.ts';
 import { useSkills } from '@/commands/use-skills.ts';
 import { Button } from '@/components/ui/button.tsx';
+import { Hint } from '@/components/ui/hint.tsx';
 import { ScrollArea } from '@/components/ui/scroll-area.tsx';
 import { parseCommand } from '@/conversation/command-text.ts';
 import { MarkdownBody } from '@/conversation/markdown-body.tsx';
@@ -249,9 +250,11 @@ const PendingRow = ({ message, onDiscard }: { message: PendingMessage; onDiscard
       line={{ text: pendingLine(message), failed: message.state === 'failed' }}
     />
     {message.state === 'failed' && (
-      <Button variant="ghost" size="sm" onClick={onDiscard} className="self-end">
-        Discard
-      </Button>
+      <Hint description="Discard the message that was not delivered">
+        <Button variant="ghost" size="sm" onClick={onDiscard} className="self-end">
+          Discard
+        </Button>
+      </Hint>
     )}
   </div>
 );
@@ -484,16 +487,17 @@ export const ConsolePage = ({ chat, task, messages, online, onOpen, readSessions
       </ScrollArea>
       <div className="relative mx-auto w-full max-w-3xl px-3 pb-3 md:px-6 md:pb-5">
         {!following && (
-          <Button
-            variant="outline"
-            size="icon"
-            aria-label="Jump to latest"
-            title="Jump to latest"
-            onClick={jumpToEnd}
-            className="-top-12 -translate-x-1/2 absolute left-1/2 rounded-full bg-background shadow-md"
-          >
-            <ArrowDown />
-          </Button>
+          <Hint description="Jump to the latest message">
+            <Button
+              variant="outline"
+              size="icon"
+              aria-label="Jump to latest"
+              onClick={jumpToEnd}
+              className="-top-12 -translate-x-1/2 absolute left-1/2 rounded-full bg-background shadow-md"
+            >
+              <ArrowDown />
+            </Button>
+          </Hint>
         )}
         <SessionBar
           startedAt={chat.startedAt}

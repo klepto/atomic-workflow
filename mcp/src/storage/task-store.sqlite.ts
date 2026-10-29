@@ -17,12 +17,14 @@ export const sqliteTaskStore = (database: DatabaseSync): TaskStore => {
     `INSERT INTO task (slug, status, created_at) VALUES (:slug, 'plan-goals', :createdAt) RETURNING id`,
   );
   const selectTask = database.prepare(
-    `SELECT id, slug, status, created_at AS createdAt, design, base_branch AS baseBranch FROM task WHERE id = :id`,
+    `SELECT id, slug, status, created_at AS createdAt, design, base_branch AS baseBranch,
+      run_started_at AS runStartedAt, run_ended_at AS runEndedAt FROM task WHERE id = :id`,
   );
   const selectTasks = database.prepare(
     `SELECT id, slug, status, created_at AS createdAt,
       (SELECT COUNT(*) FROM ticket WHERE task_id = task.id AND status IN ${COMPLETED}) AS completedTickets,
-      (SELECT COUNT(*) FROM ticket WHERE task_id = task.id) AS totalTickets
+      (SELECT COUNT(*) FROM ticket WHERE task_id = task.id) AS totalTickets,
+      run_started_at AS runStartedAt, run_ended_at AS runEndedAt
     FROM task ORDER BY id`,
   );
   const removeTaskGoals = database.prepare(`DELETE FROM goal WHERE task_id = :taskId`);
@@ -72,6 +74,17 @@ export const sqliteTaskStore = (database: DatabaseSync): TaskStore => {
   const updateTicketProgress = database.prepare(
     `UPDATE ticket SET status = :status, stage = :stage, blocked_reason = :blockedReason
     WHERE task_id = :taskId AND id = :ticketId`,
+  );
+  const updateRunStart = database.prepare(
+    `UPDATE task SET run_started_at = :at, run_ended_at = NULL WHERE id = :taskId`,
+  );
+  const updateRunEnd = database.prepare(
+    `UPDATE task SET run_ended_at = :at
+    WHERE id = :taskId AND run_started_at IS NOT NULL AND run_ended_at IS NULL
+      AND (:startedAt IS NULL OR run_started_at = :startedAt)`,
+  );
+  const updateRunEnds = database.prepare(
+    `UPDATE task SET run_ended_at = :at WHERE run_started_at IS NOT NULL AND run_ended_at IS NULL`,
   );
   const get = (id: number): Task | undefined => {
     const row = selectTask.get({ id }) as Omit<Task, 'goals' | 'tickets'> | undefined;
@@ -161,5 +174,8 @@ export const sqliteTaskStore = (database: DatabaseSync): TaskStore => {
     },
     setTicketProgress: async (taskId, ticketId, { status, stage, blockedReason }) =>
       updateTicketProgress.run({ taskId, ticketId, status, stage, blockedReason }).changes > 0,
+    startRun: async (taskId, at) => updateRunStart.run({ taskId, at }).changes > 0,
+    endRun: async (taskId, at, startedAt) => updateRunEnd.run({ taskId, at, startedAt: startedAt ?? null }).changes > 0,
+    endRuns: async (at) => Number(updateRunEnds.run({ at }).changes),
   };
 };

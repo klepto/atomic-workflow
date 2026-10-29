@@ -173,6 +173,17 @@ export interface TaskSummary {
    * Number of every ticket of the task, completed or not.
    */
   totalTickets: number;
+
+  /**
+   * Start of the latest unattended run of the task, in ms since the epoch, or `null` when the task never ran.
+   */
+  runStartedAt: number | null;
+
+  /**
+   * End of the latest unattended run of the task, in ms since the epoch, or `null` while that run is active or the
+   * task never ran.
+   */
+  runEndedAt: number | null;
 }
 
 /**

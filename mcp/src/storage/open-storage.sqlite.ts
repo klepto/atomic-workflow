@@ -188,6 +188,9 @@ const MIGRATIONS: readonly string[] = [
   // before has neither.
   `ALTER TABLE session ADD COLUMN model TEXT;
   ALTER TABLE session ADD COLUMN effort TEXT;`,
+  // Step 16 adds the start and the end of the latest run of a task. Each task stored before never ran.
+  `ALTER TABLE task ADD COLUMN run_started_at INTEGER;
+  ALTER TABLE task ADD COLUMN run_ended_at INTEGER;`,
 ];
 
 /**

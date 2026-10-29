@@ -5,6 +5,7 @@ import { commandOf, skillOf } from '@/commands/skill-commands.ts';
 import { SkillMenu } from '@/commands/skill-menu.tsx';
 import { useSkillMenu } from '@/commands/use-skill-menu.ts';
 import { Button } from '@/components/ui/button.tsx';
+import { Hint } from '@/components/ui/hint.tsx';
 import { Textarea } from '@/components/ui/textarea.tsx';
 
 /**
@@ -149,9 +150,11 @@ export const ConsoleComposer = ({
               {...menu.fieldProps}
               className="max-h-60 min-h-9 resize-none overflow-y-auto rounded-none border-0 bg-transparent px-0 py-1.5 font-mono text-sm leading-6 shadow-none focus-visible:border-0 focus-visible:ring-0 md:text-sm"
             />
-            <Button type="submit" size="icon" aria-label="Send" disabled={!sendable} className="rounded-xl">
-              <ArrowUp />
-            </Button>
+            <Hint description="Send the message" note={sendable ? undefined : 'Write a message first'}>
+              <Button type="submit" size="icon" aria-label="Send" disabled={!sendable} className="rounded-xl">
+                <ArrowUp />
+              </Button>
+            </Hint>
           </div>
         </div>
       </div>
