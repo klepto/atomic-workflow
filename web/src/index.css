@@ -26,7 +26,11 @@
 
 /*
  * The themes of tweakcn.com, each in a light and a dark variant. The attribute `data-theme` of the root element
- * names the theme, and the class `dark` selects the dark variant.
+ * names the theme, and the class `dark` selects the dark variant. The app always sets the class `dark`, in
+ * `web/index.html` and in `applyTheme` of `web/src/theme/theme.ts`, so only the dark variants apply. The light
+ * variants, and the tokens that no class uses, such as `--chart-2` to `--chart-5`, `--font-serif` and
+ * `--sidebar-primary`, stay on purpose: each theme stays the export of tweakcn.com as it is, so that a theme can be
+ * updated by pasting its new export, and a light mode needs no new colors.
  *
  * zen: https://tweakcn.com/themes/cmlm03etv000204lh15608kec
  * claude: https://tweakcn.com/themes/cmlm09qdq000004l7a6e9681h

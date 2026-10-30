@@ -2,10 +2,11 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import type { AddressInfo } from 'node:net';
 import { text } from 'node:stream/consumers';
 import type { ChangeFeed } from '../changes/change-feed.ts';
+import { errorMessage } from '../rpc/error-message.ts';
 import type { RpcHandler } from '../rpc/message.ts';
-import { RpcError, RpcErrorCode } from '../rpc/rpc-error.ts';
-import type { StartWebServerFunction } from './start-web-server.ts';
-import type { CreateStaticFilesFunction, StaticAnswer, StaticFile, StaticFiles } from './static-files.ts';
+import { RPC_ERROR_CODES, RpcError } from '../rpc/rpc-error.ts';
+import type { StartWebServerFunction, WebServerDependencies } from './start-web-server.ts';
+import type { StaticAnswer, StaticFile } from './static-files.ts';
 
 /**
  * Host that the web server listens on. Only processes of the local machine reach it.
@@ -34,60 +35,38 @@ const EVENTS_PATH = '/events';
 const NOT_BUILT = 'The web app is not built. Run npm run build in web/.';
 
 /**
- * What the web server answers its requests with.
- */
-interface Routes {
-  /**
-   * Answers the JSON-RPC 2.0 messages to `RPC_PATH`.
-   */
-  readonly handle: RpcHandler;
-
-  /**
-   * Feed whose changes `EVENTS_PATH` streams.
-   */
-  readonly changes: ChangeFeed;
-
-  /**
-   * Files of the web app, which every other path answers with.
-   */
-  readonly staticFiles: StaticFiles;
-}
-
-/**
- * Returns a `StartWebServerFunction` that serves over HTTP on a port that the system picks, and reads the files of
- * the web app with the `StaticFiles` that `createStaticFiles` returns for the directory of its options.
+ * `StartWebServerFunction` that serves over HTTP on a port that the system picks, with the routes of its dependencies.
  *
  * The web server answers a JSON-RPC 2.0 message in the body of a `POST` to `/rpc` with the response in the body of
  * its answer. A message must come as JSON, so a web page of another origin cannot send one. A `GET` of `/events`
  * opens a stream of Server-Sent Events, which sends `event: <resource>` with empty data for each change of the change
- * feed of its options, until the client closes it or the web server stops. A `GET` of any other path answers with the
- * file of the web app that the path names, or with `index.html` when it names none. Only requests to the host and port
- * of its URL are answered, at every path, so a host name that resolves to the local host does not reach it.
+ * feed of its dependencies, until the client closes it or the web server stops. A `GET` of any other path answers
+ * with the file of the web app that the path names, or with `index.html` when it names none. Only requests to the
+ * host and port of its URL are answered, at every path, so a host name that resolves to the local host does not reach
+ * it.
+ * If the server cannot listen, rejects with the error of the server.
  */
-export const httpStartWebServer =
-  (createStaticFiles: CreateStaticFilesFunction): StartWebServerFunction =>
-  async (handle, options) => {
-    const routes: Routes = {
-      handle,
-      changes: options.changes,
-      staticFiles: createStaticFiles({ directory: options.directory }),
-    };
-    const server = createServer((request, response) => void serve(routes, request, response));
-    await listen(server);
-    const { port } = server.address() as AddressInfo;
-    return { url: `http://${HOST}:${port}/`, close: () => close(server) };
-  };
+export const httpStartWebServer: StartWebServerFunction = async (dependencies) => {
+  const server = createServer((request, response) => void serve(dependencies, request, response));
+  await listen(server);
+  const { port } = server.address() as AddressInfo;
+  return { url: `http://${HOST}:${port}/`, close: () => close(server) };
+};
 
 /**
  * Answers `request` with `response`, as `route` does. A failure of `route` is answered with `500` and its message, or
  * ends the connection once the answer has begun, so it does not end the process.
  */
-const serve = async (routes: Routes, request: IncomingMessage, response: ServerResponse): Promise<void> => {
+const serve = async (
+  routes: WebServerDependencies,
+  request: IncomingMessage,
+  response: ServerResponse,
+): Promise<void> => {
   try {
     await route(routes, request, response);
-  } catch (failure) {
+  } catch (error) {
     if (response.headersSent) return void response.destroy();
-    respond(response, 500, 'text/plain', failure instanceof Error ? failure.message : String(failure));
+    respond(response, 500, 'text/plain', errorMessage(error));
   }
 };
 
@@ -97,7 +76,11 @@ const serve = async (routes: Routes, request: IncomingMessage, response: ServerR
  * path, the stream of the change feed of `routes` to a `GET` of `EVENTS_PATH`, and the answer of the static files of
  * `routes` to a `GET` of any other path.
  */
-const route = async (routes: Routes, request: IncomingMessage, response: ServerResponse): Promise<void> => {
+const route = async (
+  routes: WebServerDependencies,
+  request: IncomingMessage,
+  response: ServerResponse,
+): Promise<void> => {
   const { pathname } = new URL(request.url ?? '/', `http://${HOST}`);
   if (request.headers.host !== `${HOST}:${request.socket.localPort}`)
     return void respond(response, 421, 'text/plain', 'Unknown host');
@@ -148,9 +131,9 @@ const sentPath = (url: string): string => {
  * `refused`, and `503` with `NOT_BUILT` for a `missing`.
  */
 const respondStatic = (response: ServerResponse, staticAnswer: StaticAnswer): void => {
-  if (staticAnswer.kind === 'refused') return respond(response, 400, 'text/plain', staticAnswer.message);
-  if (staticAnswer.kind === 'missing') return respond(response, 503, 'text/plain', NOT_BUILT);
-  respondFile(response, staticAnswer.file);
+  if (staticAnswer.kind === 'refused') respond(response, 400, 'text/plain', staticAnswer.message);
+  else if (staticAnswer.kind === 'missing') respond(response, 503, 'text/plain', NOT_BUILT);
+  else respondFile(response, staticAnswer.file);
 };
 
 /**
@@ -168,12 +151,11 @@ const respondFile = (response: ServerResponse, file: StaticFile): void => {
  * Returns the response of `handle` to the JSON-RPC 2.0 message in the text `body`, or `undefined` for a notification.
  * A body that is not valid JSON gets a response that reports a parse error.
  */
-const call = (handle: RpcHandler, body: string): ReturnType<RpcHandler> => {
+const call = async (handle: RpcHandler, body: string): ReturnType<RpcHandler> => {
   try {
     return handle(JSON.parse(body));
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    return Promise.resolve(new RpcError(RpcErrorCode.PARSE_ERROR, message).toResponse(null));
+    return new RpcError(RPC_ERROR_CODES.PARSE_ERROR, errorMessage(error)).toResponse(null);
   }
 };
 
@@ -187,9 +169,10 @@ const respond = (response: ServerResponse, status: number, type?: string, body?:
 };
 
 /**
- * Starts `server` listening on a free port of `HOST`, and resolves once it listens.
+ * Starts `server` listening on a free port of `HOST`, and resolves once it listens. If it cannot listen, rejects with
+ * the error of `server`.
  */
-const listen = (server: Server): Promise<void> => {
+const listen = async (server: Server): Promise<void> => {
   return new Promise((resolve, reject) => {
     server.once('error', reject);
     server.listen(0, HOST, () => {
@@ -200,9 +183,10 @@ const listen = (server: Server): Promise<void> => {
 };
 
 /**
- * Stops `server` and ends its open connections, and resolves once it has stopped.
+ * Stops `server` and ends its open connections, and resolves once it has stopped. If `server` fails to stop, rejects
+ * with its error.
  */
-const close = (server: Server): Promise<void> => {
+const close = async (server: Server): Promise<void> => {
   return new Promise((resolve, reject) => {
     server.close((error) => (error === undefined ? resolve() : reject(error)));
     server.closeAllConnections();

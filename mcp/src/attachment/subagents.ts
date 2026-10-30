@@ -1,5 +1,4 @@
 import type { RpcConnection } from '../rpc/rpc-connection.ts';
-import { mapCreateSubagents } from './subagents.map.ts';
 
 /**
  * Subagent that has attached.
@@ -23,7 +22,8 @@ export interface AttachedSubagent {
 export interface Subagents {
   /**
    * Starts the subagent `sessionId` inside the orchestrator session `parentId`, whose session server serves
-   * `connection`. The subagent goes away when it is stopped, or when `connection` closes.
+   * `connection`. The subagent goes away when it is stopped, or when `connection` closes. A subagent that is started
+   * already is replaced, and a wait for the attach of the replaced one settles only when its `signal` aborts.
    */
   start(sessionId: string, parentId: string, connection: RpcConnection): void;
 
@@ -54,8 +54,3 @@ export interface Subagents {
  * Function that returns new subagents, with no subagent started.
  */
 export type CreateSubagentsFunction = () => Subagents;
-
-/**
- * Default `CreateSubagentsFunction`, which keeps the subagents in memory.
- */
-export const CreateSubagents: CreateSubagentsFunction = mapCreateSubagents;

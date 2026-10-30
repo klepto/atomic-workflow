@@ -28,23 +28,23 @@ const LEADING_WORD = /^\/(\S+)(?=\s|$)/;
 export type SkillGroup = 'main' | 'helper';
 
 /**
- * The groups of the menu, in the order that the menu shows them.
+ * Groups of the menu, in the order that the menu shows them.
  */
 export const SKILL_GROUPS: readonly SkillGroup[] = ['main', 'helper'];
 
 /**
- * A skill that the text matches, and how well, as `rankOf` ranks it.
+ * Skill that the text matches, and how well, as `rankOf` ranks it.
  */
 interface Match {
   /**
-   * The skill that the text matches.
+   * Skill that the text matches.
    */
-  skill: Skill;
+  readonly skill: Skill;
 
   /**
-   * How well the text matches the skill, the best match lowest.
+   * Rank of the match, the best match lowest.
    */
-  rank: number;
+  readonly rank: number;
 }
 
 /**
@@ -145,3 +145,9 @@ export const expandCommand = (text: string, skill: Skill): string =>
  * the skill and a space for its arguments.
  */
 export const insertSkill = (skill: Skill): string => `/${commandOf(skill)} `;
+
+/**
+ * Returns the id of the option of the skill `skill` in the menu whose id is `menuId`: that id, a hyphen and the name of
+ * the skill.
+ */
+export const skillOptionId = (menuId: string, skill: Skill): string => `${menuId}-${skill.name}`;

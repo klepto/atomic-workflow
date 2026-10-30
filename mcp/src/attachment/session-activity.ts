@@ -1,5 +1,3 @@
-import { mapCreateSessionActivity } from './session-activity.map.ts';
-
 /**
  * Statuses of the agent of a session: `idle` while it waits for its next message, `working` while a turn runs, and
  * `waiting` while it is blocked on the user, such as by a permission prompt or a question in the terminal.
@@ -69,8 +67,3 @@ export interface SessionActivity {
  * Function that returns a new activity, with no status reported.
  */
 export type CreateSessionActivityFunction = () => SessionActivity;
-
-/**
- * Default `CreateSessionActivityFunction`, which keeps the statuses in memory.
- */
-export const CreateSessionActivity: CreateSessionActivityFunction = mapCreateSessionActivity;

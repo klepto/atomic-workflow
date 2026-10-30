@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import type { Task } from '../storage/task-store.ts';
-import { taskGetMethod } from './method.task-get.ts';
+import { findTask } from './find-task.ts';
 import type { Method } from './method.ts';
 
 /**
@@ -20,9 +20,9 @@ export const taskRunEndMethod: Method<typeof PARAMS, Task> = {
     'Marks the end of the active unattended run of a task of the atomic workflow, for the run timer of the web app, and returns the task.',
   agent: true,
   params: PARAMS,
-  handle: async ({ taskId }, context) => {
-    await taskGetMethod.handle({ task: taskId }, context);
-    await context.tasks.endRun(taskId, Date.now());
-    return taskGetMethod.handle({ task: taskId }, context);
+  handle: async ({ taskId }, { tasks, clock }) => {
+    await findTask(taskId, tasks);
+    await tasks.endRun(taskId, clock.now());
+    return findTask(taskId, tasks);
   },
 };

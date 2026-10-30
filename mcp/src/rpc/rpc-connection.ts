@@ -1,6 +1,5 @@
 import type { Duplex } from 'node:stream';
 import type { RpcHandler } from './message.ts';
-import { ndjsonOpenRpcConnection } from './rpc-connection.ndjson.ts';
 
 /**
  * JSON-RPC 2.0 connection over a byte stream. Both ends of the stream can send requests, and each end answers the
@@ -26,12 +25,9 @@ export interface RpcConnection {
 }
 
 /**
- * Function that opens a JSON-RPC 2.0 connection over `stream`, and answers each message that it receives with
- * `handle`.
+ * Function that opens a JSON-RPC 2.0 connection over `stream`, answers each request that it receives with `handle`,
+ * and returns the connection. A message that is not valid JSON gets a response that reports a parse error. A response
+ * settles the request of this end that it answers, and a response to no waiting request is dropped. Once the stream
+ * closes, every request that waits for its response rejects.
  */
 export type OpenRpcConnectionFunction = (stream: Duplex, handle: RpcHandler) => RpcConnection;
-
-/**
- * Default `OpenRpcConnectionFunction`, which sends one message per line of JSON.
- */
-export const OpenRpcConnection: OpenRpcConnectionFunction = ndjsonOpenRpcConnection;

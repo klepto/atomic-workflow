@@ -16,11 +16,11 @@ const PARAMS = z.object({
 export type AwaitCommandResult = InboxDelivery;
 
 /**
- * `Method` named `inboxAwaitCommand`, which acknowledges the messages of a session up to the number `after`, and returns
- * the messages that are left, or waits for the next one. The session may be named by the beginning of its id. It waits as long as it takes, and ends with `stop` once the
- * session can take no more messages, or with `replaced` once a newer wait of the session takes over. The first call
- * of a started subagent attaches it. Agents do not call it as a tool, but run the command line tool that calls it in
- * the background, so the wait blocks no turn of the agent.
+ * `Method` named `inboxAwaitCommand`, which acknowledges the messages of a session up to the number `after`, and
+ * returns the messages that are left, or waits for the next one. The session may be named by the beginning of its id.
+ * It waits as long as it takes, and ends with `stop` once the session can take no more messages, or with `replaced`
+ * once a newer wait of the session takes over. The first call of a started subagent attaches it. Agents do not call it
+ * as a tool, but run the command line tool that calls it in the background, so the wait blocks no turn of the agent.
  */
 export const inboxAwaitCommandMethod: Method<typeof PARAMS, AwaitCommandResult> = {
   name: 'inboxAwaitCommand',

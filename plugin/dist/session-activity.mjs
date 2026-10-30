@@ -8,6 +8,26 @@ var __export = (target, all) => {
 import { text } from "node:stream/consumers";
 import { parseArgs } from "node:util";
 
+// src/attachment/attach.socket.ts
+import { createConnection } from "node:net";
+import { setTimeout as sleep } from "node:timers/promises";
+
+// src/attachment/attach.ts
+var NoRepositoryServerError = class extends Error {
+  /**
+   * Address at which no repository server runs.
+   */
+  address;
+  /**
+   * Creates the failure for the address `address`, with the error of the try to connect as `cause` of `options`.
+   */
+  constructor(address, options) {
+    super(`No atomic-workflow server runs at ${address}`, options);
+    this.name = "NoRepositoryServerError";
+    this.address = address;
+  }
+};
+
 // node_modules/zod/v4/classic/external.js
 var external_exports = {};
 __export(external_exports, {
@@ -19725,95 +19745,8 @@ function date4(params) {
   return _coercedDate(ZodDate, params);
 }
 
-// src/attachment/attach.socket.ts
-import { createConnection } from "node:net";
-import { setTimeout as sleep } from "node:timers/promises";
-
-// src/attachment/hello.ts
-var PROTOCOL_VERSION = 21;
-var HELLO_METHOD = "hello";
-var HELLO_PARAMS = external_exports.object({
-  protocol: external_exports.number().int(),
-  role: external_exports.enum(["session", "client"])
-});
-var HELLO_RESULT = external_exports.object({
-  url: external_exports.string()
-});
-
-// src/attachment/attach.socket.ts
-var CONNECT_INTERVAL = 50;
-var CONNECT_TIMEOUT = 5e3;
-var HELLO_TIMEOUT = 5e3;
-var socketAttach = async (address, role, dependencies) => {
-  const socket = await connectCatching(address);
-  if (!(socket instanceof Error)) return attachment(socket, role, false, dependencies);
-  await dependencies.launch();
-  return attachment(await connectUntil(address, Date.now() + CONNECT_TIMEOUT), role, true, dependencies);
-};
-var connectCatching = (address) => {
-  return new Promise((resolve2) => {
-    const socket = createConnection(address);
-    socket.once("error", resolve2);
-    socket.once("connect", () => {
-      socket.off("error", resolve2);
-      resolve2(socket);
-    });
-  });
-};
-var connectUntil = async (address, deadline) => {
-  for (; ; ) {
-    const socket = await connectCatching(address);
-    if (!(socket instanceof Error)) return socket;
-    if (Date.now() >= deadline)
-      throw new Error(`The repository server at ${address} did not come up: ${socket.message}`);
-    await sleep(CONNECT_INTERVAL);
-  }
-};
-var attachment = async (socket, role, launched, dependencies) => {
-  const connection = dependencies.openConnection(socket, dependencies.handle);
-  try {
-    return { launched, url: await hello(connection, role), connection };
-  } catch (error62) {
-    socket.destroy();
-    throw error62;
-  }
-};
-var hello = async (connection, role) => {
-  const params = { protocol: PROTOCOL_VERSION, role };
-  const result = await connection.request(HELLO_METHOD, params, AbortSignal.timeout(HELLO_TIMEOUT));
-  const parsed = HELLO_RESULT.safeParse(result);
-  if (!parsed.success) throw new Error(`The repository server answered hello with ${JSON.stringify(result)}`);
-  return parsed.data.url;
-};
-
-// src/attachment/attach.ts
-var Attach = socketAttach;
-
-// src/attachment/repository-address.git.ts
-import { execFile } from "node:child_process";
-import { createHash } from "node:crypto";
-import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
-import { promisify } from "node:util";
-var execFileAsync = promisify(execFile);
-var ADDRESS_PREFIX = "atomic-workflow-";
-var gitRepositoryAddress = async (directory) => {
-  const commandLine = ["rev-parse", "--path-format=absolute", "--git-common-dir"];
-  const { stdout } = await execFileAsync("git", commandLine, { cwd: directory, windowsHide: true });
-  const name = `${ADDRESS_PREFIX}${hash2(stdout.trim())}`;
-  return process.platform === "win32" ? `\\\\.\\pipe\\${name}` : join(tmpdir(), `${name}.sock`);
-};
-var hash2 = (gitDirectory) => {
-  const normalized = resolve(gitDirectory);
-  const key = process.platform === "win32" ? normalized.toLowerCase() : normalized;
-  return createHash("sha256").update(key).digest("hex").slice(0, 16);
-};
-
-// src/attachment/repository-address.ts
-var RepositoryAddress = gitRepositoryAddress;
-
 // src/rpc/rpc-error.ts
-var RpcErrorCode = {
+var RPC_ERROR_CODES = {
   /**
    * The message is not valid JSON.
    */
@@ -19837,7 +19770,7 @@ var RpcErrorCode = {
 };
 var RpcError = class _RpcError extends Error {
   /**
-   * Code of the failure, one of `RpcErrorCode` or a code of a method.
+   * Code of the failure, one of `RPC_ERROR_CODES` or a code of a method.
    */
   code;
   /**
@@ -19867,54 +19800,100 @@ var RpcError = class _RpcError extends Error {
   }
 };
 
-// src/rpc/dispatch.zod.ts
-var REQUEST = external_exports.object({
-  jsonrpc: external_exports.literal("2.0"),
-  id: external_exports.union([external_exports.string(), external_exports.number()]).optional(),
-  method: external_exports.string(),
-  params: external_exports.unknown().optional()
+// src/attachment/hello.ts
+var PROTOCOL_VERSION = 21;
+var HELLO_METHOD = "hello";
+var REPOSITORY_CLOSING = -32e3;
+var HELLO_PARAMS = external_exports.object({
+  protocol: external_exports.number().int(),
+  role: external_exports.enum(["session", "client"])
 });
-var zodDispatch = async (methods, context, message) => {
-  const request2 = REQUEST.safeParse(message);
-  if (!request2.success) return new RpcError(RpcErrorCode.INVALID_REQUEST, "Invalid request").toResponse(idOf(message));
-  const { id, method, params } = request2.data;
-  const outcome = await call(methods, context, method, params);
-  if (id === void 0) return void 0;
-  return "error" in outcome ? { jsonrpc: "2.0", id, error: outcome.error } : { jsonrpc: "2.0", id, result: outcome.result };
+var HELLO_RESULT = external_exports.object({
+  url: external_exports.string()
+});
+var isRepositoryClosing = (error62) => error62 instanceof RpcError && error62.code === REPOSITORY_CLOSING;
+
+// src/attachment/attach.socket.ts
+var CONNECT_INTERVAL = 50;
+var CONNECT_TIMEOUT = 5e3;
+var HELLO_TIMEOUT = 5e3;
+var socketAttach = async (address, role, dependencies) => {
+  const running = await attachRunning(address, role, dependencies);
+  if (!(running instanceof Error)) return running;
+  if (dependencies.launch === void 0) throw new NoRepositoryServerError(address, { cause: running });
+  await dependencies.launch();
+  return attachment(await connectUntil(address, AbortSignal.timeout(CONNECT_TIMEOUT)), role, true, dependencies);
 };
-var idOf = (message) => {
-  if (typeof message !== "object" || message === null || !("id" in message)) return null;
-  return typeof message.id === "string" || typeof message.id === "number" ? message.id : null;
-};
-var call = async (methods, context, name, params) => {
-  const method = methods.find((candidate) => candidate.name === name);
-  if (method === void 0)
-    return { error: { code: RpcErrorCode.METHOD_NOT_FOUND, message: `Unknown method ${name}` } };
-  const parsed = method.params.safeParse(params ?? {});
-  if (!parsed.success) return { error: { code: RpcErrorCode.INVALID_PARAMS, message: external_exports.prettifyError(parsed.error) } };
+var attachRunning = async (address, role, dependencies) => {
+  const socket = await connectCatching(address);
+  if (socket instanceof Error) return socket;
   try {
-    return { result: await method.handle(parsed.data, context) ?? null };
+    return await attachment(socket, role, false, dependencies);
   } catch (error62) {
-    return { error: errorObject(error62) };
+    if (isRepositoryClosing(error62)) return error62;
+    throw error62;
   }
 };
-var errorObject = (error62) => {
-  if (error62 instanceof RpcError) return { code: error62.code, message: error62.message, data: error62.data };
-  return { code: RpcErrorCode.INTERNAL_ERROR, message: error62 instanceof Error ? error62.message : String(error62) };
+var connectCatching = async (address) => new Promise((resolve2) => {
+  const socket = createConnection(address);
+  socket.once("error", resolve2);
+  socket.once("connect", () => {
+    socket.off("error", resolve2);
+    resolve2(socket);
+  });
+});
+var connectUntil = async (address, deadline) => {
+  for (; ; ) {
+    const socket = await connectCatching(address);
+    if (!(socket instanceof Error)) return socket;
+    if (deadline.aborted) throw new Error(`The repository server at ${address} did not come up: ${socket.message}`);
+    await sleep(CONNECT_INTERVAL);
+  }
+};
+var attachment = async (socket, role, launched, dependencies) => {
+  const connection = dependencies.openConnection(socket, dependencies.handle);
+  try {
+    return { launched, url: await hello(connection, role), connection };
+  } catch (error62) {
+    socket.destroy();
+    throw error62;
+  }
+};
+var hello = async (connection, role) => {
+  const params = { protocol: PROTOCOL_VERSION, role };
+  const result = await connection.request(HELLO_METHOD, params, AbortSignal.timeout(HELLO_TIMEOUT));
+  const parsed = HELLO_RESULT.safeParse(result);
+  if (!parsed.success) throw new Error(`The repository server answered hello with ${JSON.stringify(result)}`);
+  return parsed.data.url;
 };
 
-// src/rpc/dispatch.ts
-var Dispatch = zodDispatch;
-
-// src/attachment/session-activity.map.ts
-var UNREPORTED = {
-  status: "idle",
-  at: Number.NEGATIVE_INFINITY,
-  turnStartedAt: null,
-  turnEndedAt: null,
-  action: null,
-  actionAt: null
+// src/attachment/repository-address.git.ts
+import { execFile } from "node:child_process";
+import { createHash } from "node:crypto";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
+import { promisify } from "node:util";
+var execFileAsync = promisify(execFile);
+var ADDRESS_PREFIX = "atomic-workflow-";
+var gitRepositoryAddress = async (directory) => {
+  const commandLine = ["rev-parse", "--path-format=absolute", "--git-common-dir"];
+  const { stdout } = await execFileAsync("git", commandLine, { cwd: directory, windowsHide: true });
+  const name = `${ADDRESS_PREFIX}${hash2(stdout.trim())}`;
+  return process.platform === "win32" ? `\\\\.\\pipe\\${name}` : join(tmpdir(), `${name}.sock`);
 };
+var hash2 = (gitDirectory) => {
+  const normalized = resolve(gitDirectory);
+  const key = process.platform === "win32" ? normalized.toLowerCase() : normalized;
+  return createHash("sha256").update(key).digest("hex").slice(0, 16);
+};
+
+// src/client/hook-input.ts
+var HOOK_INPUT = external_exports.object({
+  session_id: external_exports.string().min(1),
+  cwd: external_exports.string().min(1)
+});
+var parseHookInput = (text2) => HOOK_INPUT.parse(JSON.parse(text2));
+var hookDirectory = (input2, environment) => environment.CLAUDE_PROJECT_DIR ?? input2.cwd;
 
 // src/attachment/session-activity.ts
 var ACTIVITY_STATUSES = ["idle", "working", "waiting"];
@@ -19930,9 +19909,77 @@ var sessionActivityReportMethod = {
   description: "Reports whether the agent of a session is idle, works, or waits for the user.",
   agent: false,
   params: PARAMS,
-  handle: async ({ sessionId, status, at = Date.now() }, { activity }) => {
-    activity.report(sessionId, status, at);
+  handle: async ({ sessionId, status, at }, { activity, clock }) => {
+    activity.report(sessionId, status, at ?? clock.now());
   }
+};
+
+// src/client/attach-client.ts
+var attachRunningClient = async (directory, dependencies) => {
+  const address = await dependencies.repositoryAddress(directory).catch(() => void 0);
+  if (address === void 0) return void 0;
+  return attachAt(address, dependencies).catch(
+    (error62) => error62 instanceof NoRepositoryServerError ? void 0 : Promise.reject(error62)
+  );
+};
+var attachAt = async (address, dependencies) => dependencies.attach(address, "client", {
+  openConnection: dependencies.openConnection,
+  handle: (message) => dependencies.dispatch([], void 0, message)
+});
+
+// src/client/report-activity.ts
+var HOOK_ACTIVITY_STATUS = external_exports.enum(["idle", "waiting"]);
+var reportActivity = async (sessionId, status, directory, dependencies) => {
+  const attachment2 = await attachRunningClient(directory, dependencies);
+  if (attachment2 === void 0) return;
+  const { connection } = attachment2;
+  try {
+    const params = { sessionId, status };
+    await connection.request(sessionActivityReportMethod.name, params);
+  } finally {
+    connection.close();
+  }
+};
+
+// src/rpc/error-message.ts
+var errorMessage = (error62) => error62 instanceof Error ? error62.message : String(error62);
+
+// src/rpc/dispatch.zod.ts
+var REQUEST = external_exports.object({
+  jsonrpc: external_exports.literal("2.0"),
+  id: external_exports.union([external_exports.string(), external_exports.number()]).optional(),
+  method: external_exports.string(),
+  params: external_exports.unknown().optional()
+});
+var zodDispatch = async (methods, context, message) => {
+  const request2 = REQUEST.safeParse(message);
+  if (!request2.success)
+    return new RpcError(RPC_ERROR_CODES.INVALID_REQUEST, "Invalid request").toResponse(idOf(message));
+  const { id, method, params } = request2.data;
+  const outcome = await call(methods, context, method, params);
+  if (id === void 0) return void 0;
+  return "error" in outcome ? { jsonrpc: "2.0", id, error: outcome.error } : { jsonrpc: "2.0", id, result: outcome.result };
+};
+var idOf = (message) => {
+  if (typeof message !== "object" || message === null || !("id" in message)) return null;
+  return typeof message.id === "string" || typeof message.id === "number" ? message.id : null;
+};
+var call = async (methods, context, name, params) => {
+  const method = methods.find((candidate) => candidate.name === name);
+  if (method === void 0)
+    return { error: { code: RPC_ERROR_CODES.METHOD_NOT_FOUND, message: `Unknown method ${name}` } };
+  const parsed = method.params.safeParse(params ?? {});
+  if (!parsed.success)
+    return { error: { code: RPC_ERROR_CODES.INVALID_PARAMS, message: external_exports.prettifyError(parsed.error) } };
+  try {
+    return { result: await method.handle(parsed.data, context) ?? null };
+  } catch (error62) {
+    return { error: errorObject(error62) };
+  }
+};
+var errorObject = (error62) => {
+  if (error62 instanceof RpcError) return { code: error62.code, message: error62.message, data: error62.data };
+  return { code: RPC_ERROR_CODES.INTERNAL_ERROR, message: errorMessage(error62) };
 };
 
 // src/rpc/rpc-connection.ndjson.ts
@@ -19955,39 +20002,36 @@ var ndjsonOpenRpcConnection = (stream, handle) => {
 var rejectPending = (connection) => {
   for (const request2 of connection.pending.values()) request2.reject(new Error("The connection closed"));
 };
-var request = (connection, method, params, signal) => {
-  return new Promise((resolve2, reject) => {
-    if (!connection.stream.writable) return reject(new Error("The connection is closed"));
-    if (signal?.aborted) return reject(abortError(method, signal.reason));
-    const id = connection.nextId;
-    connection.nextId += 1;
-    const abort = () => connection.pending.get(id)?.reject(abortError(method, signal?.reason));
-    const finish = () => {
-      connection.pending.delete(id);
-      signal?.removeEventListener("abort", abort);
-    };
-    signal?.addEventListener("abort", abort, { once: true });
-    connection.pending.set(id, {
-      resolve: (result) => {
-        finish();
-        resolve2(result);
-      },
-      reject: (error62) => {
-        finish();
-        reject(error62);
-      }
-    });
-    send(connection, { jsonrpc: "2.0", id, method, params });
+var request = async (connection, method, params, signal) => new Promise((resolve2, reject) => {
+  if (!connection.stream.writable) return reject(new Error("The connection is closed"));
+  if (signal?.aborted) return reject(abortError(method, signal.reason));
+  const id = connection.nextId;
+  connection.nextId += 1;
+  const abort = () => connection.pending.get(id)?.reject(abortError(method, signal?.reason));
+  const finish = () => {
+    connection.pending.delete(id);
+    signal?.removeEventListener("abort", abort);
+  };
+  signal?.addEventListener("abort", abort, { once: true });
+  connection.pending.set(id, {
+    resolve: (result) => {
+      finish();
+      resolve2(result);
+    },
+    reject: (error62) => {
+      finish();
+      reject(error62);
+    }
   });
-};
-var abortError = (method, reason) => {
-  return new Error(`The request ${method} was aborted`, { cause: reason });
-};
+  const message = { jsonrpc: "2.0", id, method, params };
+  send(connection, message);
+});
+var abortError = (method, reason) => new Error(`The request ${method} was aborted`, { cause: reason });
 var receive = async (connection, handle, line) => {
   if (line.trim() === "") return;
   const message = parseCatching(line);
   if (message instanceof Error)
-    return send(connection, new RpcError(RpcErrorCode.PARSE_ERROR, message.message).toResponse(null));
+    return send(connection, new RpcError(RPC_ERROR_CODES.PARSE_ERROR, message.message).toResponse(null));
   if (isResponse(message)) return settle2(connection, message);
   const response = await handle(message);
   if (response !== void 0) send(connection, response);
@@ -19996,7 +20040,7 @@ var parseCatching = (line) => {
   try {
     return JSON.parse(line);
   } catch (error62) {
-    return error62 instanceof Error ? error62 : new Error(String(error62));
+    return error62 instanceof Error ? error62 : new Error(String(error62), { cause: error62 });
   }
 };
 var isResponse = (message) => {
@@ -20014,42 +20058,21 @@ var send = (connection, message) => {
 `);
 };
 
-// src/rpc/rpc-connection.ts
-var OpenRpcConnection = ndjsonOpenRpcConnection;
-
 // src/session-activity.main.ts
-var HOOK_INPUT = external_exports.object({
-  session_id: external_exports.string().min(1),
-  cwd: external_exports.string().min(1)
-});
-var STATUS = external_exports.enum(["idle", "waiting"]);
-var NO_SERVER = new Error("No atomic-workflow server runs");
 var main = async () => {
   const { values } = parseArgs({ options: { status: { type: "string" } } });
-  const status = STATUS.parse(values.status);
-  const input2 = HOOK_INPUT.parse(JSON.parse(await text(process.stdin)));
-  const address = await RepositoryAddress(process.env.CLAUDE_PROJECT_DIR ?? input2.cwd).catch(() => void 0);
-  const attachment2 = address === void 0 ? void 0 : await attachCatching(address);
-  if (attachment2 === void 0) return;
-  const { connection } = attachment2;
-  try {
-    const params = { sessionId: input2.session_id, status };
-    await connection.request(sessionActivityReportMethod.name, params);
-  } finally {
-    connection.close();
-  }
-};
-var attachCatching = (address) => {
-  const attachment2 = Attach(address, "client", {
-    launch: () => Promise.reject(NO_SERVER),
-    openConnection: OpenRpcConnection,
-    handle: (message) => Dispatch([], void 0, message)
+  const status = HOOK_ACTIVITY_STATUS.parse(values.status);
+  const input2 = parseHookInput(await text(process.stdin));
+  await reportActivity(input2.session_id, status, hookDirectory(input2, process.env), {
+    repositoryAddress: gitRepositoryAddress,
+    attach: socketAttach,
+    openConnection: ndjsonOpenRpcConnection,
+    dispatch: zodDispatch
   });
-  return attachment2.catch((error62) => error62 === NO_SERVER ? void 0 : Promise.reject(error62));
 };
 await main().catch((error62) => {
   process.stderr.write(
-    `Could not report the status of the session to the atomic-workflow server: ${error62 instanceof Error ? error62.message : String(error62)}
+    `Could not report the status of the session to the atomic-workflow server: ${errorMessage(error62)}
 `
   );
   process.exitCode = 1;

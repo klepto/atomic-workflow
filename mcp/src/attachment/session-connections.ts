@@ -1,5 +1,4 @@
 import type { RpcConnection } from '../rpc/rpc-connection.ts';
-import { mapCreateSessionConnections } from './session-connections.map.ts';
 
 /**
  * Connections of the attached session servers, by the session that each one serves now.
@@ -28,8 +27,3 @@ export interface SessionConnections {
  * Function that returns new connections of session servers, with no session bound.
  */
 export type CreateSessionConnectionsFunction = () => SessionConnections;
-
-/**
- * Default `CreateSessionConnectionsFunction`, which keeps the connections in memory.
- */
-export const CreateSessionConnections: CreateSessionConnectionsFunction = mapCreateSessionConnections;

@@ -1,14 +1,13 @@
-import { gitDatabasePath } from './database-path.git.ts';
+import { join } from 'node:path';
 
 /**
- * Function that returns the absolute path of the database file of the repository that holds `directory`. The file
- * sits in the main worktree, under `.agents/atomic-workflow/database/`, so every worktree of the repository gives the
- * same path.
- * If `directory` is not in a repository, rejects.
+ * Path of the database file, relative to the main worktree.
  */
-export type DatabasePathFunction = (directory: string) => Promise<string>;
+const DATABASE_FILE = join('.agents', 'atomic-workflow', 'database', 'database.db');
 
 /**
- * Default `DatabasePathFunction`, which asks git for the main worktree.
+ * Returns the absolute path of the database file of the repository whose main worktree is at the absolute path
+ * `mainWorktree`. The file sits in the main worktree, under `.agents/atomic-workflow/database/`, so every worktree of
+ * the repository shares it.
  */
-export const DatabasePath: DatabasePathFunction = gitDatabasePath;
+export const databasePath = (mainWorktree: string): string => join(mainWorktree, DATABASE_FILE);

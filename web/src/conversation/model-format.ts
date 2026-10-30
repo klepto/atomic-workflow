@@ -1,15 +1,15 @@
 /**
- * The prefix of the identifier of every Claude model.
+ * Prefix of the identifier of every Claude model.
  */
 const CLAUDE_PREFIX = 'claude-';
 
 /**
- * A part of a model identifier that is a release date, such as `20250929`.
+ * Part of a model identifier that is a release date, such as `20250929`.
  */
 const DATE_PART = /^\d{8}$/;
 
 /**
- * A part of a model identifier that is a number of its version, such as `5`.
+ * Part of a model identifier that is a number of its version, such as `5`.
  */
 const VERSION_PART = /^\d{1,2}$/;
 

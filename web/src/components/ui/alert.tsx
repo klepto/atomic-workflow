@@ -3,7 +3,8 @@ import type { ComponentProps } from 'react';
 import { cn } from '@/lib/utils.ts';
 
 /**
- * Classes of an alert, by variant.
+ * Returns the classes of an alert for its `variant`: `default` in the colors of a card, and `destructive` in the
+ * color of danger.
  */
 const alertVariants = cva(
   'relative grid w-full grid-cols-[0_1fr] items-start gap-y-0.5 rounded-lg border px-4 py-3 text-sm has-[>svg]:grid-cols-[calc(var(--spacing)*4)_1fr] has-[>svg]:gap-x-3 [&>svg]:size-4 [&>svg]:translate-y-0.5 [&>svg]:text-current',
@@ -21,28 +22,26 @@ const alertVariants = cva(
 );
 
 /**
- * A box that draws attention to a message.
+ * Props of `Alert`: the props of a `div`, and its variant as `alertVariants` takes it.
  */
-const Alert = ({ className, variant, ...props }: ComponentProps<'div'> & VariantProps<typeof alertVariants>) => (
+interface AlertProps extends ComponentProps<'div'>, VariantProps<typeof alertVariants> {}
+
+/**
+ * Box with the role `alert` that draws attention to a message, styled by its `variant`, `default` while left out. An
+ * icon as its first child stands in a column of its own, left of the text. Every other prop goes to its `div`, and
+ * `className` adds classes.
+ */
+export const Alert = ({ className, variant, ...props }: AlertProps) => (
   <div data-slot="alert" role="alert" className={cn(alertVariants({ variant }), className)} {...props} />
 );
 
 /**
- * The title of an alert.
+ * Text of an alert, in muted color. Every prop goes to its `div`, and `className` adds classes.
  */
-const AlertTitle = ({ className, ...props }: ComponentProps<'div'>) => (
-  <div data-slot="alert-title" className={cn('col-start-2 min-h-4 font-medium tracking-tight', className)} {...props} />
-);
-
-/**
- * The text of an alert.
- */
-const AlertDescription = ({ className, ...props }: ComponentProps<'div'>) => (
+export const AlertDescription = ({ className, ...props }: ComponentProps<'div'>) => (
   <div
     data-slot="alert-description"
     className={cn('col-start-2 grid justify-items-start gap-1 text-muted-foreground text-sm', className)}
     {...props}
   />
 );
-
-export { Alert, AlertDescription, AlertTitle };

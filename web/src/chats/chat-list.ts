@@ -1,128 +1,134 @@
 import type { ListedSession } from '@/api/types.ts';
 
 /**
- * The name and the key of the one chat of every orchestrator session: the main session, which runs the
- * atomic-workflow server.
+ * Name and key of the one chat of every orchestrator session: the main session, which runs the atomic-workflow server.
  */
-export const MAIN = 'main';
+const MAIN = 'main';
 
 /**
- * The words that the app shows for the chat of the main session.
+ * Words that the app shows for the chat of the main session.
  */
 const MAIN_LABEL = 'main session';
 
 /**
- * The job of the orchestrator of a task, and the ref of its chat in the view of its task.
+ * Job of the orchestrator of a task, and the ref of its chat in the view of its task.
  */
-export const TASK_ORCHESTRATOR = 'orchestrator';
+const TASK_ORCHESTRATOR = 'orchestrator';
 
 /**
- * The status of a chat, as its dot shows it: `ended` while it has no attached session, and otherwise whether the agent
- * of its session is `idle`, `working`, or `waiting` for the user.
+ * Status of a chat, as its dot shows it: `ended` while it has no attached session, and otherwise whether the agent of
+ * its session is `idle`, `working`, or `waiting` for the user.
  */
 export type ChatStatus = ListedSession['status'];
 
 /**
- * The messages of a chat: the messages of one session, or of every session of a role.
+ * Messages of a chat: the messages of one session, or of every session of a role.
  */
-export type ChatLogQuery = { sessionId: string } | { role: ListedSession['role'] };
+export type ChatLogQuery = { readonly sessionId: string } | { readonly role: ListedSession['role'] };
 
 /**
- * A chat of the repository: the one chat of every orchestrator session, or the chat of one subagent.
+ * Chat of the repository: the one chat of every orchestrator session, or the chat of one subagent.
  */
 export interface Chat {
   /**
-   * The key of the chat, which no other chat has: `main`, or the session id of a subagent.
+   * Key of the chat, which no other chat has: `main`, or the session id of a subagent.
    */
-  key: string;
+  readonly key: string;
 
   /**
-   * The name of the chat, which no other chat has, and which names it in a URL in any view: `main`, or the name that
-   * the server gives a subagent, such as `plan-cache-layer-redis` or `agent-5e6f7a8b`.
+   * Name of the chat, which no other chat has, and which names it in a URL in any view: `main`, or the name that the
+   * server gives a subagent, such as `plan-cache-layer-redis` or `agent-5e6f7a8b`.
    */
-  name: string;
+  readonly name: string;
 
   /**
-   * The words that the app shows for the chat: `main session`, or the name of a subagent.
+   * Words that the app shows for the chat: `main session`, or the name of a subagent.
    */
-  label: string;
+  readonly label: string;
 
   /**
-   * The canonical ref of the chat in the URL of the view that lists it: `orchestrator` for the orchestrator of the open
+   * Canonical ref of the chat in the URL of the view that lists it: `orchestrator` for the orchestrator of the open
    * task, and the name otherwise.
    */
-  ref: string;
+  readonly ref: string;
 
   /**
-   * The role of the sessions of the chat.
+   * Role of the sessions of the chat.
    */
-  role: ListedSession['role'];
+  readonly role: ListedSession['role'];
 
   /**
    * Whether the chat is the orchestrator of the open task.
    */
-  taskOrchestrator: boolean;
+  readonly taskOrchestrator: boolean;
 
   /**
-   * The id of the attached session that takes the messages of the chat, or `undefined` while none is attached.
+   * Identifier of the attached session that takes the messages of the chat, or `undefined` while none is attached.
    */
-  sessionId: string | undefined;
+  readonly sessionId: string | undefined;
 
   /**
-   * The status of the chat.
+   * Status of the chat.
    */
-  status: ChatStatus;
+  readonly status: ChatStatus;
 
   /**
-   * The time when the current turn of the session of the chat started, in ms since the epoch, or `null` while it runs
-   * no turn.
+   * Time when the current turn of the session of the chat started, in ms since the epoch, or `null` while it runs no
+   * turn.
    */
-  turnStartedAt: number | null;
+  readonly turnStartedAt: number | null;
 
   /**
-   * The newest tool call of the current turn of the session of the chat, in one line, or `null` while it has none to
-   * show.
+   * Newest tool call of the current turn of the session of the chat, in one line, or `null` while it has none to show.
    */
-  latestAction: string | null;
+  readonly latestAction: string | null;
 
   /**
-   * The time when the current session of the chat started, in ms since the epoch, or `null` while it is not known.
+   * Time when the current session of the chat started, in ms since the epoch, or `null` while it is not known.
    */
-  startedAt: number | null;
+  readonly startedAt: number | null;
 
   /**
-   * The time of the latest message of the current session of the chat, in ms since the epoch, or `null` for none.
+   * Time of the latest message of the current session of the chat, in ms since the epoch, or `null` for none.
    */
-  lastActivityAt: number | null;
+  readonly lastActivityAt: number | null;
 
   /**
-   * The size of the context of the current session of the chat in tokens, or `null` before its first model request.
+   * Size of the context of the current session of the chat in tokens, or `null` before its first model request.
    */
-  contextTokens: number | null;
+  readonly contextTokens: number | null;
 
   /**
-   * The model of the newest model request of the current session of the chat, such as `claude-opus-5-5`, or `null`
-   * while it is not known.
+   * Model of the newest model request of the current session of the chat, such as `claude-opus-5-5`, or `null` while
+   * it is not known.
    */
-  model: string | null;
+  readonly model: string | null;
 
   /**
-   * The reasoning effort of the newest model request of the current session of the chat, such as `xhigh`, or `null`
-   * while it is not known.
+   * Reasoning effort of the newest model request of the current session of the chat, such as `xhigh`, or `null` while
+   * it is not known.
    */
-  effort: string | null;
+  readonly effort: string | null;
 
   /**
-   * The messages that the chat shows.
+   * Messages that the chat shows.
    */
-  logQuery: ChatLogQuery;
+  readonly logQuery: ChatLogQuery;
 }
 
 /**
- * Returns the chat of every orchestrator session of `sessions`. It sends to the orchestrator session that attached
- * last, and has its status and its turn. Its current session is that session, else the one that started last, whose
- * start, latest message, context size, model and effort it has. Returns `undefined` when `sessions` holds no
- * orchestrator session.
+ * Returns the session of `sessions` that started last. A session with no known start counts as the oldest. `sessions`
+ * holds at least one session.
+ */
+const newestOf = (sessions: readonly ListedSession[]): ListedSession =>
+  sessions.reduce((newest, session) => ((session.startedAt ?? 0) > (newest.startedAt ?? 0) ? session : newest));
+
+/**
+ * Returns the chat of every orchestrator session of `sessions`. It relies on the order of `sessions`, as `sessionList`
+ * answers them: the attached sessions in the order in which they attached, the latest last. The chat sends to the
+ * orchestrator session that attached last, the last attached one of `sessions`, and has its status and its turn. Its
+ * current session is that session, else the one that started last, whose start, latest message, context size, model
+ * and effort it has. If `sessions` holds no orchestrator session, returns `undefined` instead.
  */
 const mainChat = (sessions: readonly ListedSession[]): Chat | undefined => {
   const orchestrators = sessions.filter((session) => session.role === 'orchestrator');
@@ -152,13 +158,6 @@ const mainChat = (sessions: readonly ListedSession[]): Chat | undefined => {
 };
 
 /**
- * Returns the session of `sessions` that started last. A session with no known start counts as the oldest.
- * `sessions` holds at least one session.
- */
-const newestOf = (sessions: readonly ListedSession[]): ListedSession =>
-  sessions.reduce((newest, session) => ((session.startedAt ?? 0) > (newest.startedAt ?? 0) ? session : newest));
-
-/**
  * Returns the chat of the subagent `session`, the orchestrator of the open task when `taskOrchestrator` is true.
  */
 const subagentChat = (session: ListedSession, taskOrchestrator: boolean): Chat => ({
@@ -181,14 +180,14 @@ const subagentChat = (session: ListedSession, taskOrchestrator: boolean): Chat =
 });
 
 /**
- * Returns the time of the last activity of the session `session`: the time of its latest message, else the time of
- * its start.
+ * Returns the time of the last activity of the session `session`, in ms since the epoch: the time of its latest
+ * message, else the time of its start, else 0.
  */
-const activityOf = (session: ListedSession) => session.lastActivityAt ?? session.startedAt ?? 0;
+const activityOf = (session: ListedSession): number => session.lastActivityAt ?? session.startedAt ?? 0;
 
 /**
  * Returns the orchestrator of the task `taskId` among the subagents `subagents`: the latest started one that is
- * attached, else the latest started one. Returns `undefined` while the task has none.
+ * attached, else the latest started one. If the task has none, returns `undefined` instead.
  */
 const taskOrchestratorOf = (subagents: readonly ListedSession[], taskId: number): ListedSession | undefined => {
   const orchestrators = subagents
@@ -198,10 +197,11 @@ const taskOrchestratorOf = (subagents: readonly ListedSession[], taskId: number)
 };
 
 /**
- * Returns the chats of the sessions `sessions`. The chat of the main session comes first, while any orchestrator
- * session is known. With `taskId`, the orchestrator of the task `taskId` comes next, while it has one, then every
- * other subagent that works on the task. Without it, every subagent comes next. The subagents after the fixed chats
- * are in the order of their last activity, the latest first, whether attached or ended.
+ * Returns the chats of the sessions `sessions`, in the order in which `sessionList` answers them. The chat of the main
+ * session comes first, while any orchestrator session is known. With `taskId`, the orchestrator of the task `taskId`
+ * comes next, while it has one, then every other subagent that works on the task. Without it, every subagent comes
+ * next. The subagents after the fixed chats are in the order of their last activity, the latest first, whether
+ * attached or ended.
  */
 export const listChats = (sessions: readonly ListedSession[], taskId?: number): readonly Chat[] => {
   const subagents = sessions.filter(

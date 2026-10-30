@@ -3,26 +3,41 @@ import { CheckIcon, ChevronDownIcon } from 'lucide-react';
 import { cn } from '@/lib/utils.ts';
 
 /**
- * A select on the Base UI select primitive: the root that holds the value and the open state.
+ * Props of `SelectTrigger`: the props of the Base UI trigger, and its height.
  */
-const Select = SelectPrimitive.Root;
+interface SelectTriggerProps extends SelectPrimitive.Trigger.Props {
+  /**
+   * Height of the trigger: `sm` for 2rem, and `default` for 2.25rem. `default` while left out.
+   */
+  readonly size?: 'sm' | 'default';
+}
 
 /**
- * The text of the selected value, shown in the trigger.
+ * Props of `SelectContent`: the props of the Base UI popup, and the props of the Base UI positioner that place it.
  */
-const SelectValue = ({ className, ...props }: SelectPrimitive.Value.Props) => (
+interface SelectContentProps
+  extends SelectPrimitive.Popup.Props,
+    Pick<SelectPrimitive.Positioner.Props, 'align' | 'alignOffset' | 'side' | 'sideOffset' | 'alignItemWithTrigger'> {}
+
+/**
+ * Select on the Base UI select primitive: the root that holds the value and the open state, as its props `value` and
+ * `onValueChange` set and follow them.
+ */
+export const Select = SelectPrimitive.Root;
+
+/**
+ * Text of the selected value, shown in the trigger. Every prop goes to the Base UI value, and `className` adds
+ * classes.
+ */
+export const SelectValue = ({ className, ...props }: SelectPrimitive.Value.Props) => (
   <SelectPrimitive.Value data-slot="select-value" className={cn('flex flex-1 text-left', className)} {...props} />
 );
 
 /**
- * The button that opens the list of a select. It is `sm` or `default` high, by `size`.
+ * Button that opens the list of a select, with its content `children` and a chevron at its right end. It is `sm` or
+ * `default` high, by `size`. Every other prop goes to the Base UI trigger, and `className` adds classes.
  */
-const SelectTrigger = ({
-  className,
-  size = 'default',
-  children,
-  ...props
-}: SelectPrimitive.Trigger.Props & { size?: 'sm' | 'default' }) => (
+export const SelectTrigger = ({ className, size = 'default', children, ...props }: SelectTriggerProps) => (
   <SelectPrimitive.Trigger
     data-slot="select-trigger"
     data-size={size}
@@ -40,10 +55,12 @@ const SelectTrigger = ({
 );
 
 /**
- * The popup with the items of a select, placed by `side`, `sideOffset`, `align`, `alignOffset` and
- * `alignItemWithTrigger` next to the trigger.
+ * Popup with the items `children` of a select, placed next to the trigger on the side `side`, `bottom` while left out,
+ * at the distance `sideOffset` in px, 4 while left out, and aligned by `align` and `alignOffset`, `center` and 0 while
+ * left out. While `alignItemWithTrigger` is true, as it is while left out, the selected item lies over the trigger
+ * instead. Every other prop goes to the Base UI popup, and `className` adds classes.
  */
-const SelectContent = ({
+export const SelectContent = ({
   className,
   children,
   side = 'bottom',
@@ -52,8 +69,7 @@ const SelectContent = ({
   alignOffset = 0,
   alignItemWithTrigger = true,
   ...props
-}: SelectPrimitive.Popup.Props &
-  Pick<SelectPrimitive.Positioner.Props, 'align' | 'alignOffset' | 'side' | 'sideOffset' | 'alignItemWithTrigger'>) => (
+}: SelectContentProps) => (
   <SelectPrimitive.Portal>
     <SelectPrimitive.Positioner
       side={side}
@@ -79,9 +95,10 @@ const SelectContent = ({
 );
 
 /**
- * An item of a select, with a check mark while it is selected.
+ * Item of a select with the content `children`, with a check mark while it is selected. Its prop `value` is the value
+ * that it selects. Every other prop goes to the Base UI item, and `className` adds classes.
  */
-const SelectItem = ({ className, children, ...props }: SelectPrimitive.Item.Props) => (
+export const SelectItem = ({ className, children, ...props }: SelectPrimitive.Item.Props) => (
   <SelectPrimitive.Item
     data-slot="select-item"
     className={cn(
@@ -100,43 +117,3 @@ const SelectItem = ({ className, children, ...props }: SelectPrimitive.Item.Prop
     </SelectPrimitive.ItemIndicator>
   </SelectPrimitive.Item>
 );
-
-/**
- * A group of related items of a select, which a group label names.
- */
-const SelectGroup = ({ className, ...props }: SelectPrimitive.Group.Props) => (
-  <SelectPrimitive.Group data-slot="select-group" className={cn('scroll-my-1 p-1', className)} {...props} />
-);
-
-/**
- * The name of a group of items, which the screen reader reads for each item of the group.
- */
-const SelectGroupLabel = ({ className, ...props }: SelectPrimitive.GroupLabel.Props) => (
-  <SelectPrimitive.GroupLabel
-    data-slot="select-group-label"
-    className={cn('px-2 py-1.5 text-muted-foreground text-xs', className)}
-    {...props}
-  />
-);
-
-/**
- * A line between two items or groups of a select.
- */
-const SelectSeparator = ({ className, ...props }: SelectPrimitive.Separator.Props) => (
-  <SelectPrimitive.Separator
-    data-slot="select-separator"
-    className={cn('-mx-1 pointer-events-none my-1 h-px bg-border', className)}
-    {...props}
-  />
-);
-
-export {
-  Select,
-  SelectContent,
-  SelectGroup,
-  SelectGroupLabel,
-  SelectItem,
-  SelectSeparator,
-  SelectTrigger,
-  SelectValue,
-};

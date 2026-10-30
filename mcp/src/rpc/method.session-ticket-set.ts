@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import type { Method } from './method.ts';
-import { RpcError, RpcErrorCode } from './rpc-error.ts';
+import { registeredSession } from './registered-session.ts';
 import { isTicketJob } from './session-name.ts';
 
 /**
@@ -23,8 +23,7 @@ export const sessionTicketSetMethod: Method<typeof PARAMS, void> = {
   agent: false,
   params: PARAMS,
   handle: async ({ sessionId, ticketId }, { sessions }) => {
-    const session = await sessions.get(sessionId);
-    if (session === undefined) throw new RpcError(RpcErrorCode.INVALID_PARAMS, `No session ${sessionId} is registered`);
+    const session = await registeredSession(sessionId, sessions);
     if (session.role === 'subagent' && isTicketJob(session.job)) await sessions.setTicket(sessionId, ticketId);
   },
 };

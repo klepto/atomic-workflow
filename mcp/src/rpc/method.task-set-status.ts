@@ -1,9 +1,9 @@
 import { z } from 'zod';
 import { TASK_STATUSES, type Task, type TaskStatus } from '../storage/task-store.ts';
-import { taskGetMethod } from './method.task-get.ts';
+import { findTask } from './find-task.ts';
 import type { Method } from './method.ts';
-import { openTask } from './open-task.ts';
-import { RpcError, RpcErrorCode } from './rpc-error.ts';
+import { RPC_ERROR_CODES, RpcError } from './rpc-error.ts';
+import { openTask } from './task-guards.ts';
 
 /**
  * Schema of the parameters of `taskSetStatus`.
@@ -17,10 +17,10 @@ const PARAMS = z.object({
 });
 
 /**
- * `Method` named `taskSetStatus`, which sets the status of a task, and returns the task. A status needs every part of the
- * plan before it: `plan-design` needs goals, `plan-tickets` a design too, and `complete` tickets too. A task that does
- * not exist fails with invalid parameters. A complete or done task, and a task that lacks a part of the plan, fail
- * with an invalid request. Only `worktreeMerge` sets a task `done`.
+ * `Method` named `taskSetStatus`, which sets the status of a task, and returns the task. A status needs every part of
+ * the plan before it: `plan-design` needs goals, `plan-tickets` a design too, and `complete` tickets too. A task that
+ * does not exist fails with invalid parameters. A complete or done task, and a task that lacks a part of the plan,
+ * fail with an invalid request. Only `worktreeMerge` sets a task `done`.
  */
 export const taskSetStatusMethod: Method<typeof PARAMS, Task> = {
   name: 'taskSetStatus',
@@ -28,13 +28,13 @@ export const taskSetStatusMethod: Method<typeof PARAMS, Task> = {
     'Sets the status of a task of the atomic workflow to the stage of planning the user works on, or to complete once the user is satisfied with the whole plan, and returns the task.',
   agent: true,
   params: PARAMS,
-  handle: async ({ taskId, status }, context) => {
-    const task = await openTask(taskId, context);
+  handle: async ({ taskId, status }, { tasks }) => {
+    const task = await openTask(taskId, tasks);
     const missing = missingPart(task, status);
     if (missing !== undefined)
-      throw new RpcError(RpcErrorCode.INVALID_REQUEST, `Task ${taskId} needs ${missing} for the status ${status}`);
-    await context.tasks.setStatus(taskId, status);
-    return taskGetMethod.handle({ task: taskId }, context);
+      throw new RpcError(RPC_ERROR_CODES.INVALID_REQUEST, `Task ${taskId} needs ${missing} for the status ${status}`);
+    await tasks.setStatus(taskId, status);
+    return findTask(taskId, tasks);
   },
 };
 

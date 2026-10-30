@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import type { Method } from './method.ts';
-import { RpcError, RpcErrorCode } from './rpc-error.ts';
+import { registeredSession } from './registered-session.ts';
 
 /**
  * Schema of the parameters of `messageLogDelete`.
@@ -30,8 +30,7 @@ export const messageLogDeleteMethod: Method<typeof PARAMS, MessageLogDeleteResul
   agent: false,
   params: PARAMS,
   handle: async ({ sessionId }, { sessions, messageLog }) => {
-    if ((await sessions.get(sessionId)) === undefined)
-      throw new RpcError(RpcErrorCode.INVALID_PARAMS, `No session ${sessionId} is registered`);
+    await registeredSession(sessionId, sessions);
     return { deleted: await messageLog.deleteSession(sessionId) };
   },
 };

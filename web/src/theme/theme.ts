@@ -1,4 +1,4 @@
-import { useSyncExternalStore } from 'react';
+import { localStorageBrowserStore } from '@/lib/browser-store.local-storage.ts';
 
 /**
  * Name of a theme of the app. The attribute `data-theme` of the root element holds it.
@@ -6,22 +6,22 @@ import { useSyncExternalStore } from 'react';
 export type ThemeName = 'zen' | 'claude';
 
 /**
- * A theme that the user can pick.
+ * Theme that the user can pick.
  */
-export interface Theme {
+interface Theme {
   /**
-   * The name of the theme.
+   * Name of the theme.
    */
-  name: ThemeName;
+  readonly name: ThemeName;
 
   /**
-   * The name of the theme that the app shows.
+   * Name of the theme that the app shows.
    */
-  label: string;
+  readonly label: string;
 }
 
 /**
- * The themes that the user can pick, the default first.
+ * Themes that the user can pick, the default first.
  */
 export const THEMES: readonly Theme[] = [
   { name: 'zen', label: 'Default' },
@@ -29,17 +29,18 @@ export const THEMES: readonly Theme[] = [
 ];
 
 /**
- * The theme of the app while the user picked none.
+ * Theme of the app while the user picked none.
  */
-export const DEFAULT_THEME: ThemeName = 'zen';
+const DEFAULT_THEME: ThemeName = 'zen';
 
 /**
- * The key of the local storage entry that holds the theme the user picked.
+ * Key of the entry of the browser store that holds the theme that the user picked. It keeps its dot, unlike the keys
+ * of the form `atomic-workflow:<name>`, so that the pick of each user stays.
  */
-export const THEME_STORAGE_KEY = 'atomic-workflow.theme';
+const THEME_STORAGE_KEY = 'atomic-workflow.theme';
 
 /**
- * The functions to call when the theme changes.
+ * Functions to call when the theme changes.
  */
 const listeners = new Set<() => void>();
 
@@ -49,22 +50,18 @@ const listeners = new Set<() => void>();
 const isThemeName = (value: unknown): value is ThemeName => THEMES.some((theme) => theme.name === value);
 
 /**
- * Returns the theme that the user picked. If the user picked none, or the browser refuses the local storage, returns
- * the default theme instead.
+ * Returns the theme that the user picked. If the user picked none, or the browser refuses its store, returns the
+ * default theme instead.
  */
 const readStoredTheme = (): ThemeName => {
-  try {
-    const stored = window.localStorage.getItem(THEME_STORAGE_KEY);
-    return isThemeName(stored) ? stored : DEFAULT_THEME;
-  } catch {
-    return DEFAULT_THEME;
-  }
+  const stored = localStorageBrowserStore.read(THEME_STORAGE_KEY);
+  return isThemeName(stored) ? stored : DEFAULT_THEME;
 };
 
 /**
- * Shows the app in the dark variant of `theme`.
+ * Shows the app in the dark variant of the theme `theme`.
  */
-const applyTheme = (theme: ThemeName) => {
+const applyTheme = (theme: ThemeName): void => {
   const root = document.documentElement;
   root.dataset.theme = theme;
   root.classList.add('dark');
@@ -73,7 +70,7 @@ const applyTheme = (theme: ThemeName) => {
 /**
  * Shows the app in the theme that the user picked, or in the default theme if the user picked none.
  */
-export const applyStoredTheme = () => applyTheme(readStoredTheme());
+export const applyStoredTheme = (): void => applyTheme(readStoredTheme());
 
 /**
  * Returns the theme that the app shows.
@@ -84,15 +81,12 @@ export const getTheme = (): ThemeName => {
 };
 
 /**
- * Shows the app in `theme`, keeps `theme` for the next visits and tells every listener. If the browser refuses the
- * local storage, the app shows `theme` until the page reloads.
+ * Shows the app in the theme `theme`, keeps it for the next visits, and tells every listener. If the browser refuses
+ * its store, the app shows `theme` until the page reloads.
  */
-export const setTheme = (theme: ThemeName) => {
-  try {
-    window.localStorage.setItem(THEME_STORAGE_KEY, theme);
-  } catch {
-    // The theme still applies to this page; only the next visits fall back to the default theme.
-  }
+export const setTheme = (theme: ThemeName): void => {
+  // A refused write still shows the theme on this page; only the next visits fall back to the default theme.
+  localStorageBrowserStore.write(THEME_STORAGE_KEY, theme);
   applyTheme(theme);
   for (const listener of listeners) {
     listener();
@@ -102,14 +96,9 @@ export const setTheme = (theme: ThemeName) => {
 /**
  * Calls `listener` whenever the theme changes. Returns the function that stops the calls.
  */
-const subscribe = (listener: () => void) => {
+export const subscribeTheme = (listener: () => void): (() => void) => {
   listeners.add(listener);
   return () => {
     listeners.delete(listener);
   };
 };
-
-/**
- * Returns the theme that the app shows, and renders again when the theme changes.
- */
-export const useTheme = () => useSyncExternalStore(subscribe, getTheme);

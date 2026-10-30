@@ -2,29 +2,51 @@ import type { CSSProperties } from 'react';
 import type { HighlighterCore, LanguageRegistration, ThemedToken } from 'shiki/core';
 
 /**
- * Loads the grammar of a language, after the grammars of the languages that it embeds.
+ * Function that loads the grammar of a language, after the grammars of the languages that it embeds. Resolves to the
+ * module of the grammars, and rejects when a chunk of the app fails to load.
  */
-export type LanguageLoader = () => Promise<{ default: LanguageRegistration[] }>;
+type LanguageLoader = () => Promise<{ default: LanguageRegistration[] }>;
 
 /**
- * A highlighter that colors code in one language.
+ * Highlighter that colors code in one language.
  */
 export interface LanguageHighlighter {
   /**
    * Returns the colored pieces of each line of the code `code`, one array per line. A line longer than
    * `MAX_LINE_LENGTH` gets one color.
    */
-  tokenize: (code: string) => ThemedToken[][];
+  tokenize(code: string): ThemedToken[][];
 }
 
 /**
- * The longest line that gets colors. A longer line, such as one of minified code, shows its text in one color.
+ * Highlighter of the page with the name of the theme that it colors code in.
+ */
+interface PageHighlighter {
+  /**
+   * Highlighter, with the grammars of the languages that it loaded so far.
+   */
+  readonly instance: HighlighterCore;
+
+  /**
+   * Name of the theme of the colors of the code.
+   */
+  readonly theme: string;
+}
+
+/**
+ * Longest line that gets colors, in characters. A longer line, such as one of minified code, shows its text in one
+ * color.
  */
 const MAX_LINE_LENGTH = 1000;
 
 /**
- * The languages that get colors, by the extension of a file, or by its whole name for a file without one. Only these
- * grammars ship with the app, each loaded on the first code that needs it.
+ * Most lines of code that get colors. Longer code shows its text without colors, so that it does not hold up the page.
+ */
+export const MAX_HIGHLIGHT_LINES = 5000;
+
+/**
+ * Loaders of the grammars of the languages that get colors, by the extension of a file, or by its whole name for a
+ * file without one. Only these grammars ship with the app, each loaded on the first code that needs it.
  */
 const LANGUAGES: Readonly<Record<string, LanguageLoader>> = {
   ts: () => import('shiki/langs/typescript.mjs'),
@@ -74,7 +96,7 @@ const LANGUAGES: Readonly<Record<string, LanguageLoader>> = {
 };
 
 /**
- * The names of the languages that a fenced code block of Markdown gives beside the extensions of `LANGUAGES`, such as
+ * Names of the languages that a fenced code block of Markdown gives beside the extensions of `LANGUAGES`, such as
  * `typescript` for `ts`.
  */
 const FENCE_NAMES: Readonly<Record<string, string>> = {
@@ -97,6 +119,12 @@ const FENCE_NAMES: Readonly<Record<string, string>> = {
 };
 
 /**
+ * Highlighter of the page with the theme of the colors of the code, created on the first code to color, or
+ * `undefined` before.
+ */
+let highlighter: Promise<PageHighlighter> | undefined;
+
+/**
  * Returns the loader of the grammar of the file at `path`, by its extension or else by its whole name, such as
  * `Dockerfile`. If neither names a language that gets colors, returns `undefined` instead.
  */
@@ -116,45 +144,9 @@ export const languageOfFence = (name: string): LanguageLoader | undefined => {
 };
 
 /**
- * A highlighter with the name of the theme that it colors code in.
- */
-interface PageHighlighter {
-  /**
-   * The highlighter, with the grammars of the languages that it loaded so far.
-   */
-  instance: HighlighterCore;
-
-  /**
-   * The name of the theme of the colors of the code.
-   */
-  theme: string;
-}
-
-/**
- * The highlighter of the page with the theme of the colors of the code, created on the first code to color, or
- * `undefined` before.
- */
-let highlighter: Promise<PageHighlighter> | undefined;
-
-/**
- * Returns a highlighter of the language that `loadLanguage` loads, once the grammar of the language loaded. The first
- * call creates the highlighter of the page, which every later call shares.
- */
-export const highlighterOf = async (loadLanguage: LanguageLoader): Promise<LanguageHighlighter> => {
-  highlighter ??= createPageHighlighter();
-  const [{ instance, theme }, grammars] = await Promise.all([highlighter, loadLanguage()]);
-  await instance.loadLanguage(grammars.default);
-  // The grammars of the embedded languages come first, and the grammar of the language itself last.
-  const language = grammars.default.at(-1)?.name ?? '';
-  return {
-    tokenize: (code) =>
-      instance.codeToTokens(code, { lang: language, theme, tokenizeMaxLineLength: MAX_LINE_LENGTH }).tokens,
-  };
-};
-
-/**
- * Creates the highlighter of the page. Its code loads only now, so that a page without code to color does not load
- * it. The app always shows the dark variant of its themes, so the code takes the colors of a dark theme.
+ * Creates the highlighter of the page, and returns it with the name of its theme. Its code loads only now, so that a
+ * page without code to color does not load it. The app always shows the dark variant of its themes, so the code takes
+ * the colors of a dark theme. Rejects when a chunk of shiki fails to load.
  */
 const createPageHighlighter = async (): Promise<PageHighlighter> => {
   const [{ createHighlighterCore }, { createJavaScriptRegexEngine }, theme] = await Promise.all([
@@ -168,6 +160,23 @@ const createPageHighlighter = async (): Promise<PageHighlighter> => {
     engine: createJavaScriptRegexEngine({ forgiving: true }),
   });
   return { instance, theme: theme.default.name ?? '' };
+};
+
+/**
+ * Returns a highlighter of the language that `loadLanguage` loads, once the grammar of the language loaded. The first
+ * call creates the highlighter of the page, which every later call shares. Rejects when the highlighter or the grammar
+ * fails to load.
+ */
+export const highlighterOf = async (loadLanguage: LanguageLoader): Promise<LanguageHighlighter> => {
+  highlighter ??= createPageHighlighter();
+  const [{ instance, theme }, grammars] = await Promise.all([highlighter, loadLanguage()]);
+  await instance.loadLanguage(grammars.default);
+  // The grammars of the embedded languages come first, and the grammar of the language itself last.
+  const language = grammars.default.at(-1)?.name ?? '';
+  return {
+    tokenize: (code) =>
+      instance.codeToTokens(code, { lang: language, theme, tokenizeMaxLineLength: MAX_LINE_LENGTH }).tokens,
+  };
 };
 
 /**

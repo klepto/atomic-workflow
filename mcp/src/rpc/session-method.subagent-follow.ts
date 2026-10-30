@@ -21,7 +21,7 @@ const PARAMS = z.object({
  * session, and resolves without waiting for the log. A one-shot subagent is one that the agent starts after the call,
  * and that ends once it finishes its prompt.
  */
-export const subagentFollowMethod: Method<typeof PARAMS, void, SessionMethodContext> = {
+export const subagentFollowSessionMethod: Method<typeof PARAMS, void, SessionMethodContext> = {
   name: 'subagentFollow',
   description: 'Logs the transcript of a subagent of the session.',
   agent: false,

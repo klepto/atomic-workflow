@@ -1,6 +1,7 @@
 import { type FileHandle, open, stat } from 'node:fs/promises';
 import { StringDecoder } from 'node:string_decoder';
 import { setTimeout as sleep } from 'node:timers/promises';
+import { isNotFound } from './is-not-found.ts';
 import type { TailFileFunction } from './tail-file.ts';
 
 /**
@@ -40,7 +41,9 @@ interface Tail {
 
 /**
  * `TailFileFunction` that checks the size of the file every `POLL_INTERVAL` ms, and reads what was appended since the
- * last check. A check of the size works the same on every file system, which a watch of the file does not.
+ * last check. A check of the size works the same on every file system, which a watch of the file does not. Resolves
+ * after the read that follows the abort of `signal`. Rejects when the size of the file cannot be read for another
+ * cause than that the file does not exist, when the file cannot be opened or read, or when `handle` rejects.
  */
 export const pollTailFile: TailFileFunction = async (path, handle, signal) => {
   const tail: Tail = { path, offset: 0, partial: '', decoder: new StringDecoder('utf8') };
@@ -71,13 +74,14 @@ const readAppended = async (tail: Tail, handle: (lines: readonly string[]) => Pr
 };
 
 /**
- * Returns the size of the file at `path` in bytes, or 0 when the file does not exist.
+ * Returns the size of the file at `path` in bytes, or 0 when the file does not exist. Rejects when the size cannot be
+ * read for another cause.
  */
 const sizeOf = async (path: string): Promise<number> => {
   try {
     return (await stat(path)).size;
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return 0;
+    if (isNotFound(error)) return 0;
     throw error;
   }
 };

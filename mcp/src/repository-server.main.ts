@@ -1,82 +1,86 @@
 import { homedir } from 'node:os';
-import { basename, join } from 'node:path';
 import { parseArgs } from 'node:util';
-import { AwaitCommandLine } from './attachment/await-command-line.ts';
-import { CreateInboxes } from './attachment/inboxes.ts';
-import { ServeRepository } from './attachment/serve-repository.ts';
-import { CreateSessionActivity } from './attachment/session-activity.ts';
-import { CreateSessionConnections } from './attachment/session-connections.ts';
-import { CreateSubagents } from './attachment/subagents.ts';
-import { CreateTicketClaims } from './attachment/ticket-claims.ts';
-import { CreateChangeFeed } from './changes/change-feed.ts';
-import { PublishChanges } from './changes/publish-changes.ts';
-import { Dispatch } from './rpc/dispatch.ts';
-import { type MethodContext, Methods } from './rpc/method.ts';
-import { OpenRpcConnection } from './rpc/rpc-connection.ts';
-import { DatabasePath } from './storage/database-path.ts';
-import { OpenStorage, type Storage } from './storage/open-storage.ts';
-import { StartWebServer } from './web/start-web-server.ts';
-import { CopyIgnored } from './worktree/copy-ignored.ts';
-import { StopProcesses } from './worktree/stop-processes.ts';
-import { MainWorktree } from './worktree/main-worktree.ts';
-import { CreateWorktrees } from './worktree/worktrees.ts';
-
-/**
- * Absolute path of the entry point of the command line tool that waits for the messages of a session, which sits
- * beside this entry point and is named like it with `await-command` in place of `repository-server`:
- * `await-command.main.ts` in the sources, and `await-command.mjs` in the bundle.
- */
-const AWAIT_COMMAND = join(
-  import.meta.dirname,
-  basename(import.meta.filename).replace('repository-server', 'await-command'),
-);
-
-/**
- * Absolute path of the directory of the built web app, `plugin/dist/web/`, which the web server serves: `web` beside
- * this entry point in the bundle, and `plugin/dist/web` of the root of the repository in the sources.
- */
-const WEB_DIRECTORY = import.meta.filename.endsWith('.ts')
-  ? join(import.meta.dirname, '..', '..', 'plugin', 'dist', 'web')
-  : join(import.meta.dirname, 'web');
+import { shellAwaitCommandLine } from './attachment/await-command-line.shell.ts';
+import { mapCreateInboxes } from './attachment/inboxes.map.ts';
+import { socketServeRepository } from './attachment/serve-repository.socket.ts';
+import { mapCreateSessionActivity } from './attachment/session-activity.map.ts';
+import { mapCreateSessionConnections } from './attachment/session-connections.map.ts';
+import { mapCreateSubagents } from './attachment/subagents.map.ts';
+import { mapCreateTicketClaims } from './attachment/ticket-claims.map.ts';
+import { timerCreateChangeFeed } from './changes/change-feed.timer.ts';
+import { feedPublishChanges } from './changes/publish-changes.feed.ts';
+import { systemClock } from './clock/clock.system.ts';
+import { entryPointPath, webDirectoryPath } from './entry/entry-point.ts';
+import { errorDetail } from './entry/error-detail.ts';
+import { cryptoCreateSessionId } from './rpc/create-session-id.crypto.ts';
+import { zodDispatch } from './rpc/dispatch.zod.ts';
+import { METHODS, type MethodContext } from './rpc/method.ts';
+import { ndjsonOpenRpcConnection } from './rpc/rpc-connection.ndjson.ts';
+import { timersTimeoutSignal } from './rpc/timeout-signal.timers.ts';
+import { stderrLog } from './session/log.stderr.ts';
+import { databasePath } from './storage/database-path.ts';
+import { sqliteOpenStorage } from './storage/open-storage.sqlite.ts';
+import type { Storage } from './storage/open-storage.ts';
+import { httpStartWebServer } from './web/start-web-server.http.ts';
+import { directoryCreateStaticFiles } from './web/static-files.directory.ts';
+import { diskCopyIgnored } from './worktree/copy-ignored.disk.ts';
+import { createWorktrees } from './worktree/create-worktrees.ts';
+import { diskFileSystem } from './worktree/file-system.disk.ts';
+import { processRunGit } from './worktree/run-git.process.ts';
+import { systemStopProcesses } from './worktree/stop-processes.system.ts';
+import { findMainWorktree } from './worktree/worktree-list.ts';
 
 /**
  * Serves as the repository server at the address that the argument `--address <address>` names, with a web server on
- * a free port of the local host. Clients call the methods of `Methods` at the address and on the web server alike.
+ * a free port of the local host. Clients call the methods of `METHODS` at the address and on the web server alike.
  * The methods keep their data in the storage of the repository that holds the directory that the argument
- * `--directory <directory>` names, and its worktrees below the home of the user. The process ends when the last session server leaves.
+ * `--directory <directory>` names, and its worktrees below the home of the user. The process works from the main
+ * worktree of that repository, whichever of its worktrees the directory is in.
+ *
+ * The process ends in one of three ways: when the last session server leaves, when no session server attaches in the
+ * first 10 seconds, as `socketServeRepository` says, or on a failure, such as another repository server that serves
+ * the address already. It ends only once every client connection, such as a running wait, has closed, since the
+ * server waits for its connections. A failure once it listens, such as ending the runs that are still active, stops the
+ * listening and ends every client connection first, so the next session server launches a fresh repository server. A
+ * failure goes to the standard error with its stack, and ends the process with the exit code 1. The detached launch
+ * of the session server discards the standard error, so a failure at start shows only as an attach that fails.
  */
 const main = async (): Promise<void> => {
   const { values } = parseArgs({ options: { address: { type: 'string' }, directory: { type: 'string' } } });
   if (values.address === undefined) throw new Error('The argument --address <address> is missing');
   if (values.directory === undefined) throw new Error('The argument --directory <directory> is missing');
-  const mainWorktree = await MainWorktree(values.directory);
-  const storage = await OpenStorage(await DatabasePath(values.directory));
+  const mainWorktree = await findMainWorktree(values.directory, processRunGit);
+  // The process inherits the working directory of the session that launched it, which may be a task or ticket
+  // worktree. Holding it would make the removal of that worktree fail on Windows.
+  process.chdir(mainWorktree);
+  const storage = await sqliteOpenStorage(databasePath(mainWorktree));
   try {
-    await serve(values.address, values.directory, mainWorktree, storage);
+    await serve(values.address, mainWorktree, storage);
   } finally {
     storage.close();
   }
 };
 
 /**
- * Serves as the repository server at `address`, for the repository that holds `directory` and has the main worktree
- * `mainWorktree`, with the stores of `storage`, until the last session server leaves. The services that hold the state
+ * Serves as the repository server at `address`, for the repository that has the main worktree `mainWorktree`, with
+ * the stores of `storage`, until the server at `address` stops, as `main` says. The services that hold the state
  * publish their changes to a change feed, which the web server streams. Once it listens on `address`, it ends each run
- * of a task that is still active, since the repository server that recorded it stopped.
+ * of a task that is still active, since the repository server that recorded it stopped. Rejects as `main` says.
  */
-const serve = async (address: string, directory: string, mainWorktree: string, storage: Storage): Promise<void> => {
-  const changes = CreateChangeFeed();
-  const published = PublishChanges(
+const serve = async (address: string, mainWorktree: string, storage: Storage): Promise<void> => {
+  const changes = timerCreateChangeFeed();
+  const published = feedPublishChanges(
     {
       messageLog: storage.messageLog,
       tasks: storage.tasks,
       sessions: storage.sessions,
-      sessionConnections: CreateSessionConnections(),
-      subagents: CreateSubagents(),
-      activity: CreateSessionActivity(),
+      sessionConnections: mapCreateSessionConnections(),
+      subagents: mapCreateSubagents(),
+      activity: mapCreateSessionActivity(),
     },
     changes,
   );
+  const awaitCommand = entryPointPath('await-command');
   const context: MethodContext = {
     sessions: published.sessions,
     messageLog: published.messageLog,
@@ -84,23 +88,36 @@ const serve = async (address: string, directory: string, mainWorktree: string, s
     sessionConnections: published.sessionConnections,
     subagents: published.subagents,
     activity: published.activity,
-    inboxes: CreateInboxes(),
-    worktrees: CreateWorktrees({ directory, home: homedir(), copyIgnored: CopyIgnored, stopProcesses: StopProcesses }),
-    ticketClaims: CreateTicketClaims(),
+    inboxes: mapCreateInboxes(),
+    worktrees: createWorktrees(
+      { checkout: mainWorktree, home: homedir(), platform: process.platform },
+      {
+        runGit: processRunGit,
+        fileSystem: diskFileSystem,
+        copyIgnored: diskCopyIgnored,
+        stopProcesses: systemStopProcesses,
+      },
+    ),
+    ticketClaims: mapCreateTicketClaims(),
     mainWorktree,
     caller: undefined,
-    awaitCommandLine: (sessionId) => AwaitCommandLine(AWAIT_COMMAND, sessionId),
+    awaitCommandLine: (sessionId) => shellAwaitCommandLine(awaitCommand, sessionId),
+    clock: systemClock,
+    createSessionId: cryptoCreateSessionId,
+    timeoutSignal: timersTimeoutSignal,
   };
-  const webServer = await StartWebServer((message) => Dispatch(Methods, context, message), {
-    directory: WEB_DIRECTORY,
+  const webServer = await httpStartWebServer({
+    handle: (message) => zodDispatch(METHODS, context, message),
     changes,
+    staticFiles: directoryCreateStaticFiles({ directory: webDirectoryPath() }),
   });
   try {
-    await ServeRepository(address, webServer.url, Methods, context, {
-      dispatch: Dispatch,
-      openConnection: OpenRpcConnection,
+    await socketServeRepository(address, webServer.url, METHODS, context, {
+      dispatch: zodDispatch,
+      openConnection: ndjsonOpenRpcConnection,
+      log: stderrLog,
       listening: async () => {
-        await context.tasks.endRuns(Date.now());
+        await context.tasks.endRuns(context.clock.now());
       },
     });
   } finally {
@@ -109,6 +126,6 @@ const serve = async (address: string, directory: string, mainWorktree: string, s
 };
 
 await main().catch((error: unknown) => {
-  process.stderr.write(`${error instanceof Error ? (error.stack ?? error.message) : String(error)}\n`);
+  process.stderr.write(`${errorDetail(error)}\n`);
   process.exitCode = 1;
 });

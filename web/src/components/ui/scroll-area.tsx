@@ -3,40 +3,50 @@ import type { ReactNode, Ref, UIEventHandler } from 'react';
 import { cn } from '@/lib/utils.ts';
 
 /**
- * Props of a scroll area: its content, and the classes, the ref and the scroll handler of its parts.
+ * Props of `ScrollArea`: its content, and the classes, the ref and the scroll handler of its parts.
  */
 interface ScrollAreaProps {
   /**
-   * The content that scrolls.
+   * Content that scrolls.
    */
-  children: ReactNode;
+  readonly children: ReactNode;
 
   /**
-   * The classes of the outer box, which sets the size of the area.
+   * Classes of the outer box, which sets the size of the area.
    */
-  className?: string;
+  readonly className?: string;
 
   /**
-   * The classes of the box that scrolls.
+   * Classes of the box that scrolls.
    */
-  viewportClassName?: string;
+  readonly viewportClassName?: string;
 
   /**
-   * The ref to the box that scrolls.
+   * Ref to the box that scrolls.
    */
-  viewportRef?: Ref<HTMLDivElement>;
+  readonly viewportRef?: Ref<HTMLDivElement>;
 
   /**
-   * The handler of the event `scroll` of the box that scrolls.
+   * Handler of the event `scroll` of the box that scrolls.
    */
-  onScroll?: UIEventHandler<HTMLDivElement>;
+  readonly onScroll?: UIEventHandler<HTMLDivElement>;
 }
 
 /**
- * The scrollbar of one direction of a scroll area. It is hidden until the content scrolls or the pointer is on it, and
- * fades out again once the scrolling stops. It is not there while the content fits in that direction.
+ * Props of `ScrollBar`.
  */
-const ScrollBar = ({ orientation }: { orientation: 'vertical' | 'horizontal' }) => (
+interface ScrollBarProps {
+  /**
+   * Direction that the scrollbar scrolls.
+   */
+  readonly orientation: 'vertical' | 'horizontal';
+}
+
+/**
+ * Scrollbar of the direction `orientation` of a scroll area. It is hidden until the content scrolls or the pointer is
+ * on it, and fades out again once the scrolling stops. It is not there while the content fits in that direction.
+ */
+const ScrollBar = ({ orientation }: ScrollBarProps) => (
   <ScrollAreaPrimitive.Scrollbar
     data-slot="scroll-area-scrollbar"
     orientation={orientation}
@@ -47,10 +57,12 @@ const ScrollBar = ({ orientation }: { orientation: 'vertical' | 'horizontal' }) 
 );
 
 /**
- * A box whose content scrolls inside it, in either direction, without a scrollbar of the browser. Its own scrollbars
- * lie over the content and show only while the content scrolls. The content is a column at least as high as the box.
+ * Box whose content `children` scrolls inside it, in either direction, without a scrollbar of the browser. Its own
+ * scrollbars lie over the content and show only while the content scrolls. The content is a column at least as high
+ * as the box. `className` sizes the box, `viewportClassName` adds classes to the box that scrolls, `viewportRef` refers
+ * to it, and `onScroll` handles its event `scroll`.
  */
-const ScrollArea = ({ children, className, viewportClassName, viewportRef, onScroll }: ScrollAreaProps) => (
+export const ScrollArea = ({ children, className, viewportClassName, viewportRef, onScroll }: ScrollAreaProps) => (
   <ScrollAreaPrimitive.Root data-slot="scroll-area" className={cn('min-h-0 min-w-0', className)}>
     <ScrollAreaPrimitive.Viewport
       ref={viewportRef}
@@ -67,5 +79,3 @@ const ScrollArea = ({ children, className, viewportClassName, viewportRef, onScr
     <ScrollBar orientation="horizontal" />
   </ScrollAreaPrimitive.Root>
 );
-
-export { ScrollArea };

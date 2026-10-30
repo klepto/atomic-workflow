@@ -1,5 +1,4 @@
 import type { MessageLogStore } from './message-log-store.ts';
-import { sqliteOpenStorage } from './open-storage.sqlite.ts';
 import type { SessionStore } from './session-store.ts';
 import type { TaskStore } from './task-store.ts';
 
@@ -23,7 +22,7 @@ export interface Storage {
   readonly tasks: TaskStore;
 
   /**
-   * Closes the storage. No store works after.
+   * Closes the storage. No store works after. If the storage is closed already, throws.
    */
   close(): void;
 }
@@ -31,12 +30,8 @@ export interface Storage {
 /**
  * Function that opens the storage in the database file at `path`, and returns it once it is ready. Creates the file
  * and its directory when they do not exist, and brings the schema of an older database up to date. The directory of
- * the file holds a `.gitignore` that keeps every file in it out of git.
+ * the file holds a `.gitignore` that keeps every file in it out of git, which each open writes again, so an edit of it
+ * does not last.
  * If the database is newer than this version of the storage, rejects.
  */
 export type OpenStorageFunction = (path: string) => Promise<Storage>;
-
-/**
- * Default `OpenStorageFunction`, which keeps the storage in SQLite.
- */
-export const OpenStorage: OpenStorageFunction = sqliteOpenStorage;

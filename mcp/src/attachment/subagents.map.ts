@@ -58,8 +58,8 @@ const start = (
  * Resolves once `subagent`, of the session `sessionId`, attaches. If `subagent` is `undefined`, goes away before it
  * attaches, or `signal` aborts first, rejects.
  */
-const waitForAttach = (subagent: Subagent | undefined, sessionId: string, signal: AbortSignal): Promise<void> => {
-  if (subagent === undefined) return Promise.reject(new Error(`No subagent ${sessionId} is started`));
+const waitForAttach = async (subagent: Subagent | undefined, sessionId: string, signal: AbortSignal): Promise<void> => {
+  if (subagent === undefined) throw new Error(`No subagent ${sessionId} is started`);
   const aborted = new Promise<never>((_, reject) => {
     signal.addEventListener('abort', () => reject(signal.reason), { once: true });
   });
@@ -90,8 +90,7 @@ const stop = (subagents: Map<string, Subagent>, sessionId: string): boolean => {
 /**
  * Returns the attached subagents of `subagents`.
  */
-const list = (subagents: Map<string, Subagent>): readonly AttachedSubagent[] => {
-  return [...subagents]
+const list = (subagents: Map<string, Subagent>): readonly AttachedSubagent[] =>
+  [...subagents]
     .filter(([, subagent]) => subagent.isAttached)
     .map(([sessionId, { parentId }]) => ({ sessionId, parentId }));
-};

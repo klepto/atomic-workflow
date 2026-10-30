@@ -10,7 +10,8 @@
     "build": "vite build",
     "typecheck": "tsc",
     "dev": "vite",
-    "format": "biome format --write"
+    "format": "biome format --write",
+    "lint": "biome lint"
   },
   "devDependencies": {
     "@base-ui/react": "1.9.0",

@@ -4,7 +4,7 @@ import type { Task, TaskStore } from '../storage/task-store.ts';
 /**
  * Name of the chat of every orchestrator session: the main session, which runs the atomic-workflow server.
  */
-export const MAIN_NAME = 'main';
+const MAIN_NAME = 'main';
 
 /**
  * Job of the orchestrator of a task: a subagent of the main session that takes the commands of one task which need an
@@ -24,7 +24,7 @@ const SHORT_ID_LENGTH = 8;
 const SKILL_COMMAND = /^\/(?:[\w-]+:)?([\w-]+)(?:\s|$)/;
 
 /**
- * The fields of a session that its name depends on.
+ * Fields of a session that its name depends on.
  */
 type NamedSession = Pick<RegisteredSession, 'id' | 'role' | 'job' | 'taskId' | 'ticketId' | 'alias'>;
 
@@ -41,14 +41,15 @@ export const jobOfPrompt = (prompt: string | undefined): string | null =>
  * but not `implement-all`, which works on every ticket of a task.
  */
 export const isTicketJob = (job: string | null): boolean =>
-  job !== null && job.startsWith('implement') && job !== 'implement-all';
+  (job?.startsWith('implement') ?? false) && job !== 'implement-all';
 
 /**
  * Returns the name of the chat of each session of `sessions`, by its id. `sessions` must be in the order of their
  * start, as `SessionStore.list` returns them, and the tasks that they work on are read from `tasks`. A name that an
  * earlier session has already gets `-2`, `-3` and so on, so each subagent has a name of its own. A subagent with an
  * alias is named by its alias as it is, since aliases are not unique, and takes no part in that count. Every
- * orchestrator session shares the name `main`, since they share one chat, whatever its alias.
+ * orchestrator session shares the name `main`, since they share one chat, whatever its alias. Rejects as `tasks`
+ * does.
  */
 export const sessionNames = async (
   sessions: readonly NamedSession[],

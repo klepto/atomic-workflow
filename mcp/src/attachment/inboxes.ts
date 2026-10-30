@@ -1,5 +1,3 @@
-import { mapCreateInboxes } from './inboxes.map.ts';
-
 /**
  * Message in an inbox, with the number that its inbox gives it. The numbers of an inbox grow by one per message, from
  * 1.
@@ -35,7 +33,7 @@ export type InboxDelivery =
 export interface Inboxes {
   /**
    * Opens an empty inbox for the session `sessionId`, which closes when `closed` resolves. A session whose inbox is
-   * open already keeps it.
+   * open already keeps it, and the kept inbox still closes with the `closed` that it was opened with first.
    */
   open(sessionId: string, closed: Promise<void>): void;
 
@@ -83,8 +81,3 @@ export interface Inboxes {
  * Function that returns new inboxes, with no inbox open.
  */
 export type CreateInboxesFunction = () => Inboxes;
-
-/**
- * Default `CreateInboxesFunction`, which keeps the inboxes in memory.
- */
-export const CreateInboxes: CreateInboxesFunction = mapCreateInboxes;

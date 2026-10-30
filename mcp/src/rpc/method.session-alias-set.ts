@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { SESSION_ALIAS_MAX_LENGTH } from '../storage/session-store.ts';
 import type { Method } from './method.ts';
-import { RpcError, RpcErrorCode } from './rpc-error.ts';
+import { registeredSession } from './registered-session.ts';
 
 /**
  * Schema of the parameters of `sessionAliasSet`.
@@ -30,8 +30,7 @@ export const sessionAliasSetMethod: Method<typeof PARAMS, void> = {
   agent: false,
   params: PARAMS,
   handle: async ({ sessionId, alias }, { sessions }) => {
-    if ((await sessions.get(sessionId)) === undefined)
-      throw new RpcError(RpcErrorCode.INVALID_PARAMS, `No session ${sessionId} is registered`);
+    await registeredSession(sessionId, sessions);
     await sessions.setAlias(sessionId, alias);
   },
 };

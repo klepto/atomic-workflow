@@ -160,7 +160,7 @@ export const sessionListMethod: Method<typeof PARAMS, { readonly sessions: reado
 };
 
 /**
- * The fields of a listed session that the store and the message log hold, rather than the attachment.
+ * Fields of a listed session that the store and the message log hold, rather than the attachment.
  */
 type SessionDetails = Pick<
   ListedSession,

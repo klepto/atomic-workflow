@@ -1,14 +1,8 @@
-import { execFile } from 'node:child_process';
 import { constants } from 'node:fs';
 import { copyFile, lstat, mkdir, readdir, readlink, stat, symlink } from 'node:fs/promises';
-import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
-import { promisify } from 'node:util';
-import type { CopyFailure, CopyIgnoredFunction } from './copy-ignored.ts';
-
-/**
- * `execFile` of Node.js as a function that returns a promise.
- */
-const execFileAsync = promisify(execFile);
+import { dirname, join, resolve } from 'node:path';
+import { type CopyFailure, type CopyIgnoredFunction, copiedLinkTarget, copyFailuresOf } from './copy-ignored.ts';
+import { errorCode } from './error-details.ts';
 
 /**
  * Path of the storage of the atomic workflow relative to the checkout, which is never copied.
@@ -16,27 +10,9 @@ const execFileAsync = promisify(execFile);
 const STORAGE_PATH = '.agents/atomic-workflow';
 
 /**
- * Command line of git that lists every ignored file of a checkout, and every wholly ignored directory as one entry
- * that ends in `/`, each entry ended by a NUL.
- */
-const LIST_IGNORED: readonly string[] = [
-  'ls-files',
-  '-z',
-  '--others',
-  '--ignored',
-  '--exclude-standard',
-  '--directory',
-];
-
-/**
  * Number of the file operations that run at once.
  */
 const OPERATION_LIMIT = 16;
-
-/**
- * Number of the failures that `CopyFailures` names.
- */
-const NAMED_FAILURE_COUNT = 10;
 
 /**
  * Flags of the copy of a file: a clone where the file system supports it, and never over an existing file.
@@ -74,41 +50,19 @@ interface CopyRun {
 }
 
 /**
- * `CopyIgnoredFunction` that lists the ignored files with `git ls-files` and walks them on the disk. A link is
- * recreated, never followed, and a target inside the checkout becomes the same place inside the destination.
+ * `CopyIgnoredFunction` that walks the paths on the disk, and clones each file where the file system supports it. A
+ * link is recreated, never followed, and a target inside the checkout becomes the same place inside the destination.
+ * On Windows, a link to a directory, or to a target that does not exist, is recreated as a junction.
  */
-export const diskCopyIgnored: CopyIgnoredFunction = async (checkout, destination) => {
-  const entries = await listIgnored(checkout);
-  if (entries === undefined) return { count: 1, first: [{ path: '.', code: 'GIT_FAILED' }] };
+export const diskCopyIgnored: CopyIgnoredFunction = async (checkout, destination, paths) => {
   const run: CopyRun = {
     checkout: resolve(checkout),
     destination: resolve(destination),
     limit: createLimit(OPERATION_LIMIT),
     failures: [],
   };
-  await Promise.all(entries.map((entry) => copyEntry(run, entry)));
-  if (run.failures.length === 0) return undefined;
-  return { count: run.failures.length, first: run.failures.slice(0, NAMED_FAILURE_COUNT) };
-};
-
-/**
- * Returns the ignored paths of `checkout`, relative to it and without a trailing `/`. If git fails, returns
- * `undefined` instead.
- */
-const listIgnored = async (checkout: string): Promise<string[] | undefined> => {
-  try {
-    const { stdout } = await execFileAsync('git', LIST_IGNORED, {
-      cwd: checkout,
-      windowsHide: true,
-      maxBuffer: 64 * 1024 * 1024,
-    });
-    return stdout
-      .split('\0')
-      .filter((entry) => entry !== '')
-      .map((entry) => entry.replace(/\/$/, ''));
-  } catch {
-    return undefined;
-  }
+  await Promise.all(paths.map((path) => copyEntry(run, path)));
+  return copyFailuresOf(run.failures);
 };
 
 /**
@@ -172,18 +126,11 @@ const attempt = async <Value>(
   try {
     return await run.limit(operation);
   } catch (error) {
-    const code = codeOf(error);
-    if (!ignoredCodes.includes(code)) run.failures.push({ path, code });
+    const code = errorCode(error);
+    const failure = typeof code === 'string' ? code : 'UNKNOWN';
+    if (!ignoredCodes.includes(failure)) run.failures.push({ path, code: failure });
     return undefined;
   }
-};
-
-/**
- * Returns the code of the Node.js error `error`, or `UNKNOWN` when it has none.
- */
-const codeOf = (error: unknown): string => {
-  if (error instanceof Error && 'code' in error && typeof error.code === 'string') return error.code;
-  return 'UNKNOWN';
 };
 
 /**
@@ -219,20 +166,10 @@ const copyLink = async (run: CopyRun, path: string, source: string, target: stri
   const text = await attempt(run, path, () => readlink(source));
   if (text === undefined) return;
   const resolved = resolve(dirname(source), text);
-  const inside = insideCheckout(run, resolved);
   const junction = process.platform === 'win32' && (await isDirectoryOrMissing(run, resolved));
-  const linkTarget = junction ? absoluteTarget(run, resolved, inside) : linkText(run, text, resolved, inside);
+  const linkTarget = copiedLinkTarget(run.checkout, run.destination, text, resolved, junction, process.platform);
   const type = junction ? 'junction' : 'file';
   await attempt(run, path, () => symlink(linkTarget, target, type), ['EEXIST']);
-};
-
-/**
- * Returns the path of `resolved` relative to the checkout of `run`, or `undefined` when it lies outside the checkout.
- */
-const insideCheckout = (run: CopyRun, resolved: string): string | undefined => {
-  const path = relative(run.checkout, resolved);
-  if (isAbsolute(path) || path === '..' || path.startsWith(`..${sep}`)) return undefined;
-  return path;
 };
 
 /**
@@ -243,22 +180,7 @@ const isDirectoryOrMissing = async (run: CopyRun, resolved: string): Promise<boo
   try {
     return (await run.limit(() => stat(resolved))).isDirectory();
   } catch {
+    // A target that cannot be read counts as one that does not exist, which a junction can name.
     return true;
   }
-};
-
-/**
- * Returns the absolute target of a link to `resolved`: the same place inside the destination of `run` when `inside`,
- * its path relative to the checkout, is given, else `resolved` itself.
- */
-const absoluteTarget = (run: CopyRun, resolved: string, inside: string | undefined): string =>
-  inside === undefined ? resolved : join(run.destination, inside);
-
-/**
- * Returns the target of a recreated link whose original target is the text `text`, which resolves to `resolved`. A
- * relative text that stays inside the checkout of `run` is kept. Every other target is absolute.
- */
-const linkText = (run: CopyRun, text: string, resolved: string, inside: string | undefined): string => {
-  if (!isAbsolute(text) && inside !== undefined) return text;
-  return absoluteTarget(run, resolved, inside);
 };

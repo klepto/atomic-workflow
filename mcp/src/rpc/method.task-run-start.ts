@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import type { Task } from '../storage/task-store.ts';
-import { taskGetMethod } from './method.task-get.ts';
+import { findTask } from './find-task.ts';
 import type { Method } from './method.ts';
 
 /**
@@ -21,14 +21,13 @@ export const taskRunStartMethod: Method<typeof PARAMS, Task> = {
     'Marks the start of an unattended run of a task of the atomic workflow, for the run timer of the web app, and returns the task.',
   agent: true,
   params: PARAMS,
-  handle: async ({ taskId }, context) => {
-    await taskGetMethod.handle({ task: taskId }, context);
-    const startedAt = Date.now();
-    await context.tasks.startRun(taskId, startedAt);
-    const { caller, tasks } = context;
+  handle: async ({ taskId }, { tasks, caller, clock }) => {
+    await findTask(taskId, tasks);
+    const startedAt = clock.now();
+    await tasks.startRun(taskId, startedAt);
     // A failed end leaves the run active until the next start of the server ends it.
     if (caller !== undefined)
-      void caller.closed.then(() => tasks.endRun(taskId, Date.now(), startedAt)).catch(() => undefined);
-    return taskGetMethod.handle({ task: taskId }, context);
+      void caller.closed.then(() => tasks.endRun(taskId, clock.now(), startedAt)).catch(() => undefined);
+    return findTask(taskId, tasks);
   },
 };

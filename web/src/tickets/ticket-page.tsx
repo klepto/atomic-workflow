@@ -4,25 +4,150 @@ import { ScrollArea } from '@/components/ui/scroll-area.tsx';
 import { MarkdownBody } from '@/conversation/markdown-body.tsx';
 import { cn } from '@/lib/utils.ts';
 import { ReviewPage } from '@/review/review-page.tsx';
-import { navigate } from '@/routing/navigation.ts';
-import { RouteLink } from '@/routing/route-link.tsx';
+import { currentPath, navigate } from '@/routing/navigation.ts';
 import { findTicket, type TicketView, taskRefOf, ticketPath, ticketRefOf } from '@/routing/route.ts';
-import { STATUS_WORDS } from '@/tasks/ticket-list.tsx';
-import { useTickets } from '@/tasks/use-tickets.ts';
+import { RouteLink } from '@/routing/route-link.tsx';
+import { useTaskDetail } from '@/tasks/use-task-detail.ts';
+import { STATUS_WORDS } from '@/tickets/status-words.ts';
 
 /**
- * The views of a ticket in the order of their tabs, each with its label.
+ * View of a ticket, with the label of its tab.
  */
-const VIEWS: readonly { view: TicketView; label: string }[] = [
+interface ViewTab {
+  /**
+   * View that the tab opens.
+   */
+  readonly view: TicketView;
+
+  /**
+   * Label of the tab.
+   */
+  readonly label: string;
+}
+
+/**
+ * Fact of a ticket in its summary: its term, and its value.
+ */
+interface Fact {
+  /**
+   * Term that names the fact, such as `Status`.
+   */
+  readonly term: string;
+
+  /**
+   * Value of the fact, as text or as links.
+   */
+  readonly value: ReactNode;
+}
+
+/**
+ * Props of `ViewTabs`.
+ */
+interface ViewTabsProps {
+  /**
+   * Task of the ticket.
+   */
+  readonly task: TaskSummary;
+
+  /**
+   * Ticket whose views the tabs open.
+   */
+  readonly ticket: Ticket;
+
+  /**
+   * View that is open.
+   */
+  readonly current: TicketView;
+}
+
+/**
+ * Props of `TicketLinks`.
+ */
+interface TicketLinksProps {
+  /**
+   * Task of the tickets.
+   */
+  readonly task: TaskSummary;
+
+  /**
+   * Tickets of the task, among which the links find each ticket.
+   */
+  readonly tickets: readonly Ticket[];
+
+  /**
+   * Ids of the tickets to link to.
+   */
+  readonly ids: readonly number[];
+}
+
+/**
+ * Props of `TicketSummary`.
+ */
+interface TicketSummaryProps {
+  /**
+   * Task of the ticket.
+   */
+  readonly task: TaskSummary;
+
+  /**
+   * Ticket that the summary shows.
+   */
+  readonly ticket: Ticket;
+
+  /**
+   * Tickets of the task, among which the summary links the tickets that the ticket depends on and fixes.
+   */
+  readonly tickets: readonly Ticket[];
+}
+
+/**
+ * Props of `TicketPage`.
+ */
+interface TicketPageProps {
+  /**
+   * Open task.
+   */
+  readonly task: TaskSummary;
+
+  /**
+   * Ref of the ticket in the URL: its id, its slug, or both as `<id>-<slug>`.
+   */
+  readonly ticketRef: string;
+
+  /**
+   * View of the ticket that the page shows.
+   */
+  readonly view: TicketView;
+
+  /**
+   * Opens the chat of the subagent `sessionId` beside the task, such as the orchestrator of the task once it took over
+   * the landing of the task.
+   */
+  readonly onOpenChat: (sessionId: string) => void;
+}
+
+/**
+ * Views of a ticket in the order of their tabs, each with its label.
+ */
+const VIEWS: readonly ViewTab[] = [
   { view: 'summary', label: 'Summary' },
   { view: 'review', label: 'Review' },
 ];
 
 /**
- * The tabs of the views of the ticket `ticket` of the task `task`, which float at the top of the page above its
- * content. The tab of the view `current` is marked.
+ * Words of each mode of a ticket.
  */
-const ViewTabs = ({ task, ticket, current }: { task: TaskSummary; ticket: Ticket; current: TicketView }) => (
+const MODE_WORDS: Readonly<Record<Ticket['mode'], string>> = {
+  unattended: 'Unattended, an agent works alone',
+  attended: 'Attended, an agent works with you',
+  manual: 'Manual, you do the work',
+};
+
+/**
+ * Tabs of the views of the ticket `ticket` of the task `task`, which float at the top of the page above its content.
+ * The tab of the view `current` is marked.
+ */
+const ViewTabs = ({ task, ticket, current }: ViewTabsProps) => (
   <nav aria-label="Ticket views" className="-translate-x-1/2 pointer-events-none absolute top-3 left-1/2 z-20">
     <div className="pointer-events-auto flex gap-0.5 rounded-full border bg-background/85 p-1 shadow-md backdrop-blur-sm">
       {VIEWS.map(({ view, label }) => (
@@ -45,26 +170,10 @@ const ViewTabs = ({ task, ticket, current }: { task: TaskSummary; ticket: Ticket
 );
 
 /**
- * The words of each mode of a ticket.
+ * Links to each ticket of `ids` among `tickets` of the task `task`, by its id and its slug, separated by commas. An id
+ * that names no ticket of `tickets` shows as `#<id>`, with no link.
  */
-const MODE_WORDS: Record<Ticket['mode'], string> = {
-  unattended: 'Unattended, an agent works alone',
-  attended: 'Attended, an agent works with you',
-  manual: 'Manual, you do the work',
-};
-
-/**
- * Links to each ticket of `ids` among `tickets`, by its id and its slug, separated by commas.
- */
-const TicketLinks = ({
-  task,
-  tickets,
-  ids,
-}: {
-  task: TaskSummary;
-  tickets: readonly Ticket[];
-  ids: readonly number[];
-}) =>
+const TicketLinks = ({ task, tickets, ids }: TicketLinksProps) =>
   ids.map((id, index) => {
     const ticket = tickets.find((candidate) => candidate.id === id);
     return (
@@ -85,20 +194,12 @@ const TicketLinks = ({
   });
 
 /**
- * The summary of the ticket `ticket` of the task `task`: its id, its slug and its summary, its status with the reason
- * when it is blocked, the facts of its work, the tickets it depends on and the ticket it fixes, each a link among
+ * Summary of the ticket `ticket` of the task `task`: its id, its slug and its summary, its status with the reason when
+ * it is blocked, the facts of its work, the tickets it depends on and the ticket it fixes, each a link among
  * `tickets`, and below them its description.
  */
-const TicketSummary = ({
-  task,
-  ticket,
-  tickets,
-}: {
-  task: TaskSummary;
-  ticket: Ticket;
-  tickets: readonly Ticket[];
-}) => {
-  const facts: { term: string; value: ReactNode }[] = [
+const TicketSummary = ({ task, ticket, tickets }: TicketSummaryProps) => {
+  const facts: Fact[] = [
     {
       term: 'Status',
       value: ticket.stage === null ? STATUS_WORDS[ticket.status] : `${STATUS_WORDS[ticket.status]}, ${ticket.stage}`,
@@ -106,10 +207,12 @@ const TicketSummary = ({
     { term: 'Mode', value: MODE_WORDS[ticket.mode] },
     { term: 'Work', value: ticket.complexity === null ? ticket.type : `${ticket.type}, ${ticket.complexity}` },
   ];
-  if (ticket.dependsOn.length > 0)
+  if (ticket.dependsOn.length > 0) {
     facts.push({ term: 'Depends on', value: <TicketLinks task={task} tickets={tickets} ids={ticket.dependsOn} /> });
-  if (ticket.fixes !== null)
+  }
+  if (ticket.fixes !== null) {
     facts.push({ term: 'Fixes', value: <TicketLinks task={task} tickets={tickets} ids={[ticket.fixes]} /> });
+  }
   return (
     <ScrollArea className="flex-1">
       <article className="mx-auto flex w-full max-w-3xl flex-col gap-8 px-4 pt-20 pb-12 md:px-6">
@@ -143,37 +246,30 @@ const TicketSummary = ({
 };
 
 /**
- * The page of the ticket that `ticketRef` names among the tickets of the task `task`, in the area of the chat: the
- * tabs `Summary` and `Review` float at its top, above the view `view`. Once the ticket is found, the URL takes its
- * canonical ref, with no new history entry. A ref that names no ticket of the task says so. The review hands the
- * session id of the orchestrator of the task to `onOpenChat` when it takes over the landing of the task.
+ * Page of the ticket that `ticketRef` names among the tickets of the task `task`, in the area of the chat: the tabs
+ * `Summary` and `Review` float at its top, above the view `view`. Once the ticket is found, the URL takes its canonical
+ * ref, with no new history entry. A ref that names no ticket of the task says so. The review hands the session id of
+ * the orchestrator of the task to `onOpenChat` when it takes over the landing of the task.
  */
-export const TicketPage = ({
-  task,
-  ticketRef,
-  view,
-  onOpenChat,
-}: {
-  task: TaskSummary;
-  ticketRef: string;
-  view: TicketView;
-  onOpenChat: (sessionId: string) => void;
-}) => {
-  const tickets = useTickets(task);
+export const TicketPage = ({ task, ticketRef, view, onOpenChat }: TicketPageProps) => {
+  const tickets = useTaskDetail(task)?.tickets;
   const ticket = tickets === undefined ? undefined : findTicket(tickets, ticketRef);
   const canonical = ticket === undefined ? undefined : ticketPath(taskRefOf(task), ticketRefOf(ticket), view);
   useEffect(() => {
-    if (canonical !== undefined && canonical !== window.location.pathname) navigate(canonical, { replace: true });
+    if (canonical !== undefined && canonical !== currentPath()) {
+      navigate(canonical, { replace: true });
+    }
   }, [canonical]);
 
   if (tickets === undefined) return <div className="flex-1" />;
-  if (ticket === undefined)
+  if (ticket === undefined) {
     return (
       <div className="flex flex-1 flex-col items-center justify-center gap-2 px-4 text-center">
         <p className="font-medium text-lg">{`Task ${task.slug} has no ticket ${ticketRef}`}</p>
         <p className="text-muted-foreground text-sm">Open a ticket from the list in the task panel.</p>
       </div>
     );
+  }
   return (
     <div className="relative flex min-h-0 flex-1 flex-col">
       <ViewTabs task={task} ticket={ticket} current={view} />

@@ -1,8 +1,8 @@
 import { z } from 'zod';
 import type { Task } from '../storage/task-store.ts';
-import { taskGetMethod } from './method.task-get.ts';
+import { findTask } from './find-task.ts';
 import type { Method } from './method.ts';
-import { openAmendableTask } from './open-task.ts';
+import { openAmendableTask } from './task-guards.ts';
 
 /**
  * Schema of the parameters of `designSave`.
@@ -23,9 +23,9 @@ export const designSaveMethod: Method<typeof PARAMS, Task> = {
     'Replaces the design of a task of the atomic workflow with a whole new draft of it, and returns the task. The design of a complete task can change too, until the task is done.',
   agent: true,
   params: PARAMS,
-  handle: async ({ taskId, design }, context) => {
-    await openAmendableTask(taskId, context);
-    await context.tasks.setDesign(taskId, design);
-    return taskGetMethod.handle({ task: taskId }, context);
+  handle: async ({ taskId, design }, { tasks }) => {
+    await openAmendableTask(taskId, tasks);
+    await tasks.setDesign(taskId, design);
+    return findTask(taskId, tasks);
   },
 };

@@ -59,14 +59,16 @@ const FORBIDDEN_CHARACTERS = /[\\:\0]/;
 const NO_FILE_CODES: readonly (string | undefined)[] = ['ENOENT', 'ENOTDIR', 'ENAMETOOLONG', 'EINVAL'];
 
 /**
- * `CreateStaticFilesFunction` that reads the files of one directory on disk, on each call of `find`.
+ * `CreateStaticFilesFunction` that returns the `StaticFiles` of the directory of `options` on disk, which read the
+ * files of the directory on each call of `find`, and reject as `StaticFiles.find` says.
  */
-export const directoryCreateStaticFiles: CreateStaticFilesFunction = (dependencies) => ({
-  find: (path) => find(dependencies.directory, path),
+export const directoryCreateStaticFiles: CreateStaticFilesFunction = (options) => ({
+  find: (path) => find(options.directory, path),
 });
 
 /**
- * Returns the answer to `path`, the path of a request as it was sent, among the files of `directory`.
+ * Returns the answer to `path`, the path of a request as it was sent, among the files of `directory`, and rejects as
+ * `StaticFiles.find` says.
  */
 const find = async (directory: string, path: string): Promise<StaticAnswer> => {
   const decoded = decode(path);
@@ -115,6 +117,7 @@ const namesOf = (path: string): string[] | undefined => {
 /**
  * Returns the file that `names` lead to from `directory`, with the content type of its extension.
  * Returns `undefined` when they lead to no file, such as a directory or a path that nothing exists at.
+ * If the look at the path or the read of the file fails, rejects.
  */
 const readStaticFile = async (directory: string, names: readonly string[]): Promise<StaticFile | undefined> => {
   const target = join(directory, ...names);
@@ -133,14 +136,20 @@ const cacheControlOf = (names: readonly string[]): string | undefined => {
 };
 
 /**
+ * Returns the code of the caught value `error`, such as `ENOENT`, or `undefined` when it has none.
+ */
+const errorCode = (error: unknown): string | undefined =>
+  error instanceof Error && 'code' in error && typeof error.code === 'string' ? error.code : undefined;
+
+/**
  * Returns whether `target`, an absolute path, is a file. A failure other than a path that nothing can exist at is
  * thrown.
  */
 const isFile = async (target: string): Promise<boolean> => {
   try {
     return (await stat(target)).isFile();
-  } catch (failure) {
-    if (NO_FILE_CODES.includes((failure as NodeJS.ErrnoException).code)) return false;
-    throw failure;
+  } catch (error) {
+    if (NO_FILE_CODES.includes(errorCode(error))) return false;
+    throw error;
   }
 };

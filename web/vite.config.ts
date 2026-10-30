@@ -6,6 +6,7 @@ import { promisify } from 'node:util';
 import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
 import { defineConfig, type Logger, type Plugin } from 'vite';
+import { errorMessage } from './src/lib/error-message.ts';
 
 /**
  * Absolute path of the directory that the web app is built into: `plugin/dist/web/`, which the server serves.
@@ -27,7 +28,7 @@ const WEB_URL_ENTRY = fileURLToPath(new URL('../mcp/src/web-url.main.ts', import
 /**
  * Paths that the dev server sends on to the web server of the repository server.
  */
-const SERVER_PATHS = ['/rpc', '/events'];
+const SERVER_PATHS: readonly string[] = ['/rpc', '/events'];
 
 /**
  * `execFile` of Node.js as a function that returns a promise.
@@ -64,6 +65,14 @@ const lineFeedOutput = (): Plugin => ({
 });
 
 /**
+ * Returns the standard error of the failed child process `error`, or `undefined` when `error` holds none.
+ */
+const stderrOf = (error: unknown): string | undefined =>
+  typeof error === 'object' && error !== null && 'stderr' in error && typeof error.stderr === 'string'
+    ? error.stderr
+    : undefined;
+
+/**
  * Returns the URL of the web server to proxy to: `ATOMIC_WORKFLOW_URL` when it is set, else the URL of the web server
  * of the repository server of this repository, which `WEB_URL_ENTRY` prints. If no repository server runs, rejects
  * with the message of `WEB_URL_ENTRY`.
@@ -72,12 +81,14 @@ const findServerUrl = async (): Promise<URL> => {
   const fixedUrl = process.env.ATOMIC_WORKFLOW_URL;
   if (fixedUrl !== undefined && fixedUrl !== '') return new URL(fixedUrl);
   try {
-    const commandLine = [WEB_URL_ENTRY];
-    const { stdout } = await execFileAsync(process.execPath, commandLine, { cwd: WEB_DIRECTORY, windowsHide: true });
+    const { stdout } = await execFileAsync(process.execPath, [WEB_URL_ENTRY], {
+      cwd: WEB_DIRECTORY,
+      windowsHide: true,
+    });
     return new URL(stdout.trim());
   } catch (error) {
-    const message = (error as { stderr?: string }).stderr?.trim() || String(error);
-    throw new Error(`${message}. Run /atomic-workflow in a Claude Code session of this repository.`);
+    const message = stderrOf(error)?.trim() || String(error);
+    throw new Error(`${message}. Run /atomic-workflow in a Claude Code session of this repository.`, { cause: error });
   }
 };
 
@@ -87,7 +98,7 @@ const findServerUrl = async (): Promise<URL> => {
  * cannot be reached, rejects before anything is written to `response`. A failure once the answer has begun ends
  * `response`, and a close of `response` ends the request.
  */
-const forward = (target: URL, request: IncomingMessage, body: Buffer, response: ServerResponse): Promise<void> =>
+const forward = async (target: URL, request: IncomingMessage, body: Buffer, response: ServerResponse): Promise<void> =>
   new Promise((resolve, reject) => {
     const upstream = httpRequest(new URL(request.url ?? '/', target), {
       method: request.method,
@@ -110,9 +121,12 @@ const forward = (target: URL, request: IncomingMessage, body: Buffer, response: 
  * was written yet, and by closing the connection otherwise.
  */
 const respondFailure = (response: ServerResponse, error: unknown): void => {
-  if (response.headersSent || response.destroyed) return void response.destroy();
+  if (response.headersSent || response.destroyed) {
+    response.destroy();
+    return;
+  }
   response.writeHead(502, { 'content-type': 'text/plain; charset=utf-8' });
-  response.end(error instanceof Error ? error.message : String(error));
+  response.end(errorMessage(error));
 };
 
 /**
@@ -168,6 +182,10 @@ const repositoryServerProxy = (): Plugin => {
   };
 };
 
+/**
+ * Configuration of Vite for the web app: the dev server with its proxy to the repository server, and the build into
+ * `plugin/dist/web/` with LF line endings.
+ */
 export default defineConfig({
   base: '/',
   plugins: [lineFeedOutput(), repositoryServerProxy(), react(), tailwindcss()],
@@ -183,7 +201,8 @@ export default defineConfig({
     // The page allows no data URL but for images, so every asset stays a file of its own.
     assetsInlineLimit: 0,
     reportCompressedSize: false,
-    // The app is one chunk on purpose, served from the local disk, so its size needs no warning.
+    // The main chunk is large on purpose, served from the local disk, so its size needs no warning. The highlighter and
+    // its grammars load as chunks of their own, by the dynamic imports of src/lib/code-highlight.ts.
     chunkSizeWarningLimit: 1024,
   },
 });

@@ -1,11 +1,13 @@
 import { z } from 'zod';
 import type { Task, Ticket } from '../storage/task-store.ts';
+import { errorMessage } from './error-message.ts';
+import { findTask } from './find-task.ts';
 import type { Method, MethodContext } from './method.ts';
-import { taskGetMethod } from './method.task-get.ts';
-import { ticketSetStatusMethod } from './method.ticket-set-status.ts';
-import { ticketsSaveMethod } from './method.tickets-save.ts';
-import { hasLanded } from './open-ticket.ts';
-import { RpcError, RpcErrorCode } from './rpc-error.ts';
+import { hasLanded } from './plan-queries.ts';
+import { RPC_ERROR_CODES, RpcError } from './rpc-error.ts';
+import { saveTickets } from './save-tickets.ts';
+import { setTicketStatus } from './set-ticket-status.ts';
+import { notCompleteError, ticketOf } from './task-guards.ts';
 
 /**
  * Schema of the parameters of `ticketRequestChanges`.
@@ -21,9 +23,14 @@ const PARAMS = z.object({
 });
 
 /**
+ * Heading of the section of the description of a ticket that names the commands that check its work.
+ */
+const VERIFY_HEADING = '## Verify';
+
+/**
  * Result of `ticketRequestChanges`.
  */
-export interface RequestedChanges {
+interface RequestedChanges {
   /**
    * New ticket that makes the changes that the review asked for.
    */
@@ -36,18 +43,13 @@ export interface RequestedChanges {
 }
 
 /**
- * Heading of the section of the description of a ticket that names the commands that check its work.
- */
-const VERIFY_HEADING = '## Verify';
-
-/**
  * `Method` named `ticketRequestChanges`, which adds a ticket at the end of the tickets of a task that makes the changes
  * that the review of a landed ticket asked for, then approves the reviewed ticket when it needs review. The new ticket
  * has the mode, the type and the complexity of the reviewed ticket, depends on it, and holds the review in its
  * description, with the section `## Verify` of the reviewed ticket. A done task opens again: it becomes complete, and
  * lands again once every ticket is done. A task or a ticket that does not exist, and a review without text, fail with
  * invalid parameters. A task whose plan is not complete, a ticket whose work has not landed, and every refusal of
- * `ticketsSave`, fail with an invalid request. A refusal of the approval does not fail the call: the result holds it.
+ * `saveTickets`, fail with an invalid request. A refusal of the approval does not fail the call: the result holds it.
  */
 export const ticketRequestChangesMethod: Method<typeof PARAMS, RequestedChanges> = {
   name: 'ticketRequestChanges',
@@ -56,16 +58,16 @@ export const ticketRequestChangesMethod: Method<typeof PARAMS, RequestedChanges>
   agent: false,
   params: PARAMS,
   handle: async ({ taskId, ticketId, review }, context) => {
-    const task = await taskGetMethod.handle({ task: taskId }, context);
+    const task = await findTask(taskId, context.tasks);
     const reviewed = reviewedTicketOf(task, ticketId);
     const saved = await saveReopened(task, [...task.tickets, followUpOf(task, reviewed, review)], context);
     const ticket = saved.tickets[saved.tickets.length - 1] as Ticket;
     if (reviewed.status !== 'needs-review') return { ticket, approvalRefusal: null };
     try {
-      await ticketSetStatusMethod.handle({ taskId, ticketId, status: 'done' }, context);
+      await setTicketStatus({ taskId, ticketId, status: 'done' }, context);
       return { ticket, approvalRefusal: null };
     } catch (error) {
-      return { ticket, approvalRefusal: error instanceof Error ? error.message : String(error) };
+      return { ticket, approvalRefusal: errorMessage(error) };
     }
   },
 };
@@ -76,14 +78,11 @@ export const ticketRequestChangesMethod: Method<typeof PARAMS, RequestedChanges>
  * invalid request.
  */
 const reviewedTicketOf = (task: Task, ticketId: number): Ticket => {
-  if (task.status !== 'complete' && task.status !== 'done')
-    throw new RpcError(RpcErrorCode.INVALID_REQUEST, `The plan of task ${task.id} is not complete. Complete it first`);
-  const ticket = task.tickets.find(({ id }) => id === ticketId);
-  if (ticket === undefined)
-    throw new RpcError(RpcErrorCode.INVALID_PARAMS, `Task ${task.id} has no ticket ${ticketId}`);
+  if (task.status !== 'complete' && task.status !== 'done') throw notCompleteError(task);
+  const ticket = ticketOf(task, ticketId);
   if (!hasLanded(ticket.status))
     throw new RpcError(
-      RpcErrorCode.INVALID_REQUEST,
+      RPC_ERROR_CODES.INVALID_REQUEST,
       `Ticket ${ticketId} is ${ticket.status}, so its work has not landed and cannot take a review`,
     );
   return ticket;
@@ -135,14 +134,13 @@ const sectionOf = (markdown: string, heading: string): string | undefined => {
 
 /**
  * Returns `task` after its tickets became `tickets`, with the services of `context`. A done task becomes complete
- * first, so its tickets can change, and becomes done again when the save fails.
+ * first, so its tickets can change, and becomes done again when the save fails. Rejects as `saveTickets` does.
  */
 const saveReopened = async (task: Task, tickets: readonly Ticket[], context: MethodContext): Promise<Task> => {
   const reopened = task.status === 'done';
   if (reopened) await context.tasks.setStatus(task.id, 'complete');
   try {
-    const params = tickets.map((ticket) => ({ ...ticket, dependsOn: [...ticket.dependsOn] }));
-    return await ticketsSaveMethod.handle({ taskId: task.id, tickets: params }, context);
+    return await saveTickets(task.id, tickets, context);
   } catch (error) {
     if (reopened) await context.tasks.setStatus(task.id, 'done');
     throw error;

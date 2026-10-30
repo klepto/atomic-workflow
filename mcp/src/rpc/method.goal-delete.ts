@@ -1,9 +1,9 @@
 import { z } from 'zod';
 import type { Task } from '../storage/task-store.ts';
-import { taskGetMethod } from './method.task-get.ts';
+import { findTask } from './find-task.ts';
 import type { Method } from './method.ts';
-import { openTask } from './open-task.ts';
-import { RpcError, RpcErrorCode } from './rpc-error.ts';
+import { RPC_ERROR_CODES, RpcError } from './rpc-error.ts';
+import { openTask } from './task-guards.ts';
 
 /**
  * Schema of the parameters of `goalDelete`.
@@ -27,10 +27,10 @@ export const goalDeleteMethod: Method<typeof PARAMS, Task> = {
   description: 'Deletes a goal of a task of the atomic workflow, and returns the task.',
   agent: true,
   params: PARAMS,
-  handle: async ({ taskId, goalId }, context) => {
-    await openTask(taskId, context);
-    if (!(await context.tasks.deleteGoal(taskId, goalId)))
-      throw new RpcError(RpcErrorCode.INVALID_PARAMS, `Task ${taskId} has no goal ${goalId}`);
-    return taskGetMethod.handle({ task: taskId }, context);
+  handle: async ({ taskId, goalId }, { tasks }) => {
+    await openTask(taskId, tasks);
+    if (!(await tasks.deleteGoal(taskId, goalId)))
+      throw new RpcError(RPC_ERROR_CODES.INVALID_PARAMS, `Task ${taskId} has no goal ${goalId}`);
+    return findTask(taskId, tasks);
   },
 };

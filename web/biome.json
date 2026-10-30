@@ -1,31 +1,10 @@
 {
   "$schema": "./node_modules/@biomejs/biome/configuration_schema.json",
-  "files": {
-    "includes": ["**", "!package-lock.json"]
-  },
-  "formatter": {
-    "indentStyle": "space",
-    "indentWidth": 2,
-    "lineWidth": 120,
-    "lineEnding": "auto"
-  },
-  "javascript": {
-    "formatter": {
-      "quoteStyle": "single",
-      "trailingCommas": "all",
-      "semicolons": "always",
-      "arrowParentheses": "always"
-    }
-  },
+  "root": false,
+  "extends": "//",
   "css": {
     "parser": {
       "tailwindDirectives": true
     }
-  },
-  "linter": {
-    "enabled": false
-  },
-  "assist": {
-    "enabled": false
   }
 }

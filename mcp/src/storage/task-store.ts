@@ -268,29 +268,10 @@ export interface Task {
 }
 
 /**
- * Task of a repository as it appears in a list of tasks, without its plan.
+ * Task of a repository as it appears in a list of tasks, without its plan, with the counts of its tickets.
  */
-export interface TaskSummary {
-  /**
-   * Identifier of the task.
-   */
-  readonly id: number;
-
-  /**
-   * Short name of the task in kebab case.
-   */
-  readonly slug: string;
-
-  /**
-   * Status of the task.
-   */
-  readonly status: TaskStatus;
-
-  /**
-   * Time when the task was created, in ms since the epoch.
-   */
-  readonly createdAt: number;
-
+export interface TaskSummary
+  extends Pick<Task, 'id' | 'slug' | 'status' | 'createdAt' | 'runStartedAt' | 'runEndedAt'> {
   /**
    * Number of the tickets of the task that are completed: whose work landed on the task branch, with the status
    * `needs-review` or `done`.
@@ -301,20 +282,12 @@ export interface TaskSummary {
    * Number of every ticket of the task, completed or not.
    */
   readonly totalTickets: number;
-
-  /**
-   * Start of the latest run of the task, in ms since the epoch, or `null` when the task never ran.
-   */
-  readonly runStartedAt: number | null;
-
-  /**
-   * End of the latest run of the task, in ms since the epoch, or `null` while that run is active or the task never ran.
-   */
-  readonly runEndedAt: number | null;
 }
 
 /**
- * Store of the tasks of a repository. A task stays stored until it is deleted.
+ * Store of the tasks of a repository. A task stays stored until it is deleted. A write that changes or deletes what a
+ * task holds returns `false` for a task, a goal or a ticket that does not exist, and a write that adds to a task
+ * rejects for a task that does not exist.
  */
 export interface TaskStore {
   /**
@@ -330,7 +303,7 @@ export interface TaskStore {
   /**
    * Returns every task, in the order of their identifiers.
    */
-  list(): Promise<TaskSummary[]>;
+  list(): Promise<readonly TaskSummary[]>;
 
   /**
    * Deletes the task `id` with its goals and its tickets, and returns `true`. If no such task exists, returns `false`
@@ -357,32 +330,36 @@ export interface TaskStore {
   deleteGoal(taskId: number, goalId: number): Promise<boolean>;
 
   /**
-   * Replaces the design of the task `taskId` with `design`. A task that does not exist stays missing.
+   * Replaces the design of the task `taskId` with `design`, and returns `true`. If no such task exists, returns
+   * `false` instead.
    */
-  setDesign(taskId: number, design: string): Promise<void>;
+  setDesign(taskId: number, design: string): Promise<boolean>;
 
   /**
    * Replaces the tickets of the task `taskId` with `tickets`, and numbers them from 1 in their order. Each ticket keeps
    * the progress of the stored ticket with its identifier, and a ticket with a new identifier is `not-started`.
-   * If no such task exists, a ticket depends on a ticket that `tickets` lacks, or a ticket has a complexity that does
-   * not fit its mode, rejects.
+   * If `tickets` is not empty and no such task exists, rejects. If a ticket depends on a ticket that `tickets` lacks,
+   * lists one dependency twice, has a dependency or a `fixes` that is not less than its own identifier, or has a
+   * complexity that does not fit its mode, rejects too.
    */
   setTickets(taskId: number, tickets: readonly NewTicket[]): Promise<void>;
 
   /**
-   * Sets the status of the task `taskId` to `status`. A task that does not exist stays missing.
+   * Sets the status of the task `taskId` to `status`, and returns `true`. If no such task exists, returns `false`
+   * instead.
    */
-  setStatus(taskId: number, status: TaskStatus): Promise<void>;
+  setStatus(taskId: number, status: TaskStatus): Promise<boolean>;
 
   /**
-   * Sets the base branch of the task `taskId` to `branch`, or forgets it for `null`. A task that does not exist stays
-   * missing.
+   * Sets the base branch of the task `taskId` to `branch`, or forgets it for `null`, and returns `true`. If no such
+   * task exists, returns `false` instead.
    */
-  setBaseBranch(taskId: number, branch: string | null): Promise<void>;
+  setBaseBranch(taskId: number, branch: string | null): Promise<boolean>;
 
   /**
    * Sets the progress of the ticket `ticketId` of the task `taskId` to `progress`, and returns `true`. If the task has
    * no such ticket, returns `false` instead.
+   * If the status or the stage of `progress` is not one of `TICKET_STATUSES` or `TICKET_STAGES`, rejects.
    */
   setTicketProgress(taskId: number, ticketId: number, progress: TicketProgress): Promise<boolean>;
 

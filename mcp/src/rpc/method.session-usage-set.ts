@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import type { Method } from './method.ts';
-import { RpcError, RpcErrorCode } from './rpc-error.ts';
+import { registeredSession } from './registered-session.ts';
 
 /**
  * Schema of the parameters of `sessionUsageSet`.
@@ -35,8 +35,7 @@ export const sessionUsageSetMethod: Method<typeof PARAMS, void> = {
   agent: false,
   params: PARAMS,
   handle: async ({ sessionId, ...usage }, { sessions }) => {
-    if ((await sessions.get(sessionId)) === undefined)
-      throw new RpcError(RpcErrorCode.INVALID_PARAMS, `No session ${sessionId} is registered`);
+    await registeredSession(sessionId, sessions);
     await sessions.setUsage(sessionId, usage);
   },
 };

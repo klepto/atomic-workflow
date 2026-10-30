@@ -1,33 +1,43 @@
 import { LoaderCircle } from 'lucide-react';
-import { formatDuration } from '@/conversation/duration-format.ts';
-import { useNow } from '@/conversation/use-now.ts';
+import { formatDuration } from '@/time/duration-format.ts';
+import { useNow } from '@/time/use-now.ts';
 
 /**
- * Props of the row that shows that the agent of a chat works.
+ * Props of `ThinkingRow`.
  */
 interface ThinkingRowProps {
   /**
-   * The time when the current turn of the agent started, in ms since the epoch, or `null` while it is not known.
+   * Time when the current turn of the agent started, in ms since the epoch, or `null` while it is not known.
    */
-  since: number | null;
+  readonly since: number | null;
 
   /**
-   * The newest tool call of the agent, in one line, or `null` while it has none to show.
+   * Newest tool call of the agent, in one line, or `null` while it has none to show.
    */
-  action: string | null;
+  readonly action: string | null;
 }
 
 /**
- * How long the turn of the agent has run since `since`, in parentheses such as `(1m 56s)`, counting up once per
+ * Props of `TurnTime`.
+ */
+interface TurnTimeProps {
+  /**
+   * Time when the turn of the agent started, in ms since the epoch.
+   */
+  readonly since: number;
+}
+
+/**
+ * Time that the turn of the agent has run since `since`, in parentheses such as `(1m 56s)`, counting up once per
  * second.
  */
-const TurnTime = ({ since }: { since: number }) => {
+const TurnTime = ({ since }: TurnTimeProps) => {
   const now = useNow(true);
   return <span className="tabular-nums">({formatDuration(now - since)})</span>;
 };
 
 /**
- * The row at the end of the log while the agent of the chat works: the newest tool call `action` in one muted line,
+ * Row at the end of the log while the agent of the chat works: the newest tool call `action` in one muted line,
  * cut with an ellipsis and whole on hover, over a spinning icon, the word `Thinking` and the time of the turn since
  * `since`. The line of the tool call is left out while `action` is `null`, and the time while `since` is `null`. The
  * icon stands still for a user who asks for reduced motion.

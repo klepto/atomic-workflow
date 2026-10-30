@@ -1,8 +1,15 @@
 import { createConnection, type Socket } from 'node:net';
 import { setTimeout as sleep } from 'node:timers/promises';
 import type { RpcConnection } from '../rpc/rpc-connection.ts';
-import type { AttachDependencies, AttachFunction, Attachment } from './attach.ts';
-import { HELLO_METHOD, HELLO_RESULT, type HelloParams, PROTOCOL_VERSION, type Role } from './hello.ts';
+import { type AttachDependencies, type AttachFunction, type Attachment, NoRepositoryServerError } from './attach.ts';
+import {
+  HELLO_METHOD,
+  HELLO_RESULT,
+  type HelloParams,
+  isRepositoryClosing,
+  PROTOCOL_VERSION,
+  type Role,
+} from './hello.ts';
 
 /**
  * Time in ms between two tries to connect to a repository server that is coming up.
@@ -24,17 +31,40 @@ const HELLO_TIMEOUT = 5_000;
  * session server launched at the same time serves as well as the one that `launch` starts.
  */
 export const socketAttach: AttachFunction = async (address, role, dependencies) => {
-  const socket = await connectCatching(address);
-  if (!(socket instanceof Error)) return attachment(socket, role, false, dependencies);
+  const running = await attachRunning(address, role, dependencies);
+  if (!(running instanceof Error)) return running;
+  if (dependencies.launch === undefined) throw new NoRepositoryServerError(address, { cause: running });
   await dependencies.launch();
-  return attachment(await connectUntil(address, Date.now() + CONNECT_TIMEOUT), role, true, dependencies);
+  return attachment(await connectUntil(address, AbortSignal.timeout(CONNECT_TIMEOUT)), role, true, dependencies);
 };
 
 /**
- * Returns a connection to `address`, or the error of the try to connect.
+ * Returns the attachment to the repository server that runs at `address`, in the role `role`. If none runs, or the one
+ * that answers is closing, returns the error of the try instead.
+ * If the repository server does not answer `hello` in time with a valid result, or fails it for another reason, throws.
  */
-const connectCatching = (address: string): Promise<Socket | Error> => {
-  return new Promise((resolve) => {
+const attachRunning = async (
+  address: string,
+  role: Role,
+  dependencies: AttachDependencies,
+): Promise<Attachment | Error> => {
+  const socket = await connectCatching(address);
+  if (socket instanceof Error) return socket;
+  try {
+    return await attachment(socket, role, false, dependencies);
+  } catch (error) {
+    // A repository server that is closing no longer listens, so a launch starts one that does.
+    if (isRepositoryClosing(error)) return error;
+    throw error;
+  }
+};
+
+/**
+ * Returns a connection to the named pipe or Unix domain socket `address`. If the try to connect fails, returns its
+ * error instead.
+ */
+export const connectCatching = async (address: string): Promise<Socket | Error> =>
+  new Promise((resolve) => {
     const socket = createConnection(address);
     socket.once('error', resolve);
     socket.once('connect', () => {
@@ -42,18 +72,16 @@ const connectCatching = (address: string): Promise<Socket | Error> => {
       resolve(socket);
     });
   });
-};
 
 /**
- * Returns a connection to `address`, and tries again until the time `deadline` in ms since the epoch.
+ * Returns a connection to `address`, and tries again until `deadline` aborts.
  * If no try connects by then, throws the error of the last try.
  */
-const connectUntil = async (address: string, deadline: number): Promise<Socket> => {
+const connectUntil = async (address: string, deadline: AbortSignal): Promise<Socket> => {
   for (;;) {
     const socket = await connectCatching(address);
     if (!(socket instanceof Error)) return socket;
-    if (Date.now() >= deadline)
-      throw new Error(`The repository server at ${address} did not come up: ${socket.message}`);
+    if (deadline.aborted) throw new Error(`The repository server at ${address} did not come up: ${socket.message}`);
     await sleep(CONNECT_INTERVAL);
   }
 };

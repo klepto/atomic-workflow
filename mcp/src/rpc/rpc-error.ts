@@ -3,7 +3,7 @@ import type { RpcErrorObject, RpcFailure, RpcId } from './message.ts';
 /**
  * Error codes that JSON-RPC 2.0 defines.
  */
-export const RpcErrorCode = {
+export const RPC_ERROR_CODES = {
   /**
    * The message is not valid JSON.
    */
@@ -36,7 +36,7 @@ export const RpcErrorCode = {
  */
 export class RpcError extends Error {
   /**
-   * Code of the failure, one of `RpcErrorCode` or a code of a method.
+   * Code of the failure, one of `RPC_ERROR_CODES` or a code of a method.
    */
   readonly code: number;
 

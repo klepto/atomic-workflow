@@ -4,9 +4,12 @@ import type { ComponentProps } from 'react';
 import { cn } from '@/lib/utils.ts';
 
 /**
- * Classes of a button, by variant and size.
+ * Returns the classes of a button for its `variant`, its `size` and its own `className`. The variant `default` fills
+ * the button with the primary color, `destructive` with the color of danger, `outline` draws a border, `secondary`
+ * fills it with a muted color, `ghost` shows only its content, and `link` looks like a link. The size `default` is
+ * 2.25rem high, `sm` 2rem, `lg` 2.5rem, and `icon` is a square of 2.25rem.
  */
-const buttonVariants = cva(
+export const buttonVariants = cva(
   "inline-flex shrink-0 items-center justify-center gap-2 whitespace-nowrap rounded-md font-medium text-sm outline-none transition-all focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50 data-disabled:opacity-50 [&_svg:not([class*='size-'])]:size-4 [&_svg]:pointer-events-none [&_svg]:shrink-0",
   {
     variants: {
@@ -33,16 +36,22 @@ const buttonVariants = cva(
 );
 
 /**
- * Props of a button: the props of the Base UI button, a class string, a variant and a size.
+ * Props of `Button`: the props of the Base UI button, its variant and its size as `buttonVariants` takes them, and its
+ * classes.
  */
-type ButtonProps = Omit<ComponentProps<typeof ButtonPrimitive>, 'className'> &
-  VariantProps<typeof buttonVariants> & { className?: string };
+interface ButtonProps
+  extends Omit<ComponentProps<typeof ButtonPrimitive>, 'className'>,
+    VariantProps<typeof buttonVariants> {
+  /**
+   * Classes of the button, which win over the classes of its variant and its size.
+   */
+  readonly className?: string;
+}
 
 /**
- * A button on the Base UI button primitive.
+ * Button on the Base UI button primitive, styled by its `variant` and its `size`, `default` for both while left out.
+ * Every other prop goes to the primitive.
  */
-const Button = ({ className, variant, size, ...props }: ButtonProps) => (
+export const Button = ({ className, variant, size, ...props }: ButtonProps) => (
   <ButtonPrimitive data-slot="button" className={cn(buttonVariants({ variant, size, className }))} {...props} />
 );
-
-export { Button, buttonVariants };

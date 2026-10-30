@@ -1,5 +1,5 @@
 /**
- * A line of a hunk: a line that both sides share, one that the change added, or one that it deleted.
+ * Line of a hunk: a line that both sides share, one that the change added, or one that it deleted.
  */
 export interface DiffLine {
   /**
@@ -30,16 +30,16 @@ export interface DiffLine {
 }
 
 /**
- * A hunk of the changes of a file: a run of changed lines with the lines around them.
+ * Hunk of the changes of a file: a run of changed lines with the lines around them.
  */
 export interface DiffHunk {
   /**
-   * The header line of the hunk, such as `@@ -10,7 +10,8 @@ const parse = () => {`.
+   * Header line of the hunk, such as `@@ -10,7 +10,8 @@ const parse = () => {`.
    */
   header: string;
 
   /**
-   * The lines of the hunk, in their order.
+   * Lines of the hunk, in their order.
    */
   lines: DiffLine[];
 }
@@ -50,7 +50,7 @@ export interface DiffHunk {
 export type FileStatus = 'added' | 'deleted' | 'modified' | 'renamed' | 'copied';
 
 /**
- * The changes of one file of a patch.
+ * Changes of one file of a patch.
  */
 export interface FileDiff {
   /**
@@ -79,7 +79,7 @@ export interface FileDiff {
   similarity: number | null;
 
   /**
-   * The old and the new mode of the file when the change set its mode, such as `100644` and `100755`, or `null`.
+   * Old and new mode of the file when the change set its mode, such as `100644` and `100755`, or `null`.
    */
   modeChange: { old: string; new: string } | null;
 
@@ -89,7 +89,7 @@ export interface FileDiff {
   binary: boolean;
 
   /**
-   * The hunks of the file, in their order. Empty for a binary file, and for a change of the path or the mode alone.
+   * Hunks of the file, in their order. Empty for a binary file, and for a change of the path or the mode alone.
    */
   hunks: DiffHunk[];
 
@@ -105,6 +105,26 @@ export interface FileDiff {
 }
 
 /**
+ * Side of a diff: `old` for the lines before the change, `new` for the lines after it.
+ */
+export type DiffSide = 'old' | 'new';
+
+/**
+ * Changes of one file that `parseFile` read, with the index of the first line after them.
+ */
+interface ParsedFile {
+  /**
+   * Changes of the file.
+   */
+  readonly file: FileDiff;
+
+  /**
+   * Index of the first line of the patch after the changes of the file.
+   */
+  readonly next: number;
+}
+
+/**
  * Start of the first line of the changes of each file.
  */
 const FILE_START = 'diff --git ';
@@ -115,15 +135,54 @@ const FILE_START = 'diff --git ';
 const HUNK_HEADER = /^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/;
 
 /**
- * Parses `patch`, the output of `git show --format= -M` with paths that are not quoted, into the changes of each of
- * its files, in their order. Line breaks may be LF or CRLF. Lines that belong to no file are ignored.
+ * Keys of the extended header lines of a file that `readHeaderLine` reads, the longest first where one starts another.
  */
-export const parsePatch = (patch: string): FileDiff[] => {
+const HEADER_KEYS = [
+  'new file mode',
+  'deleted file mode',
+  'old mode',
+  'new mode',
+  'similarity index',
+  'rename from',
+  'rename to',
+  'copy from',
+  'copy to',
+  '---',
+  '+++',
+] as const;
+
+/**
+ * Returns the number of the line `line` on the side `side`, or `null` when the line has no number on that side.
+ */
+export const numberOn = (line: DiffLine, side: DiffSide): number | null =>
+  side === 'old' ? line.oldNumber : line.newNumber;
+
+/**
+ * Returns the side that a click on the line `line` in the unified view points at: `old` for a deleted line, `new` for
+ * every other line.
+ */
+export const sideOf = (line: DiffLine): DiffSide => (line.kind === 'delete' ? 'old' : 'new');
+
+/**
+ * Returns the sign of the line `line` in a patch: `+` for an added line, `-` for a deleted line, and a space for a line
+ * that both sides share.
+ */
+export const signOf = (line: DiffLine): string => {
+  if (line.kind === 'add') return '+';
+  return line.kind === 'delete' ? '-' : ' ';
+};
+
+/**
+ * Parses `patch`, the output of `git show --format= -M` with paths that are not quoted, into the changes of each of
+ * its files, in their order. Line breaks may be LF or CRLF. Lines that belong to no file are ignored. Returns the
+ * changes of each file.
+ */
+export const parsePatch = (patch: string): readonly FileDiff[] => {
   const files: FileDiff[] = [];
   const lines = patch.split('\n').map((line) => (line.endsWith('\r') ? line.slice(0, -1) : line));
   let index = 0;
   while (index < lines.length) {
-    const line = lines[index] as string;
+    const line = lines[index];
     if (!line.startsWith(FILE_START)) {
       index += 1;
       continue;
@@ -139,8 +198,8 @@ export const parsePatch = (patch: string): FileDiff[] => {
  * Parses the changes of the file whose first line is `lines[start]`, and returns them with the index of the first line
  * after them.
  */
-const parseFile = (lines: readonly string[], start: number): { file: FileDiff; next: number } => {
-  const [oldGuess, newGuess] = pathsOfHeader((lines[start] as string).slice(FILE_START.length));
+const parseFile = (lines: readonly string[], start: number): ParsedFile => {
+  const [oldGuess, newGuess] = pathsOfHeader(lines[start].slice(FILE_START.length));
   const file: FileDiff = {
     status: 'modified',
     oldPath: oldGuess,
@@ -155,8 +214,8 @@ const parseFile = (lines: readonly string[], start: number): { file: FileDiff; n
   };
   let oldMode = '';
   let index = start + 1;
-  while (index < lines.length && !(lines[index] as string).startsWith(FILE_START)) {
-    const line = lines[index] as string;
+  while (index < lines.length && !lines[index].startsWith(FILE_START)) {
+    const line = lines[index];
     if (line.startsWith('@@')) {
       index = parseHunk(lines, index, file);
       continue;
@@ -212,24 +271,6 @@ const readHeaderLine = (line: string, file: FileDiff, oldMode: string): string =
 };
 
 /**
- * The keys of the extended header lines of a file that `readHeaderLine` reads, the longest first where one starts
- * another.
- */
-const HEADER_KEYS = [
-  'new file mode',
-  'deleted file mode',
-  'old mode',
-  'new mode',
-  'similarity index',
-  'rename from',
-  'rename to',
-  'copy from',
-  'copy to',
-  '---',
-  '+++',
-] as const;
-
-/**
  * Returns the key of the header line `line` among `HEADER_KEYS` and its value after the space that follows the key,
  * without the tab that git puts after a path with spaces. A line with no such key returns an empty key.
  */
@@ -265,7 +306,7 @@ const pathsOfHeader = (rest: string): [string, string] => {
  * The counts of the header say where the hunk ends.
  */
 const parseHunk = (lines: readonly string[], start: number, file: FileDiff): number => {
-  const header = lines[start] as string;
+  const header = lines[start];
   const match = HUNK_HEADER.exec(header);
   const hunk: DiffHunk = { header, lines: [] };
   file.hunks.push(hunk);
@@ -275,8 +316,8 @@ const parseHunk = (lines: readonly string[], start: number, file: FileDiff): num
   let oldLeft = match[2] === undefined ? 1 : Number(match[2]);
   let newLeft = match[4] === undefined ? 1 : Number(match[4]);
   let index = start + 1;
-  while (index < lines.length && (oldLeft > 0 || newLeft > 0 || (lines[index] as string).startsWith('\\'))) {
-    const line = lines[index] as string;
+  while (index < lines.length && (oldLeft > 0 || newLeft > 0 || lines[index].startsWith('\\'))) {
+    const line = lines[index];
     index += 1;
     const sign = line[0];
     const text = line.slice(1);

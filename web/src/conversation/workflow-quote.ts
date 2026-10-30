@@ -5,19 +5,6 @@
 const MARK = 'atomic-workflow:';
 
 /**
- * Returns the text `text` without the marked quotes at its start and at its end: each line `atomic-workflow:` and the
- * lines of the quote block after it, which start with `>`, with the blank lines around them. A text that holds only
- * marked quotes becomes empty, and a text that starts and ends with none stays as it is.
- */
-export const withoutWorkflowQuotes = (text: string): string => {
-  const lines = text.trim().split(/\r?\n/);
-  const start = leadingQuotesEnd(lines);
-  const end = trailingQuotesStart(lines, start);
-  if (start === 0 && end === lines.length) return text;
-  return lines.slice(start, end).join('\n');
-};
-
-/**
  * Returns the index of the first line of `lines` after the marked quotes at its start, and after the blank lines that
  * follow them. Without marked quotes at the start, returns 0.
  */
@@ -39,9 +26,22 @@ const trailingQuotesStart = (lines: readonly string[], start: number): number =>
   let end = lines.length;
   for (;;) {
     let index = end;
-    while (index > start && lines[index - 1].trimStart().startsWith('>')) index -= 1;
-    if (index === end || index === start || lines[index - 1].trim() !== MARK) return end;
+    while (index > start && lines[index - 1]?.trimStart().startsWith('>')) index -= 1;
+    if (index === end || index === start || lines[index - 1]?.trim() !== MARK) return end;
     end = index - 1;
-    while (end > start && lines[end - 1].trim() === '') end -= 1;
+    while (end > start && lines[end - 1]?.trim() === '') end -= 1;
   }
+};
+
+/**
+ * Returns the text `text` without the marked quotes at its start and at its end: each line `atomic-workflow:` and the
+ * lines of the quote block after it, which start with `>`, with the blank lines around them. A text that holds only
+ * marked quotes becomes empty, and a text that starts and ends with none stays as it is.
+ */
+export const withoutWorkflowQuotes = (text: string): string => {
+  const lines = text.trim().split(/\r?\n/);
+  const start = leadingQuotesEnd(lines);
+  const end = trailingQuotesStart(lines, start);
+  if (start === 0 && end === lines.length) return text;
+  return lines.slice(start, end).join('\n');
 };

@@ -23,7 +23,8 @@ A Claude Code plugin with one skill, `/atomic-workflow`, and one MCP server that
   hash of the common git directory. Only one process can listen on it, so two launches at the same time leave one
   repository server.
 - The repository server counts its connections. It ends when the last session server leaves, or when no session
-  server attaches in its first 10 seconds. No process id and no lock file is involved.
+  server attaches in its first 10 seconds. No process id and no lock file is involved. Once it stops listening, it
+  refuses a session server whose hello arrives late, and that session server launches a repository server that listens.
 - The repository server starts through a short-lived launcher process. It so has no living parent, and Claude Code
   killing the process tree of a session server on Windows does not reach it.
 
@@ -579,7 +580,9 @@ its own, and lands it on the task branch as one commit. Each ticket of the type 
 - `worktreeDelete` removes the worktree and the branch of a ticket, or every worktree and branch of a task. Without
   `force`, it refuses to remove a branch whose commits have not landed, on the task branch for a ticket branch and on
   the base branch for the task branch, or a worktree with uncommitted changes. A ticket in progress or blocked whose
-  branch it removes is `not-started` again. The skill removes the worktree of each ticket that landed.
+  branch it removes is `not-started` again. With `force` and without a ticket, it refuses a done task, and on another
+  task sets `not-started` only the tickets whose work it throws away: each ticket in progress or blocked, and each
+  landed ticket whose commits the base branch lacks. The skill removes the worktree of each ticket that landed.
 - `taskDelete` removes every worktree and branch of the task first, with the same refusal unless `force`, and deletes
   nothing when it refuses. A worktree or branch that cannot be removed, such as a directory that another program
   holds, stays with a warning, and the task is deleted anyway. `/atomic-workflow:tasks-delete` asks the user before it
@@ -753,8 +756,8 @@ ticket of the task, and implements it as if the user had named it. Its first lin
 `Next ready ticket: **<id>-<slug>**.`
 
 - A ticket is ready when its work has not landed, every ticket that it depends on has landed, and no other session
-  holds it. The dependency rule lives in `pendingDependencies` of `open-ticket.ts`, which `worktreeCreate` uses too, and
-  `hasLanded` holds what counts as landed, `needs-review` or `done`, for both and for `ticketSetStatus`.
+  holds it. The dependency rule lives in `pendingDependencies` of `plan-queries.ts`, which `worktreeCreate` uses too,
+  and `hasLanded` holds what counts as landed, `needs-review` or `done`, for both and for `ticketSetStatus`.
 - `ticketNext` returns the next ticket of a complete task: the first ready ticket that is `in-progress`, since its work
   sits in a worktree already, else the first ready ticket that is `not-started`, each in the order of their ids. A
   ticket in progress that the same connection holds counts as ready, so a session resumes its own ticket after
@@ -892,9 +895,10 @@ built into `plugin/dist/web/`. The inline page of the web server is gone.
   an unknown extension is a download.
 - A directory without `index.html` answers `503` with `The web app is not built. Run npm run build in web/.` Any method
   other than `GET` on a path other than `/rpc` answers `405`.
-- `StartWebServer` takes the directory of the web app in its options. The repository server finds it from its own
-  location, as it finds `await-command`: `web` beside the bundle `repository-server.mjs`, or `../../plugin/dist/web`
-  from `mcp/src/` when it runs from the sources.
+- `httpStartWebServer` takes the static files of the web app in its dependencies, which `directoryCreateStaticFiles`
+  creates for the directory of the web app. The repository server finds the directory with `webDirectoryPath` of
+  `mcp/src/entry/entry-point.ts`, as it finds `await-command` with `entryPointPath`: `web` beside the bundle
+  `repository-server.mjs`, or `plugin/dist/web` of the root of the repository when it runs from the sources.
 - The repository server has a change feed, `change-feed.ts` in `mcp/src/changes/`, which names each changed resource:
   `sessions`, the set of attached sessions, `messages`, the message log, or `tasks`, the tasks with their goals,
   design and tickets. Every write goes through this one process, so it sees each change as it happens, and reads
@@ -911,8 +915,8 @@ built into `plugin/dist/web/`. The inline page of the web server is gone.
 - `GET /events` of the web server streams the feed as Server-Sent Events. It answers `200` with `Content-Type:
   text/event-stream` and `Cache-Control: no-store`, sends its headers at once, and writes `event: <resource>` with
   empty data for each change. The subscription ends when the request closes, and `close()` of the web server ends
-  every stream, since it closes every connection. `StartWebServer` takes the feed in its options, beside the
-  directory of the web app.
+  every stream, since it closes every connection. `httpStartWebServer` takes the feed in its dependencies, beside the
+  static files of the web app.
 - A new RPC method, `repositoryGet`, returns the main worktree of the repository as `directory`, and its last segment
   as `name`, such as `atomic-workflow-mcp`. It has no parameters, only reads, and has `agent: false`, so no session
   server offers it as a tool. The page calls it at load for the name in its header.
@@ -1147,6 +1151,25 @@ Rejected:
 - A run that lasts only while a session is bound to the connection. A subagent calls over the connection of the main
   session, which stays bound across `/clear`, so the connection is the holder that matches the claims of tickets.
 
+## Activity hooks
+
+The web app shows whether the agent of a session works, is idle, or waits for the user. The transcript shows when the
+agent works, but not when it is blocked on the user, and a turn that ends leaves no line that marks the end. Hooks of
+Claude Code report the two other statuses.
+
+- The plugin has three hooks that run `session-activity.mjs` in `plugin/dist/` with `--status <status>`: `Stop`
+  reports `idle` once a turn ended, `Notification` with the matcher `permission_prompt|elicitation_dialog` reports
+  `waiting` while a prompt waits for the user, and `PreToolUse` with the matcher `AskUserQuestion` reports `waiting`
+  while a question in the terminal waits for the user.
+- Each hook reads the session id and the working directory from its input, and calls `sessionActivityReport` on the
+  repository server of the repository of `CLAUDE_PROJECT_DIR`, or else of the working directory. It starts no
+  repository server: outside of a git repository, or without a running repository server, it reports nothing. It
+  prints nothing.
+- The hooks are `async`, so the start of Node.js and the attach do not hold up the turn, and each has a timeout of 10
+  seconds. The repository server stamps the report with the time it arrives.
+- The log of the transcript reports `working` with the time of each line of the user or the agent, so a new turn
+  ends the `idle` or `waiting` of a hook. A report older than the latest report of the session changes nothing.
+
 ## Layout
 
 ```
@@ -1154,7 +1177,8 @@ plugin/                           the plugin, and the local marketplace that hol
   .claude-plugin/plugin.json      manifest of the plugin
   .claude-plugin/marketplace.json local marketplace, with the plugin at its root
   .mcp.json                       the session server
-  hooks/hooks.json                the hook that resumes the messages of a session after `/clear`
+  hooks/hooks.json                the hook that resumes the messages of a session after `/clear`, and the hooks that
+                                  report when the agent of a session is idle or waits for the user
   skills/atomic-workflow/SKILL.md
   skills/plan/SKILL.md            every stage of planning, in order
   skills/tasks/SKILL.md           the list of the tasks
@@ -1185,11 +1209,21 @@ mcp/                              the MCP project: sources, configs and build
     web-url.main.ts               entry point of the command line tool that prints the URL of the web server
     await-command.main.ts         entry point of the command line tool that waits for the messages of a session
     session-start.main.ts         entry point of the hook that resumes the messages of a session after `/clear`
+    session-activity.main.ts      entry point of the hooks that report when the agent is idle or waits for the user
     attachment/                   the pipe between clients and the repository server: address, attach, serve,
-                                  hello, the connections of the bound sessions, the subagents and the inboxes
+                                  hello and bindSession, and the in-memory state of the attached sessions: their
+                                  connections, subagents, inboxes, activity and ticket claims, and the command line
+                                  of the wait for their messages
+    client/                       the attach of a command line tool or a hook, the input of a hook, and the work of
+                                  the wait for messages and of the hooks
+    entry/                        the paths of the entry points and of the web app, and the detail of a failure
+    session/                      the session server: the tool `activate`, the attach, the follow of the sessions
+                                  and the subagents of the agent, and the tools of the methods
     changes/                      the feed of the changes of the repository server, and the wrappers of the services
                                   that publish to it
-    rpc/                          JSON-RPC 2.0: messages, connection, dispatch, and the methods
+    rpc/                          JSON-RPC 2.0: messages, connection, dispatch, and the methods, one module each,
+                                  with the operations that several methods share, such as the task guards, the
+                                  ticket claims and the start and stop of a subagent, in modules of their own
     launch/                       start of a process outside the process tree of the caller
     storage/                      persistent data: the stores, their SQLite implementations and the database file
     transcript/                   the transcript of a session: find it, follow it, and log its messages

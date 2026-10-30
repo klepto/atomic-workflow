@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { type LoggedMessage, MESSAGE_SENDERS } from '../storage/message-log-store.ts';
 import type { Method } from './method.ts';
-import { RpcError, RpcErrorCode } from './rpc-error.ts';
+import { registeredSession } from './registered-session.ts';
 
 /**
  * Schema of the parameters of `messageLog`.
@@ -24,9 +24,9 @@ export const messageLogMethod: Method<typeof PARAMS, LoggedMessage> = {
   description: 'Adds a message to the message log of the repository, and returns it with its identifier.',
   agent: false,
   params: PARAMS,
-  handle: async ({ sessionId, messageId, sender, content, timestamp = Date.now() }, { sessions, messageLog }) => {
-    if ((await sessions.get(sessionId)) === undefined)
-      throw new RpcError(RpcErrorCode.INVALID_PARAMS, `No session ${sessionId} is registered`);
-    return messageLog.append({ sessionId, messageId: messageId ?? null, sender, content, timestamp });
+  handle: async ({ sessionId, messageId, sender, content, timestamp }, { sessions, messageLog, clock }) => {
+    const at = timestamp ?? clock.now();
+    await registeredSession(sessionId, sessions);
+    return messageLog.append({ sessionId, messageId: messageId ?? null, sender, content, timestamp: at });
   },
 };

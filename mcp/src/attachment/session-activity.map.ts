@@ -36,6 +36,18 @@ interface ReportedActivity {
 }
 
 /**
+ * Activity of a session that has reported nothing yet, which every report of a status takes as later.
+ */
+const UNREPORTED: ReportedActivity = {
+  status: 'idle',
+  at: Number.NEGATIVE_INFINITY,
+  turnStartedAt: null,
+  turnEndedAt: null,
+  action: null,
+  actionAt: null,
+};
+
+/**
  * `CreateSessionActivityFunction` that keeps the activity of each session in a map, by session.
  */
 export const mapCreateSessionActivity: CreateSessionActivityFunction = () => {
@@ -69,29 +81,19 @@ const update = (
 };
 
 /**
- * Returns the activity `current` after a report of the status `status` at the time `at`. If the report changes
- * nothing, returns `undefined` instead.
+ * Returns the activity `reportedActivity` after a report of the status `status` at the time `at`. A session that has
+ * reported nothing yet, with `reportedActivity` `undefined`, counts as `UNREPORTED`. If the report changes nothing,
+ * returns `undefined` instead.
  */
 const reported = (
-  current: ReportedActivity = UNREPORTED,
+  reportedActivity: ReportedActivity | undefined,
   status: ActivityStatus,
   at: number,
 ): ReportedActivity | undefined => {
+  const current = reportedActivity ?? UNREPORTED;
   if (at < current.at) return movedTurnStart(current, status, at);
   if (status === 'idle') return { ...current, status, at, turnStartedAt: null, turnEndedAt: at, action: null };
   return { ...current, status, at, turnStartedAt: current.turnStartedAt ?? at };
-};
-
-/**
- * Activity of a session that has reported nothing yet, which every report of a status takes as later.
- */
-const UNREPORTED: ReportedActivity = {
-  status: 'idle',
-  at: Number.NEGATIVE_INFINITY,
-  turnStartedAt: null,
-  turnEndedAt: null,
-  action: null,
-  actionAt: null,
 };
 
 /**

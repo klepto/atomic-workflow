@@ -1,8 +1,15 @@
-import { useMemo, useSyncExternalStore } from 'react';
-import { parseRoute, type Route } from '@/routing/route.ts';
+/**
+ * Options of a move to a path.
+ */
+interface NavigateOptions {
+  /**
+   * Whether the move replaces the current history entry in place of a push of a new one. `false` by default.
+   */
+  readonly replace?: boolean;
+}
 
 /**
- * The functions to call when `navigate` changes the path.
+ * Functions to call when `navigate` changes the path.
  */
 const listeners = new Set<() => void>();
 
@@ -10,7 +17,7 @@ const listeners = new Set<() => void>();
  * Calls `listener` whenever the path changes, by `navigate` or by back and forward in the browser. Returns the function
  * that stops the calls.
  */
-const subscribe = (listener: () => void) => {
+export const subscribePath = (listener: () => void): (() => void) => {
   listeners.add(listener);
   window.addEventListener('popstate', listener);
   return () => {
@@ -22,15 +29,16 @@ const subscribe = (listener: () => void) => {
 /**
  * Returns the path of the current URL.
  */
-const getPathname = () => window.location.pathname;
+export const currentPath = (): string => window.location.pathname;
 
 /**
  * Moves to `path` without a page load, and tells every component that calls `useRoute`. Pushes a history entry, or
- * replaces the current one with `{ replace: true }`. A move to the current path replaces its entry too, as a link to
- * the current page does in the browser, so it adds no entry that back would only return to the same view from.
+ * replaces the current one when `options` has `replace` set to `true`. A move to the current path replaces its entry
+ * too, as a link to the current page does in the browser, so it adds no entry that back would only return to the same
+ * view from.
  */
-export const navigate = (path: string, options?: { replace?: boolean }): void => {
-  if (options?.replace === true || path === window.location.pathname) {
+export const navigate = (path: string, options?: NavigateOptions): void => {
+  if (options?.replace === true || path === currentPath()) {
     window.history.replaceState(null, '', path);
   } else {
     window.history.pushState(null, '', path);
@@ -38,13 +46,4 @@ export const navigate = (path: string, options?: { replace?: boolean }): void =>
   for (const listener of listeners) {
     listener();
   }
-};
-
-/**
- * Returns the route of the current URL, and renders again when `navigate`, or back and forward in the browser, change
- * it.
- */
-export const useRoute = (): Route => {
-  const pathname = useSyncExternalStore(subscribe, getPathname);
-  return useMemo(() => parseRoute(pathname), [pathname]);
 };

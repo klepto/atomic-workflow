@@ -1,5 +1,3 @@
-import { shellAwaitCommandLine } from './await-command-line.shell.ts';
-
 /**
  * Function that returns the command line that runs the entry point `entryPoint` of the command line tool that waits
  * for the messages of the session `sessionId`, and acknowledges the messages up to the number `after`. Without
@@ -7,8 +5,3 @@ import { shellAwaitCommandLine } from './await-command-line.shell.ts';
  * id only.
  */
 export type AwaitCommandLineFunction = (entryPoint: string, sessionId: string, after?: number) => string;
-
-/**
- * Default `AwaitCommandLineFunction`, whose command line runs the same in Bash and in PowerShell.
- */
-export const AwaitCommandLine: AwaitCommandLineFunction = shellAwaitCommandLine;

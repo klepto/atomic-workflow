@@ -2,9 +2,10 @@ import type { ComponentProps } from 'react';
 import { cn } from '@/lib/utils.ts';
 
 /**
- * A text field of several lines.
+ * Text field of several lines, which grows with its content from a height of 4rem. Every prop goes to its `textarea`,
+ * and `className` adds classes.
  */
-const Textarea = ({ className, ...props }: ComponentProps<'textarea'>) => (
+export const Textarea = ({ className, ...props }: ComponentProps<'textarea'>) => (
   <textarea
     data-slot="textarea"
     className={cn(
@@ -14,5 +15,3 @@ const Textarea = ({ className, ...props }: ComponentProps<'textarea'>) => (
     {...props}
   />
 );
-
-export { Textarea };

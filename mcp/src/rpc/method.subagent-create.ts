@@ -1,10 +1,14 @@
-import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import type { Task } from '../storage/task-store.ts';
-import { taskGetMethod } from './method.task-get.ts';
+import { callMethod } from './call-method.ts';
+import { errorMessage } from './error-message.ts';
+import { findTask } from './find-task.ts';
 import type { Method, MethodContext } from './method.ts';
-import { RpcError, RpcErrorCode } from './rpc-error.ts';
-import { subagentFollowMethod } from './session-method.subagent-follow.ts';
+import { registerSubagent } from './register-subagent.ts';
+import { RPC_ERROR_CODES, RpcError } from './rpc-error.ts';
+import { subagentFollowSessionMethod } from './session-method.subagent-follow.ts';
+import { attachedSubagentSessions } from './subagent-queries.ts';
+import { ticketOf } from './task-guards.ts';
 
 /**
  * Schema of the parameters of `subagentCreate`.
@@ -26,7 +30,8 @@ const PARAMS = z.object({
  * logged until it finishes its prompt. It takes no messages. With `ticketId`, the subagent implements that ticket,
  * and its chat is named for it. A task or a ticket that does not exist fails with invalid parameters. A caller that
  * serves no attached session fails with an invalid request, and so does a ticket that another attached subagent
- * implements already, such as in a second wave of the same task.
+ * implements already, such as in a second wave of the same task. A failure of the request `subagentFollow` to the
+ * session server of the caller stops the subagent, and fails with an internal error.
  */
 export const subagentCreateMethod: Method<typeof PARAMS, { readonly sessionId: string }> = {
   name: 'subagentCreate',
@@ -36,38 +41,24 @@ export const subagentCreateMethod: Method<typeof PARAMS, { readonly sessionId: s
   params: PARAMS,
   handle: async ({ taskId, ticketId }, context) => {
     const { sessions, subagents, caller } = context;
-    const task = await taskGetMethod.handle({ task: taskId }, context);
+    const task = await findTask(taskId, context.tasks);
     if (ticketId !== undefined) await checkTicket(task, ticketId, context);
     const parentId = sessionOf(context);
     const parent = parentId === undefined ? undefined : await sessions.get(parentId);
     if (caller === undefined || parentId === undefined || parent === undefined)
-      throw new RpcError(RpcErrorCode.INVALID_REQUEST, 'The caller serves no attached session');
-    const sessionId = randomUUID();
-    const { agent, directory } = parent;
-    await sessions.register({
-      id: sessionId,
-      agent,
-      directory,
-      startedAt: Date.now(),
-      role: 'subagent',
-      parentId,
-      taskId,
-      job: ticketId === undefined ? null : 'implement',
-      ticketId: ticketId ?? null,
-      alias: null,
-      contextTokens: null,
-      model: null,
-      effort: null,
-    });
+      throw new RpcError(RPC_ERROR_CODES.INVALID_REQUEST, 'The caller serves no attached session');
+    const job = ticketId === undefined ? null : 'implement';
+    const sessionId = await registerSubagent(parent, { taskId, job, ticketId: ticketId ?? null }, context);
     subagents.start(sessionId, parentId, caller);
     subagents.attach(sessionId);
-    const params: z.input<typeof subagentFollowMethod.params> = { sessionId, parentId, oneShot: true };
     try {
-      await caller.request(subagentFollowMethod.name, params);
+      await callMethod(subagentFollowSessionMethod, { sessionId, parentId, oneShot: true }, caller);
     } catch (error) {
       subagents.stop(sessionId);
-      const reason = error instanceof Error ? error.message : String(error);
-      throw new RpcError(RpcErrorCode.INTERNAL_ERROR, `The subagent ${sessionId} cannot be followed: ${reason}`);
+      throw new RpcError(
+        RPC_ERROR_CODES.INTERNAL_ERROR,
+        `The subagent ${sessionId} cannot be followed: ${errorMessage(error)}`,
+      );
     }
     return { sessionId };
   },
@@ -86,15 +77,13 @@ const sessionOf = ({ sessionConnections, caller }: MethodContext): string | unde
  * implements fails with an invalid request.
  */
 const checkTicket = async (task: Task, ticketId: number, context: MethodContext): Promise<void> => {
-  if (!task.tickets.some(({ id }) => id === ticketId))
-    throw new RpcError(RpcErrorCode.INVALID_PARAMS, `Task ${task.id} has no ticket ${ticketId}`);
-  const attached = new Set(context.subagents.list().map(({ sessionId }) => sessionId));
-  const busy = (await context.sessions.list()).some(
-    (session) => attached.has(session.id) && session.taskId === task.id && session.ticketId === ticketId,
+  ticketOf(task, ticketId);
+  const busy = (await attachedSubagentSessions(context)).some(
+    (session) => session.taskId === task.id && session.ticketId === ticketId,
   );
   if (busy)
     throw new RpcError(
-      RpcErrorCode.INVALID_REQUEST,
+      RPC_ERROR_CODES.INVALID_REQUEST,
       `Ticket ${ticketId} of task ${task.id} runs in another subagent already. Wait for it to end`,
     );
 };

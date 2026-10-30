@@ -1,7 +1,9 @@
 import type { ActivityStatus } from '../attachment/session-activity.ts';
+import type { Clock } from '../clock/clock.ts';
 import type { MessageSender } from '../storage/message-log-store.ts';
 import type { Agent } from '../storage/session-store.ts';
-import { claudeFindSubagentTranscript, claudeFindTranscript } from './find-transcript.claude.ts';
+import type { SleepFunction } from './sleep.ts';
+import type { TranscriptFiles } from './transcript-files.ts';
 
 /**
  * Message of a user or an agent that a transcript holds.
@@ -140,6 +142,52 @@ export interface TranscriptTask {
 }
 
 /**
+ * Facets of one line of a transcript. Each facet is `undefined` when the line does not hold it, so a line that is not
+ * valid holds none.
+ */
+export interface TranscriptEntry {
+  /**
+   * Message of a user or an agent that the line holds. Tool calls, tool results, thinking and the entries that only
+   * the agent wrote are no messages.
+   */
+  readonly message: TranscriptMessage | undefined;
+
+  /**
+   * List of skills that the line holds.
+   */
+  readonly skills: SkillListing | undefined;
+
+  /**
+   * Status of the agent that the line shows. An entry that the agent writes after its turn shows none.
+   */
+  readonly activity: TranscriptActivity | undefined;
+
+  /**
+   * Newest action of the agent that the line shows: its last tool call, or none when its last block is a text
+   * message. A line with no tool call and no text message of the agent shows no action.
+   */
+  readonly action: TranscriptAction | undefined;
+
+  /**
+   * Token usage of the model request that the line holds the reply of. An error that the agent wrote in place of a
+   * reply holds none.
+   */
+  readonly usage: TranscriptUsage | undefined;
+
+  /**
+   * Task that the line holds as the result of a call to the tool `taskCreate` or `taskGet` of the MCP server
+   * `atomic-workflow`, which an earlier line of the transcript made. A failed call holds none.
+   */
+  readonly task: TranscriptTask | undefined;
+
+  /**
+   * Identifier of the ticket that the line holds as the result of a call to the tool `worktreeCreate` of the MCP server
+   * `atomic-workflow`, which an earlier line of the transcript made. A failed call holds none.
+   */
+  readonly ticketId: number | undefined;
+}
+
+/**
  * Transcript of one session of an agent: a file that the agent appends one line of JSON to for each entry of the
  * session.
  */
@@ -167,55 +215,16 @@ export interface Transcript {
   readonly backgroundTaskId: string | undefined;
 
   /**
-   * Returns the message of a user or an agent that the line `line` of the transcript holds. If the line holds another
-   * kind of entry, or is not valid, returns `undefined` instead.
+   * Returns the facets that the line `line` of the transcript holds. A result of a tool needs the line of its call, so
+   * the lines must be passed in their order, each once.
    */
-  parse(line: string): TranscriptMessage | undefined;
-
-  /**
-   * Returns the list of skills that the line `line` of the transcript holds. If the line holds another kind of entry,
-   * or is not valid, returns `undefined` instead.
-   */
-  parseSkills(line: string): SkillListing | undefined;
-
-  /**
-   * Returns the status of the agent that the line `line` of the transcript shows. If the line shows no status, such as
-   * an entry that the agent writes after its turn, or is not valid, returns `undefined` instead.
-   */
-  parseActivity(line: string): TranscriptActivity | undefined;
-
-  /**
-   * Returns the newest action of the agent that the line `line` of the transcript shows: its last tool call, or none
-   * when its last block is a text message. If the line holds no tool call and no text message of the agent, or is not
-   * valid, returns `undefined` instead.
-   */
-  parseAction(line: string): TranscriptAction | undefined;
-
-  /**
-   * Returns the token usage of the model request that the line `line` of the transcript holds the reply of. If the
-   * line holds no reply of a model request, such as an error that the agent wrote in place of one, or is not valid,
-   * returns `undefined` instead.
-   */
-  parseUsage(line: string): TranscriptUsage | undefined;
-
-  /**
-   * Returns the task that the line `line` of the transcript holds as the result of a call to the tool `taskCreate` or
-   * `taskGet` of the MCP server `atomic-workflow`, which an earlier line of the transcript made. If the line holds no
-   * such result, or the call failed, returns `undefined` instead. The lines must be passed in their order.
-   */
-  parseTask(line: string): TranscriptTask | undefined;
-
-  /**
-   * Returns the id of the ticket that the line `line` of the transcript holds as the result of a call to the tool
-   * `worktreeCreate` of the MCP server `atomic-workflow`, which an earlier line of the transcript made. If the line
-   * holds no such result, or the call failed, returns `undefined` instead. The lines must be passed in their order.
-   */
-  parseTicket(line: string): number | undefined;
+  parseLine(line: string): TranscriptEntry;
 
   /**
    * Resolves when the session of the transcript ends, such as when Claude Code moves on to a new session after
-   * `/clear`, or when a subagent is stopped. The transcript grows no more after that. Also resolves when `signal` aborts.
-   * If the agent cannot be asked for its session, rejects.
+   * `/clear`, or when a subagent is stopped. The transcript grows no more after that. Also resolves when `signal`
+   * aborts. Rejects when the file that tells the end of the session cannot be read for another cause than that it
+   * does not exist.
    */
   waitForEnd(signal: AbortSignal): Promise<void>;
 }
@@ -223,7 +232,9 @@ export interface Transcript {
 /**
  * Function that returns the transcript of the session that the agent runs now. The agent is the parent of the current
  * process, with the process id `parentProcessId`, and it is detected from the environment variables `environment`. If
- * no supported agent runs the process, returns `undefined` instead.
+ * no supported agent runs the process, or the agent runs no session that has a known transcript, returns `undefined`
+ * instead. Rejects when a file or a directory that names the session or holds the transcripts cannot be read for
+ * another cause than that it does not exist.
  */
 export type FindTranscriptFunction = (
   environment: NodeJS.ProcessEnv,
@@ -231,16 +242,14 @@ export type FindTranscriptFunction = (
 ) => Promise<Transcript | undefined>;
 
 /**
- * Default `FindTranscriptFunction`, which finds the transcript of a Claude Code session.
- */
-export const FindTranscript: FindTranscriptFunction = claudeFindTranscript;
-
-/**
  * Function that returns the transcript of the subagent with the session id `sessionId`, which runs inside the session
- * of the transcript `parent`, and whose prompt names `sessionId`. It waits a few seconds for the transcript to appear.
- * With `oneShot`, the subagent is one that the agent starts after the call and that carries out its prompt only: the
- * search waits a few minutes, and the session of the transcript also ends once the subagent finishes. If no such
- * transcript appears, or `signal` aborts first, returns `undefined` instead.
+ * of the transcript `parent`, and whose prompt names `sessionId`. The search looks for `sessionId` near the start of
+ * each transcript of a subagent of `parent`, where its prompt is, and waits a few seconds for the transcript to
+ * appear. With `oneShot`, the subagent is one that the agent starts after the call and that carries out its prompt
+ * only: the search waits a few minutes, and the session of the transcript also ends once the subagent finishes. If no
+ * such transcript appears, or `signal` aborts first, returns `undefined` instead. Rejects when the directory of the
+ * transcripts of the subagents cannot be read for another cause than that it does not exist, or when one of the
+ * transcripts in it cannot be read.
  */
 export type FindSubagentTranscriptFunction = (
   parent: Transcript,
@@ -250,6 +259,48 @@ export type FindSubagentTranscriptFunction = (
 ) => Promise<Transcript | undefined>;
 
 /**
- * Default `FindSubagentTranscriptFunction`, which finds the transcript of a subagent of a Claude Code session.
+ * Functions that find the transcripts of the sessions and the subagents of one agent process. They share what one
+ * transcript learns that another one needs, such as a wait for the messages of the atomic-workflow server that one
+ * session starts and the next one ends.
  */
-export const FindSubagentTranscript: FindSubagentTranscriptFunction = claudeFindSubagentTranscript;
+export interface TranscriptFinder {
+  /**
+   * Function that finds the transcript of the session that the agent runs now.
+   */
+  readonly findTranscript: FindTranscriptFunction;
+
+  /**
+   * Function that finds the transcript of a subagent of a session.
+   */
+  readonly findSubagentTranscript: FindSubagentTranscriptFunction;
+}
+
+/**
+ * Parts that a `TranscriptFinder` is built from.
+ */
+export interface TranscriptFinderDependencies {
+  /**
+   * Files of the transcripts, and of the files that the agent keeps beside them.
+   */
+  readonly files: TranscriptFiles;
+
+  /**
+   * Source of the time, which ends a search for a transcript after its time limit.
+   */
+  readonly clock: Clock;
+
+  /**
+   * Function that waits between two reads of a file that the agent changes.
+   */
+  readonly sleep: SleepFunction;
+
+  /**
+   * Absolute path of the home directory of the user, which holds the configuration of the agent by default.
+   */
+  readonly homeDirectory: string;
+}
+
+/**
+ * Function that returns the `TranscriptFinder` of one agent process, which reads the files of `dependencies`.
+ */
+export type CreateTranscriptFinderFunction = (dependencies: TranscriptFinderDependencies) => TranscriptFinder;

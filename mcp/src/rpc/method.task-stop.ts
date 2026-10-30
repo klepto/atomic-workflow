@@ -2,11 +2,14 @@ import { z } from 'zod';
 import type { AttachedSubagent } from '../attachment/subagents.ts';
 import type { ClaimHolder } from '../attachment/ticket-claims.ts';
 import type { Task } from '../storage/task-store.ts';
-import { stopSubagent } from './method.subagent-stop.ts';
-import { taskGetMethod } from './method.task-get.ts';
+import { errorMessage } from './error-message.ts';
+import { findTask } from './find-task.ts';
 import type { Method, MethodContext } from './method.ts';
-import { hasLanded } from './open-ticket.ts';
-import { RpcError, RpcErrorCode } from './rpc-error.ts';
+import { hasLanded } from './plan-queries.ts';
+import { plural } from './plural.ts';
+import { RPC_ERROR_CODES, RpcError } from './rpc-error.ts';
+import { stopSubagent } from './stop-subagent.ts';
+import { subagentsOfTask } from './subagent-queries.ts';
 
 /**
  * Schema of the parameters of `taskStop`.
@@ -22,7 +25,7 @@ interface TaskStopResult {
   /**
    * Session ids of the subagents of the task that the call stopped, in any order.
    */
-  readonly stopped: string[];
+  readonly stopped: readonly string[];
 }
 
 /**
@@ -38,10 +41,10 @@ type StopOutcome =
  * session id of each subagent that it stopped. An orchestrator session, the main session of the agent, is no subagent,
  * so it keeps running. Each subagent of an orchestrator session calls over the connection of that session, so the call
  * then releases each claim of a ticket of the task that has not landed and that such a connection holds. Each ticket
- * keeps its status, its stage and its worktree, so a later run resumes it. The call ends the active run of the task, as
- * `taskRunEnd` does, also when it stops no subagent. A task that does not exist fails with
- * invalid parameters. A subagent that fails to stop does not stop the others: the call stops every other one, then
- * fails with an internal error that names each failure.
+ * keeps its status, its stage and its worktree, so a later run resumes it. The call ends the active run of the task,
+ * as `taskRunEnd` does, also when it stops no subagent. A task that does not exist fails with invalid parameters. A
+ * subagent that fails to stop does not stop the others: the call stops every other one, then fails with an internal
+ * error that names each failure.
  */
 export const taskStopMethod: Method<typeof PARAMS, TaskStopResult> = {
   name: 'taskStop',
@@ -50,34 +53,22 @@ export const taskStopMethod: Method<typeof PARAMS, TaskStopResult> = {
   agent: false,
   params: PARAMS,
   handle: async ({ taskId }, context) => {
-    const task = await taskGetMethod.handle({ task: taskId }, context);
-    const subagents = await subagentsOf(taskId, context);
+    const task = await findTask(taskId, context.tasks);
+    const subagents = await subagentsOfTask(taskId, context);
     const outcomes = await Promise.all(subagents.map((subagent) => stopOne(subagent, context)));
     const stopped = outcomes.flatMap((outcome) => ('stopped' in outcome && outcome.stopped ? [outcome.subagent] : []));
     releaseClaims(task, holdersOf(stopped, context), context);
-    await context.tasks.endRun(taskId, Date.now());
+    await context.tasks.endRun(taskId, context.clock.now());
     const failures = outcomes.flatMap((outcome) =>
       'failure' in outcome ? [`${outcome.subagent.sessionId}: ${outcome.failure}`] : [],
     );
     if (failures.length > 0)
       throw new RpcError(
-        RpcErrorCode.INTERNAL_ERROR,
-        `Could not stop ${failures.length === 1 ? 'a subagent' : 'subagents'} of task ${taskId}: ${failures.join('; ')}`,
+        RPC_ERROR_CODES.INTERNAL_ERROR,
+        `Could not stop ${plural(failures.length, 'a subagent', 'subagents')} of task ${taskId}: ${failures.join('; ')}`,
       );
     return { stopped: stopped.map(({ sessionId }) => sessionId) };
   },
-};
-
-/**
- * Returns the started subagents that work on the task `taskId`, with the services of `context`.
- */
-const subagentsOf = async (taskId: number, context: MethodContext): Promise<AttachedSubagent[]> => {
-  const ofTask = new Set(
-    (await context.sessions.list())
-      .filter((session) => session.role === 'subagent' && session.taskId === taskId)
-      .map(({ id }) => id),
-  );
-  return context.subagents.list().filter(({ sessionId }) => ofTask.has(sessionId));
 };
 
 /**
@@ -86,9 +77,9 @@ const subagentsOf = async (taskId: number, context: MethodContext): Promise<Atta
  */
 const stopOne = async (subagent: AttachedSubagent, context: MethodContext): Promise<StopOutcome> => {
   try {
-    return { subagent, stopped: await stopSubagent(context, subagent.sessionId) };
+    return { subagent, stopped: await stopSubagent(subagent.sessionId, context) };
   } catch (error) {
-    return { subagent, failure: error instanceof Error ? error.message : String(error) };
+    return { subagent, failure: errorMessage(error) };
   }
 };
 

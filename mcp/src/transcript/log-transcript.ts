@@ -1,6 +1,6 @@
+import type { Clock } from '../clock/clock.ts';
 import type { RpcConnection } from '../rpc/rpc-connection.ts';
 import type { Transcript } from './find-transcript.ts';
-import { rpcLogTranscript } from './log-transcript.rpc.ts';
 import type { TailFileFunction } from './tail-file.ts';
 
 /**
@@ -11,17 +11,31 @@ export interface LogTranscriptDependencies {
    * Function that follows the file of the transcript.
    */
   readonly tailFile: TailFileFunction;
+
+  /**
+   * Source of the time at which the log starts.
+   */
+  readonly clock: Clock;
 }
 
 /**
  * Function that registers the session of `transcript`, with the directory of its project `directory`, over
- * `connection` to the repository server, and then logs each message of the transcript there, the ones that it holds
- * already and the ones that the agent appends later. It also reports to the repository server whether the agent works or
- * is idle, from the first entry of each turn on, and the newest tool call of the agent, as the entries that the agent
- * appends after the start of the log show. It resolves when `signal` aborts, or
- * when the session of the transcript ends and its last messages are logged. A message that the repository server has
- * logged already is not logged twice.
- * If the transcript cannot be read, or the repository server fails a request, rejects.
+ * `connection` to the repository server, and then reports each line of the transcript there, the lines that it holds
+ * already and the ones that the agent appends later, with the parts of `dependencies`. It reports, in the order of the
+ * lines:
+ *
+ * - each message of a user or an agent, which the repository server logs once, so a message is not logged twice;
+ * - each task that a result of the tool `taskCreate` or `taskGet` holds, as the task of the session, and after a
+ *   result of `taskCreate`, the alias of the session that names the task;
+ * - each ticket that a result of the tool `worktreeCreate` holds, as the ticket of the session.
+ *
+ * After the lines of each read of the transcript, it reports each change of the status of the agent, working or idle,
+ * at the first line of a turn, and then the newest action of the agent, both from the lines that the agent appends
+ * after the start of the log. Last, it reports the context size, the model and the effort of the newest token usage,
+ * from any line, those from before the start of the log included.
+ *
+ * It resolves when `signal` aborts, or when the session of the transcript ends and its last lines are reported.
+ * Rejects when the transcript cannot be read, or the repository server fails a request.
  */
 export type LogTranscriptFunction = (
   transcript: Transcript,
@@ -30,8 +44,3 @@ export type LogTranscriptFunction = (
   signal: AbortSignal,
   dependencies: LogTranscriptDependencies,
 ) => Promise<void>;
-
-/**
- * Default `LogTranscriptFunction`, which calls the methods of the repository server one message at a time.
- */
-export const LogTranscript: LogTranscriptFunction = rpcLogTranscript;

@@ -5,12 +5,11 @@ import type { MessageLogStore } from '../storage/message-log-store.ts';
 import type { SessionStore } from '../storage/session-store.ts';
 import type { TaskStore } from '../storage/task-store.ts';
 import type { ChangeFeed } from './change-feed.ts';
-import { feedPublishChanges } from './publish-changes.feed.ts';
 
 /**
  * Services of the repository server that hold the state that the change feed names.
  */
-export interface PublishedServices {
+interface PublishedServices {
   /**
    * Store of the message log, whose changes are `messages`.
    */
@@ -47,18 +46,13 @@ export interface PublishedServices {
  * Function that wraps each service of `services`, so that it publishes its changes to `changes`, and returns the
  * wrapped services. A wrapped service does what the service does. `MessageLogStore.append` publishes `messages`,
  * `MessageLogStore.deleteSession` publishes `messages` once it resolves with a deleted message, and each write of
- * `TaskStore` publishes `tasks`, once it resolves, `TaskStore.startRun`, `TaskStore.endRun` and `TaskStore.endRuns` only
- * once they resolve with a change. `SessionStore.setTask`, `SessionStore.moveTask`,
- * `SessionStore.setTicket`, `SessionStore.setAlias` and `SessionStore.setUsage` publish `sessions` once they resolve with `true`, and
- * `SessionStore.delete` publishes `sessions` and `messages` once it resolves with `true`. `SessionConnections.bind`
- * publishes `sessions`, and again once its connection closes. `Subagents.attach` and `Subagents.stop` publish
- * `sessions`, and `Subagents.start` publishes `sessions` once its connection closes, since that stops the subagent.
- * `SessionActivity.report`, `SessionActivity.reportAction` and `SessionActivity.forget` publish `sessions` when they
- * return `true`. No read publishes.
+ * `TaskStore` publishes `tasks`, once it resolves, `TaskStore.startRun`, `TaskStore.endRun` and
+ * `TaskStore.endRuns` only once they resolve with a change. `SessionStore.setTask`, `SessionStore.moveTask`,
+ * `SessionStore.setTicket`, `SessionStore.setAlias` and `SessionStore.setUsage` publish `sessions` once they
+ * resolve with `true`, and `SessionStore.delete` publishes `sessions` and `messages` once it resolves with `true`.
+ * `SessionConnections.bind` publishes `sessions`, and again once its connection closes. `Subagents.attach` and
+ * `Subagents.stop` publish `sessions`, and `Subagents.start` publishes `sessions` once its connection closes, since
+ * that stops the subagent. `SessionActivity.report`, `SessionActivity.reportAction` and `SessionActivity.forget`
+ * publish `sessions` when they return `true`. No read publishes. A write that rejects publishes nothing.
  */
 export type PublishChangesFunction = (services: PublishedServices, changes: ChangeFeed) => PublishedServices;
-
-/**
- * Default `PublishChangesFunction`, which publishes each change to the feed as the service makes it.
- */
-export const PublishChanges: PublishChangesFunction = feedPublishChanges;

@@ -29,6 +29,6 @@ export const taskCreateMethod: Method<typeof PARAMS, Task> = {
     'Creates a task of the atomic workflow with its first goal, once the user approved that goal, and returns it.',
   agent: true,
   params: PARAMS,
-  handle: async ({ slug, summary, details = null, source }, { tasks }) =>
-    tasks.create({ slug, createdAt: Date.now(), goal: { summary, details, source } }),
+  handle: async ({ slug, summary, details = null, source }, { tasks, clock }) =>
+    tasks.create({ slug, createdAt: clock.now(), goal: { summary, details, source } }),
 };

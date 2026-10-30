@@ -1,5 +1,3 @@
-import { directoryCreateStaticFiles } from './static-files.directory.ts';
-
 /**
  * One file of the web app, as a response carries it.
  */
@@ -71,14 +69,16 @@ export interface StaticFiles {
    * when the web app has none.
    * If the path has a broken percent code, has `\`, `:` or a NUL character, or leaves the web app, returns a
    * refusal instead.
+   * If the look at a path fails for another cause than that nothing exists there, or the read of a file fails,
+   * rejects.
    */
   find(path: string): Promise<StaticAnswer>;
 }
 
 /**
- * Parts that `StaticFiles` are built from.
+ * Options of the `StaticFiles` of a web app.
  */
-export interface StaticFilesDependencies {
+interface StaticFilesOptions {
   /**
    * Absolute path of the directory that holds the web app. It may not exist.
    */
@@ -86,11 +86,7 @@ export interface StaticFilesDependencies {
 }
 
 /**
- * Function that returns the `StaticFiles` of the directory of `dependencies`.
+ * Function that returns the `StaticFiles` of the directory of `options`. It reads nothing until a call of `find`, so it
+ * never throws.
  */
-export type CreateStaticFilesFunction = (dependencies: StaticFilesDependencies) => StaticFiles;
-
-/**
- * Default `CreateStaticFilesFunction`, which reads the files of one directory on disk.
- */
-export const CreateStaticFiles: CreateStaticFilesFunction = directoryCreateStaticFiles;
+export type CreateStaticFilesFunction = (options: StaticFilesOptions) => StaticFiles;

@@ -1,6 +1,7 @@
 import type { CopyFailures, CopyIgnoredFunction } from './copy-ignored.ts';
+import type { FileSystem } from './file-system.ts';
+import type { RunGitFunction } from './run-git.ts';
 import type { StopProcessesFunction } from './stop-processes.ts';
-import { gitCreateWorktrees } from './worktrees.git.ts';
 
 /**
  * Identifier and slug of a task or of a ticket, which name its branch and its worktree.
@@ -217,33 +218,46 @@ export interface Worktrees {
    * trailers name both, on the task branch, or on the base branch `baseBranch` once the task branch is gone. If no
    * such commit exists, such as for a ticket that changed nothing or that landed before the trailers were written,
    * returns `undefined` instead.
+   * If git fails to find or to show the commit, rejects with an error that quotes the last lines of git.
    */
   ticketCommit(task: WorkName, ticket: WorkName, baseBranch: string | null): Promise<TicketCommit | undefined>;
+
+  /**
+   * Returns the ids of the tickets of the task `task` whose landed work a removal of the task branch would throw away,
+   * in ascending order: the tickets that the trailers of the commits name, which the task branch holds and the base
+   * branch `baseBranch` lacks. When `baseBranch` is `null` or does not exist, every commit of the task on the task
+   * branch counts. Without a task branch, returns an empty array. A ticket that changed nothing, or that landed before
+   * the trailers were written, has no such commit.
+   * If git fails, rejects with an error that quotes the last lines of git.
+   */
+  unlandedTickets(task: WorkName, baseBranch: string | null): Promise<readonly number[]>;
 
   /**
    * Returns the work of the task `task` after its task branch landed on the base branch `baseBranch`: the task branch
    * is rebased onto the base branch in the worktree of the task, made where it does not exist, and the base branch
    * moves forward to it, then every worktree and branch of the task is removed. A task branch whose rebase stopped on
    * a conflict, and whose conflicting files are resolved and added, continues the rebase instead.
-   * If the task branch or the base branch does not exist, a ticket branch holds commits that the task branch lacks, a
-   * worktree of the task has changes that no commit holds, or the base branch cannot move forward, rejects with
-   * `not-allowed`. If the rebase stops on a conflict, rejects with `conflict`, and leaves the rebase stopped in the
-   * worktree of the task.
+   * If the task branch or the base branch does not exist, a ticket branch holds commits that the task branch lacks, the
+   * main checkout has a branch of the task checked out, a worktree of the task has changes that no commit holds, or the
+   * base branch cannot move forward, rejects with `not-allowed`. If the rebase stops on a conflict, rejects with
+   * `conflict`, and leaves the rebase stopped in the worktree of the task.
    */
   mergeTask(task: WorkName, baseBranch: string): Promise<MergedTask>;
 
   /**
    * Returns what the removal of the worktree and the branch of the ticket `ticket` of the task `task` removed. Removing
-   * nothing is no error.
-   * Unless `force`, if the ticket branch holds commits that the task branch lacks, or the worktree has changes that
+   * nothing is no error. The main checkout is never removed.
+   * If the main checkout has the ticket branch checked out, rejects with `not-allowed` and removes nothing, even with
+   * `force`. Unless `force`, if the ticket branch holds commits that the task branch lacks, or the worktree has changes that
    * no commit holds, rejects with `not-allowed` and removes nothing.
    */
   deleteTicket(task: WorkName, ticket: WorkName, force: boolean): Promise<DeletedWorktrees>;
 
   /**
    * Returns what the removal of every worktree and branch of the task `task` removed, the task branch included.
-   * Removing nothing is no error.
-   * Unless `force`, if the task branch holds commits that the base branch `baseBranch` lacks, `baseBranch` is `null`
+   * Removing nothing is no error. The main checkout is never removed.
+   * If the main checkout has a branch of the task checked out, rejects with `not-allowed` and removes nothing, even
+   * with `force`. Unless `force`, if the task branch holds commits that the base branch `baseBranch` lacks, `baseBranch` is `null`
    * or does not exist, a ticket branch holds commits that the task branch lacks, or a worktree has changes that no
    * commit holds, rejects with `not-allowed` and removes nothing.
    */
@@ -251,18 +265,38 @@ export interface Worktrees {
 }
 
 /**
- * Parts that `Worktrees` are built from.
+ * Settings of the `Worktrees` of one repository.
  */
-export interface WorktreesDependencies {
+export interface WorktreesOptions {
   /**
-   * Absolute path of a directory of the repository, in any of its worktrees.
+   * Absolute path of the main worktree of the repository, the checkout that every other worktree was added from.
    */
-  readonly directory: string;
+  readonly checkout: string;
 
   /**
    * Absolute path of the home of the user, below which the worktrees live.
    */
   readonly home: string;
+
+  /**
+   * Platform that the paths belong to, such as `win32`, where two paths that differ only in their case are the same.
+   */
+  readonly platform: NodeJS.Platform;
+}
+
+/**
+ * Adapters that `Worktrees` run on.
+ */
+export interface WorktreesDependencies {
+  /**
+   * Function that runs git.
+   */
+  readonly runGit: RunGitFunction;
+
+  /**
+   * Files and directories of the worktrees.
+   */
+  readonly fileSystem: FileSystem;
 
   /**
    * Function that copies the ignored files of the main checkout into a new worktree.
@@ -277,12 +311,7 @@ export interface WorktreesDependencies {
 }
 
 /**
- * Function that returns the `Worktrees` of the repository of `dependencies`.
+ * Function that returns the `Worktrees` of the repository whose main worktree `options` names, which run on the
+ * adapters `dependencies`. Throws nothing: each call of the `Worktrees` rejects on its own.
  */
-export type CreateWorktreesFunction = (dependencies: WorktreesDependencies) => Worktrees;
-
-/**
- * Default `CreateWorktreesFunction`, which runs git, and keeps the worktrees of a repository in
- * `.atomic-workflow/worktrees/<repository name>-<hash>/` of the home of the user.
- */
-export const CreateWorktrees: CreateWorktreesFunction = gitCreateWorktrees;
+export type CreateWorktreesFunction = (options: WorktreesOptions, dependencies: WorktreesDependencies) => Worktrees;

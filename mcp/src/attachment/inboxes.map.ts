@@ -127,13 +127,13 @@ const find = (inboxes: Map<string, Inbox>, sessionId: string): string | undefine
  * Returns `true` once `inboxes` holds an inbox of the session `sessionId`, which `listeners` tell. If none comes within
  * `timeout` ms, returns `false` instead.
  */
-const awaitOpen = (
+const awaitOpen = async (
   inboxes: Map<string, Inbox>,
   listeners: OpenListeners,
   sessionId: string,
   timeout: number,
 ): Promise<boolean> => {
-  if (inboxes.has(sessionId)) return Promise.resolve(true);
+  if (inboxes.has(sessionId)) return true;
   const waiting = listeners.get(sessionId) ?? new Set();
   listeners.set(sessionId, waiting);
   return new Promise((resolve) => {
@@ -169,14 +169,14 @@ const deliver = (inbox: Inbox | undefined, content: string): boolean => {
  * waits for the next message, and ends the wait that was under way with `replaced`. If `inbox` is `undefined`,
  * returns `stop`.
  */
-const take = (inbox: Inbox | undefined, after: number): Promise<InboxDelivery> => {
-  if (inbox === undefined) return Promise.resolve({ status: 'stop' });
+const take = async (inbox: Inbox | undefined, after: number): Promise<InboxDelivery> => {
+  if (inbox === undefined) return { status: 'stop' };
   inbox.messages = inbox.messages.filter((message) => message.id > after);
   inbox.waiter?.({ status: 'replaced' });
   // The messages that a running batch would end the wait with go out now, or wait for the next message.
   clearTimeout(inbox.batch);
   inbox.batch = undefined;
-  if (inbox.messages.length > 0) return Promise.resolve(messages(inbox));
+  if (inbox.messages.length > 0) return messages(inbox);
   return new Promise((resolve) => {
     const finish = (delivery: InboxDelivery): void => {
       if (inbox.waiter === finish) inbox.waiter = undefined;
@@ -189,6 +189,8 @@ const take = (inbox: Inbox | undefined, after: number): Promise<InboxDelivery> =
 /**
  * Returns the delivery of the messages of `inbox` that are not acknowledged.
  */
-const messages = (inbox: Inbox): InboxDelivery => {
-  return { status: 'messages', sessionId: inbox.sessionId, messages: [...inbox.messages] };
-};
+const messages = (inbox: Inbox): InboxDelivery => ({
+  status: 'messages',
+  sessionId: inbox.sessionId,
+  messages: [...inbox.messages],
+});

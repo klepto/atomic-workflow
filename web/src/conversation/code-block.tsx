@@ -1,21 +1,26 @@
-import { type ComponentProps, Fragment, useEffect, useState } from 'react';
+import { type ComponentProps, Fragment } from 'react';
 import type { ThemedToken } from 'shiki/core';
-import { highlighterOf, languageOfFence, tokenStyle } from '@/lib/code-highlight.ts';
+import { highlighterOf, languageOfFence, MAX_HIGHLIGHT_LINES, tokenStyle } from '@/lib/code-highlight.ts';
+import { useHighlight } from '@/lib/use-highlight.ts';
 
 /**
- * The colored pieces of each line of a code block, one array per line.
+ * Colored pieces of each line of a code block, one array per line.
  */
 type BlockColors = readonly (readonly ThemedToken[])[];
 
 /**
- * The most lines of a code block that get colors. A larger block shows its code without colors, so that it does not
- * hold up the page.
+ * Props of `CodeBlock`: the props of a `code` element, and the node of the Markdown tree that `react-markdown` passes.
  */
-const MAX_LINES = 5000;
+interface CodeBlockProps extends ComponentProps<'code'> {
+  /**
+   * Node of the Markdown tree of the element, which the element does not use.
+   */
+  readonly node?: unknown;
+}
 
 /**
- * The colors of each code block that was colored once, by its language and its code, so that a block that shows again
- * does not color again.
+ * Colors of each code block that was colored once, by the key of `blockKey`, so that a block that shows again does
+ * not color again.
  */
 const blockColors = new Map<string, BlockColors>();
 
@@ -27,51 +32,35 @@ const fenceLanguageOf = (className: string | undefined): string | undefined =>
   className?.match(/(?:^|\s)language-(\S+)/)?.[1];
 
 /**
- * Returns the colors of the code `code` in the language `language`, or `undefined` while they load. If the language
- * gets no colors, the code is too large, or the colors fail to load, returns `undefined` for good.
+ * Returns the key of the code `code` in the language `language` in `blockColors`: the language, or an empty string
+ * without one, a line break, then the code. A language holds no whitespace, so the first line break ends it.
  */
-const useBlockColors = (language: string | undefined, code: string): BlockColors | undefined => {
-  const key = `${language}\n${code}`;
-  const [colors, setColors] = useState(() => blockColors.get(key));
+const blockKey = (language: string | undefined, code: string): string => `${language ?? ''}\n${code}`;
 
-  useEffect(() => {
-    const known = blockColors.get(key);
-    setColors(known);
-    const loadLanguage = language === undefined ? undefined : languageOfFence(language);
-    if (known !== undefined || loadLanguage === undefined) return;
-    if (code.split('\n').length > MAX_LINES) return;
-    let current = true;
-    highlighterOf(loadLanguage).then(
-      (highlighter) => {
-        const loaded = highlighter.tokenize(code);
-        blockColors.set(key, loaded);
-        if (current) setColors(loaded);
-      },
-      (error: unknown) => console.error(`Failed to color a code block in ${language}.`, error),
-    );
-    return () => {
-      current = false;
-    };
-  }, [key, language, code]);
-
-  return colors;
+/**
+ * Colors the code block of the key `key` of `blockKey`. Resolves to the colors of its code, and rejects when the
+ * highlighter fails to load. If its language gets no colors, or its code has more than `MAX_HIGHLIGHT_LINES` lines,
+ * returns `undefined` instead.
+ */
+const colorBlock = (key: string): Promise<BlockColors> | undefined => {
+  const end = key.indexOf('\n');
+  const language = key.slice(0, end);
+  const code = key.slice(end + 1);
+  const loadLanguage = language === '' ? undefined : languageOfFence(language);
+  if (loadLanguage === undefined || code.split('\n').length > MAX_HIGHLIGHT_LINES) return undefined;
+  return highlighterOf(loadLanguage).then((highlighter) => highlighter.tokenize(code));
 };
 
 /**
- * The `code` element of a Markdown body. The code of a fenced block that names a language that gets colors shows in
- * those colors once they load, and without colors before. Inline code, and a block in any other language, shows
- * without colors.
+ * `code` element of a Markdown body. The code of a fenced block that names a language that gets colors shows in those
+ * colors once they load, and without colors before. Inline code, and a block in any other language, shows without
+ * colors.
  */
-export const CodeBlock = ({
-  node: _node,
-  className,
-  children,
-  ...props
-}: ComponentProps<'code'> & { node?: unknown }) => {
+export const CodeBlock = ({ node: _node, className, children, ...props }: CodeBlockProps) => {
   const language = fenceLanguageOf(className);
   // A fenced block ends with the line break before its closing fence, which is no line of its code.
   const code = typeof children === 'string' ? children.replace(/\n$/, '') : '';
-  const colors = useBlockColors(language, code);
+  const colors = useHighlight(blockKey(language, code), blockColors, colorBlock);
   return (
     <code {...props} className={className}>
       {colors === undefined

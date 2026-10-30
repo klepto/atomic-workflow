@@ -1,6 +1,6 @@
 import { type MouseEvent, useEffect, useRef } from 'react';
 import type { ListedSession, TaskSummary } from '@/api/types.ts';
-import { type Chat, listChats } from '@/chats/chat-list.ts';
+import type { Chat } from '@/chats/chat-list.ts';
 import { ScrollArea } from '@/components/ui/scroll-area.tsx';
 import { routePath, taskRefOf } from '@/routing/route.ts';
 import { isPlainClick, RouteLink } from '@/routing/route-link.tsx';
@@ -8,49 +8,117 @@ import { TaskIdLabel } from '@/tasks/task-id-label.tsx';
 import { TASK_PANEL_ID } from '@/tasks/task-panel.tsx';
 
 /**
- * Props of the page header: the name of the repository, the tasks, the sessions, the open task and the open chat.
+ * Props of `Title`.
  */
-export interface PageHeaderProps {
+interface TitleProps {
   /**
-   * The name of the repository that the server serves, or `undefined` while it is not known.
+   * Name of the repository, or `undefined` while it is not known.
    */
-  repository: string | undefined;
+  readonly repository: string | undefined;
 
   /**
-   * The tasks of the repository, in the order of their ids.
+   * Path that the title links to.
    */
-  tasks: readonly TaskSummary[];
+  readonly to: string;
 
   /**
-   * The sessions of the repository, attached or not, as `sessionList` lists them.
+   * Handles a click on the title before the link follows it.
    */
-  sessions: readonly ListedSession[];
-
-  /**
-   * The id of the open task, or `undefined` while no task is open.
-   */
-  openTaskId: number | undefined;
-
-  /**
-   * The open chat, or `undefined` while no chat is open.
-   */
-  openChat: Chat | undefined;
+  readonly onClick: (event: MouseEvent<HTMLAnchorElement>) => void;
 }
 
 /**
- * The title of the app, `atomic-workflow / <repository>`, as a link to `to`. It reads `atomic-workflow` only while
+ * Props of `TaskTabs`.
+ */
+interface TaskTabsProps {
+  /**
+   * Tasks of the repository, one tab each.
+   */
+  readonly tasks: readonly TaskSummary[];
+
+  /**
+   * Id of the open task, or `undefined` while no task is open.
+   */
+  readonly openTaskId: number | undefined;
+
+  /**
+   * Returns the path that the tab of the task `task` leads to.
+   */
+  readonly targetOf: (task: TaskSummary) => string;
+
+  /**
+   * Handles a click on the tab of the open task before the link follows it.
+   */
+  readonly onCloseClick: (event: MouseEvent<HTMLAnchorElement>) => void;
+}
+
+/**
+ * Props of `PageHeader`.
+ */
+interface PageHeaderProps {
+  /**
+   * Name of the repository that the server serves, or `undefined` while it is not known.
+   */
+  readonly repository: string | undefined;
+
+  /**
+   * Tasks of the repository, in the order of their ids.
+   */
+  readonly tasks: readonly TaskSummary[];
+
+  /**
+   * Sessions of the repository, attached or not, as `sessionList` lists them.
+   */
+  readonly sessions: readonly ListedSession[];
+
+  /**
+   * Id of the open task, or `undefined` while no task is open.
+   */
+  readonly openTaskId: number | undefined;
+
+  /**
+   * Open chat, or `undefined` while no chat is open.
+   */
+  readonly openChat: Chat | undefined;
+}
+
+/**
+ * Returns the id of the element of the tab of the task with the id `taskId`.
+ */
+export const taskTabIdOf = (taskId: number): string => `task-tab-${taskId}`;
+
+/**
+ * Scrolls the row of tabs `row` sideways so that its current tab is in view. A row whose current tab is in view, or
+ * that has none, stays as it is.
+ */
+const revealCurrentTab = (row: HTMLElement): void => {
+  const tab = row.querySelector<HTMLElement>('[aria-expanded="true"]');
+  if (tab === null) {
+    return;
+  }
+  const start = tab.offsetLeft;
+  const end = start + tab.offsetWidth;
+  if (start < row.scrollLeft) {
+    row.scrollLeft = start;
+  } else if (end > row.scrollLeft + row.clientWidth) {
+    row.scrollLeft = end - row.clientWidth;
+  }
+};
+
+/**
+ * Returns whether the chat `chat` is among the chats of the task `taskId`, by the sessions `sessions`: the chat of the
+ * main session is among the chats of every task, and the chat of a subagent among those of the task it works on.
+ */
+const isChatOfTask = (chat: Chat, taskId: number, sessions: readonly ListedSession[]): boolean =>
+  chat.role === 'orchestrator' ||
+  sessions.some((session) => session.sessionId === chat.key && session.taskId === taskId);
+
+/**
+ * Title of the app, `atomic-workflow / <repository>`, as a link to `to`. It reads `atomic-workflow` only while
  * `repository` is `undefined`. On a narrow screen the name of the repository takes a line of its own when the title
  * does not fit on one. A click on it calls `onClick` before it follows the link.
  */
-const Title = ({
-  repository,
-  to,
-  onClick,
-}: {
-  repository: string | undefined;
-  to: string;
-  onClick: (event: MouseEvent<HTMLAnchorElement>) => void;
-}) => (
+const Title = ({ repository, to, onClick }: TitleProps) => (
   <RouteLink
     to={to}
     onClick={onClick}
@@ -77,27 +145,12 @@ const Title = ({
 );
 
 /**
- * Returns the id of the element of the tab of the task with the id `taskId`.
+ * Tabs of the tasks: one link for each task of `tasks`, with its slug and its id, to the path that `targetOf` returns
+ * for its task. A click on the tab of the open task `openTaskId` calls `onCloseClick` before it follows the link. That
+ * tab is the current one, and is marked as expanded. The row scrolls sideways when the tabs do not fit, and brings the
+ * current tab into view.
  */
-export const taskTabIdOf = (taskId: number) => `task-tab-${taskId}`;
-
-/**
- * The tabs of the tasks: one link for each task of `tasks`, with its slug and its id, to the path that `targetOf`
- * returns for its task. A click on the tab of the open task `openTaskId` calls `onCloseClick` before it follows the
- * link. That tab is the current one, and is marked as expanded. The row scrolls sideways when the tabs do not fit, and
- * brings the current tab into view.
- */
-const TaskTabs = ({
-  tasks,
-  openTaskId,
-  targetOf,
-  onCloseClick,
-}: {
-  tasks: readonly TaskSummary[];
-  openTaskId: number | undefined;
-  targetOf: (task: TaskSummary) => string;
-  onCloseClick: (event: MouseEvent<HTMLAnchorElement>) => void;
-}) => {
+const TaskTabs = ({ tasks, openTaskId, targetOf, onCloseClick }: TaskTabsProps) => {
   const row = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (tasks.length > 0 && openTaskId !== undefined && row.current !== null) {
@@ -119,7 +172,7 @@ const TaskTabs = ({
                 className="relative flex cursor-pointer items-center whitespace-nowrap rounded-sm px-3 text-muted-foreground text-sm outline-none transition-colors after:absolute after:inset-x-3 after:bottom-0 after:h-0.5 after:rounded-full hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:ring-inset aria-expanded:font-medium aria-expanded:text-foreground aria-expanded:after:bg-primary"
               >
                 <span>{task.slug}</span>
-                <TaskIdLabel id={String(task.id)} />
+                <TaskIdLabel id={task.id} />
               </RouteLink>
             </li>
           ))}
@@ -130,25 +183,7 @@ const TaskTabs = ({
 };
 
 /**
- * Scrolls the row of tabs `row` sideways so that its current tab is in view. A row whose current tab is in view, or
- * that has none, stays as it is.
- */
-const revealCurrentTab = (row: HTMLElement) => {
-  const tab = row.querySelector<HTMLElement>('[aria-expanded="true"]');
-  if (tab === null) {
-    return;
-  }
-  const start = tab.offsetLeft;
-  const end = start + tab.offsetWidth;
-  if (start < row.scrollLeft) {
-    row.scrollLeft = start;
-  } else if (end > row.scrollLeft + row.clientWidth) {
-    row.scrollLeft = end - row.clientWidth;
-  }
-};
-
-/**
- * The header across the top of the app: the title, and one tab per task. Each is a link. The title and the tab of the
+ * Header across the top of the app: the title, and one tab per task. Each is a link. The title and the tab of the
  * open task lead to the open chat with no task open, so they close the task, and a plain click on either moves the
  * focus to the tab of the task. The tab of another task leads to that task with the open chat when the open chat is
  * among the chats of the task, and with its first chat otherwise. On a narrow screen the tabs take a row below the
@@ -162,11 +197,11 @@ export const PageHeader = ({ repository, tasks, sessions, openTaskId, openChat }
   /**
    * Returns the path that the tab of the task `task` leads to.
    */
-  const targetOf = (task: TaskSummary) => {
+  const targetOf = (task: TaskSummary): string => {
     if (task.id === openTaskId) {
       return closeTarget;
     }
-    const keepsChat = openChat !== undefined && listChats(sessions, task.id).some((chat) => chat.key === openChat.key);
+    const keepsChat = openChat !== undefined && isChatOfTask(openChat, task.id, sessions);
     return routePath(taskRefOf(task), keepsChat ? openChatRef : undefined);
   };
 

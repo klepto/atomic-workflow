@@ -1,8 +1,10 @@
 import { z } from 'zod';
 import type { TranscriptSkill } from '../transcript/find-transcript.ts';
+import { callMethod } from './call-method.ts';
 import type { Method, MethodContext } from './method.ts';
-import { RpcError, RpcErrorCode } from './rpc-error.ts';
+import { RPC_ERROR_CODES, RpcError } from './rpc-error.ts';
 import { skillListSessionMethod } from './session-method.skill-list.ts';
+import { attachedSubagent } from './subagent-queries.ts';
 
 /**
  * Name of the skill that attaches a session to the repository server. Every session that `skillList` serves is attached
@@ -21,7 +23,7 @@ const PARAMS = z.object({
  * `Method` named `skillList`, which returns the skills that an attached session can run, as the transcript of its
  * orchestrator session lists them, in the order of the list. A subagent runs inside the process of its orchestrator, so
  * it gets the skills of its orchestrator. The skill that attaches a session is left out. A session that is not attached
- * fails with invalid parameters.
+ * fails with invalid parameters. Fails as the request `skillList` to the session server of the orchestrator does.
  */
 export const skillListMethod: Method<typeof PARAMS, { readonly skills: readonly TranscriptSkill[] }> = {
   name: 'skillList',
@@ -29,14 +31,11 @@ export const skillListMethod: Method<typeof PARAMS, { readonly skills: readonly 
   agent: false,
   params: PARAMS,
   handle: async ({ sessionId }, context) => {
-    const orchestratorId = orchestratorOf(context, sessionId);
+    const orchestratorId = orchestratorOf(sessionId, context);
     const connection = orchestratorId === undefined ? undefined : context.sessionConnections.get(orchestratorId);
     if (orchestratorId === undefined || connection === undefined)
-      throw new RpcError(RpcErrorCode.INVALID_PARAMS, `No session ${sessionId} is attached`);
-    const params: z.input<typeof skillListSessionMethod.params> = { sessionId: orchestratorId };
-    const { skills } = (await connection.request(skillListSessionMethod.name, params)) as {
-      readonly skills: readonly TranscriptSkill[];
-    };
+      throw new RpcError(RPC_ERROR_CODES.INVALID_PARAMS, `No session ${sessionId} is attached`);
+    const { skills } = await callMethod(skillListSessionMethod, { sessionId: orchestratorId }, connection);
     return { skills: skills.filter(({ name }) => name !== ACTIVATION_SKILL) };
   },
 };
@@ -46,7 +45,7 @@ export const skillListMethod: Method<typeof PARAMS, { readonly skills: readonly 
  * session itself for a bound session, and its parent for an attached subagent. If the session is neither, returns
  * `undefined` instead.
  */
-const orchestratorOf = ({ sessionConnections, subagents }: MethodContext, sessionId: string): string | undefined => {
+const orchestratorOf = (sessionId: string, { sessionConnections, subagents }: MethodContext): string | undefined => {
   if (sessionConnections.get(sessionId) !== undefined) return sessionId;
-  return subagents.list().find((subagent) => subagent.sessionId === sessionId)?.parentId;
+  return attachedSubagent(sessionId, subagents)?.parentId;
 };

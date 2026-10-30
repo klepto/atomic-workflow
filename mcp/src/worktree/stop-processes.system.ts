@@ -1,18 +1,13 @@
 import { execFile } from 'node:child_process';
-import { resolve } from 'node:path';
 import { promisify } from 'node:util';
 import { z } from 'zod';
-import type { FoundProcess, StopProcessesFunction } from './stop-processes.ts';
+import { errorCode, errorMessage } from './error-details.ts';
+import { type FoundProcess, processesInside, type StopProcessesFunction } from './stop-processes.ts';
 
 /**
  * `execFile` of Node.js as a function that returns a promise.
  */
 const execFileAsync = promisify(execFile);
-
-/**
- * Whether the processes run on Windows, where paths compare without case and with either slash.
- */
-const WINDOWS = process.platform === 'win32';
 
 /**
  * Command of PowerShell that prints the identifier and the command line of every process as JSON. It names no path,
@@ -37,11 +32,6 @@ const WINDOWS_PROCESSES = z.union([z.array(WINDOWS_PROCESS), WINDOWS_PROCESS]);
 const PS_LINE = /^\s*(\d+)\s+(.*)$/;
 
 /**
- * Pattern of the drive at the start of an absolute path of Windows, such as `c:`.
- */
-const WINDOWS_DRIVE = /^([a-z]):/;
-
-/**
  * Most bytes of the output of a command that lists the processes.
  */
 const OUTPUT_LIMIT = 64 * 1024 * 1024;
@@ -57,11 +47,7 @@ export const systemStopProcesses: StopProcessesFunction = async (directories) =>
   } catch (error) {
     return { stopped: [], failures: [`The processes could not be listed, so none was stopped: ${reasonOf(error)}`] };
   }
-  const prefixes = directories.flatMap(prefixesOf);
-  const found = processes.filter(
-    ({ pid, commandLine }) =>
-      pid !== process.pid && prefixes.some((prefix) => comparable(commandLine).includes(prefix)),
-  );
+  const found = processesInside(processes, directories, process.platform, process.pid);
   const failures = await Promise.all(found.map(stopProcess));
   return {
     stopped: found.filter((_, index) => failures[index] === undefined),
@@ -71,16 +57,14 @@ export const systemStopProcesses: StopProcessesFunction = async (directories) =>
 
 /**
  * Returns every process of the system with its command line.
+ * If the processes cannot be listed, rejects with the error of the command that lists them.
  */
 const listProcesses = async (): Promise<FoundProcess[]> => {
-  if (WINDOWS) {
+  if (process.platform === 'win32') {
     const { stdout } = await execFileAsync(
       'powershell.exe',
       ['-NoProfile', '-NonInteractive', '-Command', LIST_WINDOWS_PROCESSES],
-      {
-        windowsHide: true,
-        maxBuffer: OUTPUT_LIMIT,
-      },
+      { windowsHide: true, maxBuffer: OUTPUT_LIMIT },
     );
     const parsed = WINDOWS_PROCESSES.parse(JSON.parse(stdout));
     return (Array.isArray(parsed) ? parsed : [parsed]).map(({ ProcessId, CommandLine }) => ({
@@ -96,29 +80,16 @@ const listProcesses = async (): Promise<FoundProcess[]> => {
 };
 
 /**
- * Returns the forms of the path of `directory` that a command line holds for a path inside it, in the form of
- * `comparable`, each with a trailing separator. On Windows, a shell of Git Bash writes `C:\work` as `/c/work`, so both
- * forms count.
- */
-const prefixesOf = (directory: string): string[] => {
-  const prefix = `${comparable(resolve(directory))}${WINDOWS ? '\\' : '/'}`;
-  if (!WINDOWS) return [prefix];
-  return [prefix, prefix.replace(WINDOWS_DRIVE, '\\$1')];
-};
-
-/**
- * Returns `text` in a form where two spellings of one path compare equal: on Windows in lower case, with backslashes.
- */
-const comparable = (text: string): string => (WINDOWS ? text.toLowerCase().replaceAll('/', '\\') : text);
-
-/**
  * Stops the process `found`, with its children on Windows. If it still runs after the stop, returns the cause in one
  * sentence instead. A process that ended before the stop reached it counts as stopped.
  */
 const stopProcess = async ({ pid, commandLine }: FoundProcess): Promise<string | undefined> => {
   try {
-    if (WINDOWS) await execFileAsync('taskkill', ['/PID', String(pid), '/T', '/F'], { windowsHide: true });
-    else process.kill(pid, 'SIGTERM');
+    if (process.platform === 'win32') {
+      await execFileAsync('taskkill', ['/PID', String(pid), '/T', '/F'], { windowsHide: true });
+    } else {
+      process.kill(pid, 'SIGTERM');
+    }
     return undefined;
   } catch (error) {
     if (!isRunning(pid)) return undefined;
@@ -135,12 +106,11 @@ const isRunning = (pid: number): boolean => {
     return true;
   } catch (error) {
     // The process runs, but belongs to another user.
-    return error instanceof Error && 'code' in error && error.code === 'EPERM';
+    return errorCode(error) === 'EPERM';
   }
 };
 
 /**
  * Returns the message of `error` on one line.
  */
-const reasonOf = (error: unknown): string =>
-  (error instanceof Error ? error.message : String(error)).replace(/\s+/g, ' ').trim();
+const reasonOf = (error: unknown): string => errorMessage(error).replace(/\s+/g, ' ').trim();

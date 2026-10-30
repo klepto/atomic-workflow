@@ -11,6 +11,22 @@ import { parseArgs } from "node:util";
 import { createConnection } from "node:net";
 import { setTimeout as sleep } from "node:timers/promises";
 
+// src/attachment/attach.ts
+var NoRepositoryServerError = class extends Error {
+  /**
+   * Address at which no repository server runs.
+   */
+  address;
+  /**
+   * Creates the failure for the address `address`, with the error of the try to connect as `cause` of `options`.
+   */
+  constructor(address, options) {
+    super(`No atomic-workflow server runs at ${address}`, options);
+    this.name = "NoRepositoryServerError";
+    this.address = address;
+  }
+};
+
 // node_modules/zod/v4/classic/external.js
 var external_exports = {};
 __export(external_exports, {
@@ -19728,101 +19744,8 @@ function date4(params) {
   return _coercedDate(ZodDate, params);
 }
 
-// src/attachment/hello.ts
-var PROTOCOL_VERSION = 21;
-var HELLO_METHOD = "hello";
-var HELLO_PARAMS = external_exports.object({
-  protocol: external_exports.number().int(),
-  role: external_exports.enum(["session", "client"])
-});
-var HELLO_RESULT = external_exports.object({
-  url: external_exports.string()
-});
-
-// src/attachment/attach.socket.ts
-var CONNECT_INTERVAL = 50;
-var CONNECT_TIMEOUT = 5e3;
-var HELLO_TIMEOUT = 5e3;
-var socketAttach = async (address, role, dependencies) => {
-  const socket = await connectCatching(address);
-  if (!(socket instanceof Error)) return attachment(socket, role, false, dependencies);
-  await dependencies.launch();
-  return attachment(await connectUntil(address, Date.now() + CONNECT_TIMEOUT), role, true, dependencies);
-};
-var connectCatching = (address) => {
-  return new Promise((resolve2) => {
-    const socket = createConnection(address);
-    socket.once("error", resolve2);
-    socket.once("connect", () => {
-      socket.off("error", resolve2);
-      resolve2(socket);
-    });
-  });
-};
-var connectUntil = async (address, deadline) => {
-  for (; ; ) {
-    const socket = await connectCatching(address);
-    if (!(socket instanceof Error)) return socket;
-    if (Date.now() >= deadline)
-      throw new Error(`The repository server at ${address} did not come up: ${socket.message}`);
-    await sleep(CONNECT_INTERVAL);
-  }
-};
-var attachment = async (socket, role, launched, dependencies) => {
-  const connection = dependencies.openConnection(socket, dependencies.handle);
-  try {
-    return { launched, url: await hello(connection, role), connection };
-  } catch (error62) {
-    socket.destroy();
-    throw error62;
-  }
-};
-var hello = async (connection, role) => {
-  const params = { protocol: PROTOCOL_VERSION, role };
-  const result = await connection.request(HELLO_METHOD, params, AbortSignal.timeout(HELLO_TIMEOUT));
-  const parsed = HELLO_RESULT.safeParse(result);
-  if (!parsed.success) throw new Error(`The repository server answered hello with ${JSON.stringify(result)}`);
-  return parsed.data.url;
-};
-
-// src/attachment/attach.ts
-var Attach = socketAttach;
-
-// src/attachment/await-command-line.shell.ts
-var SESSION_PREFIX_LENGTH = 8;
-var shellAwaitCommandLine = (entryPoint, sessionId, after) => {
-  const command = `node "${entryPoint.replaceAll("\\", "/")}" ${sessionId.slice(0, SESSION_PREFIX_LENGTH)}`;
-  return after === void 0 ? command : `${command} --after ${after}`;
-};
-
-// src/attachment/await-command-line.ts
-var AwaitCommandLine = shellAwaitCommandLine;
-
-// src/attachment/repository-address.git.ts
-import { execFile } from "node:child_process";
-import { createHash } from "node:crypto";
-import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
-import { promisify } from "node:util";
-var execFileAsync = promisify(execFile);
-var ADDRESS_PREFIX = "atomic-workflow-";
-var gitRepositoryAddress = async (directory) => {
-  const commandLine = ["rev-parse", "--path-format=absolute", "--git-common-dir"];
-  const { stdout } = await execFileAsync("git", commandLine, { cwd: directory, windowsHide: true });
-  const name = `${ADDRESS_PREFIX}${hash2(stdout.trim())}`;
-  return process.platform === "win32" ? `\\\\.\\pipe\\${name}` : join(tmpdir(), `${name}.sock`);
-};
-var hash2 = (gitDirectory) => {
-  const normalized = resolve(gitDirectory);
-  const key = process.platform === "win32" ? normalized.toLowerCase() : normalized;
-  return createHash("sha256").update(key).digest("hex").slice(0, 16);
-};
-
-// src/attachment/repository-address.ts
-var RepositoryAddress = gitRepositoryAddress;
-
 // src/rpc/rpc-error.ts
-var RpcErrorCode = {
+var RPC_ERROR_CODES = {
   /**
    * The message is not valid JSON.
    */
@@ -19846,7 +19769,7 @@ var RpcErrorCode = {
 };
 var RpcError = class _RpcError extends Error {
   /**
-   * Code of the failure, one of `RpcErrorCode` or a code of a method.
+   * Code of the failure, one of `RPC_ERROR_CODES` or a code of a method.
    */
   code;
   /**
@@ -19876,6 +19799,145 @@ var RpcError = class _RpcError extends Error {
   }
 };
 
+// src/attachment/hello.ts
+var PROTOCOL_VERSION = 21;
+var HELLO_METHOD = "hello";
+var REPOSITORY_CLOSING = -32e3;
+var HELLO_PARAMS = external_exports.object({
+  protocol: external_exports.number().int(),
+  role: external_exports.enum(["session", "client"])
+});
+var HELLO_RESULT = external_exports.object({
+  url: external_exports.string()
+});
+var isRepositoryClosing = (error62) => error62 instanceof RpcError && error62.code === REPOSITORY_CLOSING;
+
+// src/attachment/attach.socket.ts
+var CONNECT_INTERVAL = 50;
+var CONNECT_TIMEOUT = 5e3;
+var HELLO_TIMEOUT = 5e3;
+var socketAttach = async (address, role, dependencies) => {
+  const running = await attachRunning(address, role, dependencies);
+  if (!(running instanceof Error)) return running;
+  if (dependencies.launch === void 0) throw new NoRepositoryServerError(address, { cause: running });
+  await dependencies.launch();
+  return attachment(await connectUntil(address, AbortSignal.timeout(CONNECT_TIMEOUT)), role, true, dependencies);
+};
+var attachRunning = async (address, role, dependencies) => {
+  const socket = await connectCatching(address);
+  if (socket instanceof Error) return socket;
+  try {
+    return await attachment(socket, role, false, dependencies);
+  } catch (error62) {
+    if (isRepositoryClosing(error62)) return error62;
+    throw error62;
+  }
+};
+var connectCatching = async (address) => new Promise((resolve2) => {
+  const socket = createConnection(address);
+  socket.once("error", resolve2);
+  socket.once("connect", () => {
+    socket.off("error", resolve2);
+    resolve2(socket);
+  });
+});
+var connectUntil = async (address, deadline) => {
+  for (; ; ) {
+    const socket = await connectCatching(address);
+    if (!(socket instanceof Error)) return socket;
+    if (deadline.aborted) throw new Error(`The repository server at ${address} did not come up: ${socket.message}`);
+    await sleep(CONNECT_INTERVAL);
+  }
+};
+var attachment = async (socket, role, launched, dependencies) => {
+  const connection = dependencies.openConnection(socket, dependencies.handle);
+  try {
+    return { launched, url: await hello(connection, role), connection };
+  } catch (error62) {
+    socket.destroy();
+    throw error62;
+  }
+};
+var hello = async (connection, role) => {
+  const params = { protocol: PROTOCOL_VERSION, role };
+  const result = await connection.request(HELLO_METHOD, params, AbortSignal.timeout(HELLO_TIMEOUT));
+  const parsed = HELLO_RESULT.safeParse(result);
+  if (!parsed.success) throw new Error(`The repository server answered hello with ${JSON.stringify(result)}`);
+  return parsed.data.url;
+};
+
+// src/attachment/await-command-line.shell.ts
+var SESSION_PREFIX_LENGTH = 8;
+var shellAwaitCommandLine = (entryPoint, sessionId, after) => {
+  const command = `node "${entryPoint.replaceAll("\\", "/")}" ${sessionId.slice(0, SESSION_PREFIX_LENGTH)}`;
+  return after === void 0 ? command : `${command} --after ${after}`;
+};
+
+// src/attachment/repository-address.git.ts
+import { execFile } from "node:child_process";
+import { createHash } from "node:crypto";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
+import { promisify } from "node:util";
+var execFileAsync = promisify(execFile);
+var ADDRESS_PREFIX = "atomic-workflow-";
+var gitRepositoryAddress = async (directory) => {
+  const commandLine = ["rev-parse", "--path-format=absolute", "--git-common-dir"];
+  const { stdout } = await execFileAsync("git", commandLine, { cwd: directory, windowsHide: true });
+  const name = `${ADDRESS_PREFIX}${hash2(stdout.trim())}`;
+  return process.platform === "win32" ? `\\\\.\\pipe\\${name}` : join(tmpdir(), `${name}.sock`);
+};
+var hash2 = (gitDirectory) => {
+  const normalized = resolve(gitDirectory);
+  const key = process.platform === "win32" ? normalized.toLowerCase() : normalized;
+  return createHash("sha256").update(key).digest("hex").slice(0, 16);
+};
+
+// src/client/attach-client.ts
+var attachClient = async (directory, dependencies) => attachAt(await dependencies.repositoryAddress(directory), dependencies);
+var attachAt = async (address, dependencies) => dependencies.attach(address, "client", {
+  openConnection: dependencies.openConnection,
+  handle: (message) => dependencies.dispatch([], void 0, message)
+});
+
+// src/client/await-report.ts
+var QUOTE_LENGTH = 200;
+var MARK = "atomic-workflow:";
+var awaitReport = (result, options, dependencies) => {
+  switch (result.status) {
+    case "messages":
+      return messagesReport(
+        result.messages,
+        dependencies.awaitCommandLine(options.entryPoint, result.sessionId, lastId(result.messages))
+      );
+    case "stop":
+      return "The atomic-workflow server has stopped the messages of this session. Do not run the wait command again.";
+    case "replaced":
+      return "A newer wait for the messages of this session has replaced this one. Do nothing about it.";
+  }
+};
+var lastId = (messages) => messages.at(-1)?.id;
+var messagesReport = (messages, commandLine) => {
+  const header = messages.length === 1 ? "Handle like a message of the user:" : "Handle like messages of the user, oldest first:";
+  return [
+    `Run in the background first: ${commandLine}`,
+    "Start your reply with these lines as they are:",
+    MARK,
+    ...messages.map((message) => quote(message.content)),
+    header,
+    messages.map((message) => message.content).join("\n\n---\n\n")
+  ].join("\n");
+};
+var quote = (content) => {
+  const lines = content.trim().split(/\r?\n/);
+  const first = lines[0]?.trim() ?? "";
+  const cut = first.length > QUOTE_LENGTH || lines.length > 1;
+  return `> ${first.slice(0, QUOTE_LENGTH)}${cut ? " \u2026" : ""}`;
+};
+
+// src/rpc/error-message.ts
+var errorMessage = (error62) => error62 instanceof Error ? error62.message : String(error62);
+
 // src/rpc/dispatch.zod.ts
 var REQUEST = external_exports.object({
   jsonrpc: external_exports.literal("2.0"),
@@ -19885,7 +19947,8 @@ var REQUEST = external_exports.object({
 });
 var zodDispatch = async (methods, context, message) => {
   const request2 = REQUEST.safeParse(message);
-  if (!request2.success) return new RpcError(RpcErrorCode.INVALID_REQUEST, "Invalid request").toResponse(idOf(message));
+  if (!request2.success)
+    return new RpcError(RPC_ERROR_CODES.INVALID_REQUEST, "Invalid request").toResponse(idOf(message));
   const { id, method, params } = request2.data;
   const outcome = await call(methods, context, method, params);
   if (id === void 0) return void 0;
@@ -19898,9 +19961,10 @@ var idOf = (message) => {
 var call = async (methods, context, name, params) => {
   const method = methods.find((candidate) => candidate.name === name);
   if (method === void 0)
-    return { error: { code: RpcErrorCode.METHOD_NOT_FOUND, message: `Unknown method ${name}` } };
+    return { error: { code: RPC_ERROR_CODES.METHOD_NOT_FOUND, message: `Unknown method ${name}` } };
   const parsed = method.params.safeParse(params ?? {});
-  if (!parsed.success) return { error: { code: RpcErrorCode.INVALID_PARAMS, message: external_exports.prettifyError(parsed.error) } };
+  if (!parsed.success)
+    return { error: { code: RPC_ERROR_CODES.INVALID_PARAMS, message: external_exports.prettifyError(parsed.error) } };
   try {
     return { result: await method.handle(parsed.data, context) ?? null };
   } catch (error62) {
@@ -19909,11 +19973,8 @@ var call = async (methods, context, name, params) => {
 };
 var errorObject = (error62) => {
   if (error62 instanceof RpcError) return { code: error62.code, message: error62.message, data: error62.data };
-  return { code: RpcErrorCode.INTERNAL_ERROR, message: error62 instanceof Error ? error62.message : String(error62) };
+  return { code: RPC_ERROR_CODES.INTERNAL_ERROR, message: errorMessage(error62) };
 };
-
-// src/rpc/dispatch.ts
-var Dispatch = zodDispatch;
 
 // src/rpc/method.inbox-await-command.ts
 var PARAMS = external_exports.object({
@@ -19952,39 +20013,36 @@ var ndjsonOpenRpcConnection = (stream, handle) => {
 var rejectPending = (connection) => {
   for (const request2 of connection.pending.values()) request2.reject(new Error("The connection closed"));
 };
-var request = (connection, method, params, signal) => {
-  return new Promise((resolve2, reject) => {
-    if (!connection.stream.writable) return reject(new Error("The connection is closed"));
-    if (signal?.aborted) return reject(abortError(method, signal.reason));
-    const id = connection.nextId;
-    connection.nextId += 1;
-    const abort = () => connection.pending.get(id)?.reject(abortError(method, signal?.reason));
-    const finish = () => {
-      connection.pending.delete(id);
-      signal?.removeEventListener("abort", abort);
-    };
-    signal?.addEventListener("abort", abort, { once: true });
-    connection.pending.set(id, {
-      resolve: (result) => {
-        finish();
-        resolve2(result);
-      },
-      reject: (error62) => {
-        finish();
-        reject(error62);
-      }
-    });
-    send(connection, { jsonrpc: "2.0", id, method, params });
+var request = async (connection, method, params, signal) => new Promise((resolve2, reject) => {
+  if (!connection.stream.writable) return reject(new Error("The connection is closed"));
+  if (signal?.aborted) return reject(abortError(method, signal.reason));
+  const id = connection.nextId;
+  connection.nextId += 1;
+  const abort = () => connection.pending.get(id)?.reject(abortError(method, signal?.reason));
+  const finish = () => {
+    connection.pending.delete(id);
+    signal?.removeEventListener("abort", abort);
+  };
+  signal?.addEventListener("abort", abort, { once: true });
+  connection.pending.set(id, {
+    resolve: (result) => {
+      finish();
+      resolve2(result);
+    },
+    reject: (error62) => {
+      finish();
+      reject(error62);
+    }
   });
-};
-var abortError = (method, reason) => {
-  return new Error(`The request ${method} was aborted`, { cause: reason });
-};
+  const message = { jsonrpc: "2.0", id, method, params };
+  send(connection, message);
+});
+var abortError = (method, reason) => new Error(`The request ${method} was aborted`, { cause: reason });
 var receive = async (connection, handle, line) => {
   if (line.trim() === "") return;
   const message = parseCatching(line);
   if (message instanceof Error)
-    return send(connection, new RpcError(RpcErrorCode.PARSE_ERROR, message.message).toResponse(null));
+    return send(connection, new RpcError(RPC_ERROR_CODES.PARSE_ERROR, message.message).toResponse(null));
   if (isResponse(message)) return settle2(connection, message);
   const response = await handle(message);
   if (response !== void 0) send(connection, response);
@@ -19993,7 +20051,7 @@ var parseCatching = (line) => {
   try {
     return JSON.parse(line);
   } catch (error62) {
-    return error62 instanceof Error ? error62 : new Error(String(error62));
+    return error62 instanceof Error ? error62 : new Error(String(error62), { cause: error62 });
   }
 };
 var isResponse = (message) => {
@@ -20011,67 +20069,37 @@ var send = (connection, message) => {
 `);
 };
 
-// src/rpc/rpc-connection.ts
-var OpenRpcConnection = ndjsonOpenRpcConnection;
-
 // src/await-command.main.ts
 var USAGE = "Usage: node await-command.mjs <session id> [--after <number of the last message received>]";
-var QUOTE_LENGTH = 200;
-var MARK = "atomic-workflow:";
 var main = async () => {
   const { values, positionals } = parseArgs({ options: { after: { type: "string" } }, allowPositionals: true });
   const [sessionId] = positionals;
   const after = values.after === void 0 ? 0 : Number(values.after);
   if (sessionId === void 0 || positionals.length > 1 || !Number.isSafeInteger(after) || after < 0)
     throw new Error(USAGE);
-  const address = await RepositoryAddress(process.cwd());
-  const { connection } = await Attach(address, "client", {
-    launch: () => Promise.reject(new Error(`No atomic-workflow server runs at ${address}`)),
-    openConnection: OpenRpcConnection,
-    handle: (message) => Dispatch([], void 0, message)
+  const { connection } = await attachClient(process.cwd(), {
+    repositoryAddress: gitRepositoryAddress,
+    attach: socketAttach,
+    openConnection: ndjsonOpenRpcConnection,
+    dispatch: zodDispatch
   });
   try {
     const params = { sessionId, after };
     const result = await connection.request(inboxAwaitCommandMethod.name, params);
-    process.stdout.write(`${report(result)}
+    const report = awaitReport(
+      result,
+      { entryPoint: import.meta.filename },
+      { awaitCommandLine: shellAwaitCommandLine }
+    );
+    process.stdout.write(`${report}
 `);
   } finally {
     connection.close();
   }
 };
-var report = (result) => {
-  switch (result.status) {
-    case "messages":
-      return messagesReport(result.messages, result.sessionId);
-    case "stop":
-      return "The atomic-workflow server has stopped the messages of this session. Do not run the wait command again.";
-    case "replaced":
-      return "A newer wait for the messages of this session has replaced this one. Do nothing about it.";
-  }
-};
-var messagesReport = (messages, sessionId) => {
-  const last = messages.at(-1)?.id;
-  const commandLine = AwaitCommandLine(import.meta.filename, sessionId, last);
-  const header = messages.length === 1 ? "Handle like a message of the user:" : "Handle like messages of the user, oldest first:";
-  return [
-    `Run in the background first: ${commandLine}`,
-    "Start your reply with these lines as they are:",
-    MARK,
-    ...messages.map((message) => quote(message.content)),
-    header,
-    messages.map((message) => message.content).join("\n\n---\n\n")
-  ].join("\n");
-};
-var quote = (content) => {
-  const lines = content.trim().split(/\r?\n/);
-  const first = lines[0]?.trim() ?? "";
-  const cut = first.length > QUOTE_LENGTH || lines.length > 1;
-  return `> ${first.slice(0, QUOTE_LENGTH)}${cut ? " \u2026" : ""}`;
-};
 await main().catch((error62) => {
-  const reason = error62 instanceof Error ? error62.message : String(error62);
   process.stdout.write(
-    `The wait for the messages of the atomic-workflow server failed: ${reason}
+    `The wait for the messages of the atomic-workflow server failed: ${errorMessage(error62)}
 Do not run the wait command again.
 `
   );

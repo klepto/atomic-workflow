@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import type { Method } from './method.ts';
-import { RpcError, RpcErrorCode } from './rpc-error.ts';
+import { registeredSession } from './registered-session.ts';
 
 /**
  * Schema of the parameters of `sessionTaskSet`.
@@ -23,8 +23,7 @@ export const sessionTaskSetMethod: Method<typeof PARAMS, void> = {
   agent: false,
   params: PARAMS,
   handle: async ({ sessionId, taskId, created = false }, { sessions }) => {
-    const session = await sessions.get(sessionId);
-    if (session === undefined) throw new RpcError(RpcErrorCode.INVALID_PARAMS, `No session ${sessionId} is registered`);
+    const session = await registeredSession(sessionId, sessions);
     if (session.role !== 'subagent') return;
     await (created ? sessions.moveTask(sessionId, taskId) : sessions.setTask(sessionId, taskId));
   },

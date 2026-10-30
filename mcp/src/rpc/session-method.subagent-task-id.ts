@@ -13,7 +13,7 @@ const PARAMS = z.object({
  * `Method` named `subagentTaskId` of a session server, which returns the id of the background task that runs a
  * subagent of its session, by which the agent of the session stops it, or `null` while the session server knows none.
  */
-export const subagentTaskIdMethod: Method<
+export const subagentTaskIdSessionMethod: Method<
   typeof PARAMS,
   { readonly backgroundTaskId: string | null },
   SessionMethodContext

@@ -6,7 +6,6 @@ var __export = (target, all) => {
 
 // src/repository-server.main.ts
 import { homedir } from "node:os";
-import { basename as basename3, join as join6 } from "node:path";
 import { parseArgs } from "node:util";
 
 // src/attachment/await-command-line.shell.ts
@@ -15,9 +14,6 @@ var shellAwaitCommandLine = (entryPoint, sessionId, after) => {
   const command = `node "${entryPoint.replaceAll("\\", "/")}" ${sessionId.slice(0, SESSION_PREFIX_LENGTH)}`;
   return after === void 0 ? command : `${command} --after ${after}`;
 };
-
-// src/attachment/await-command-line.ts
-var AwaitCommandLine = shellAwaitCommandLine;
 
 // src/attachment/inboxes.map.ts
 var BATCH_DELAY = 500;
@@ -71,16 +67,16 @@ var find = (inboxes, sessionId) => {
   const matches = [...inboxes.keys()].filter((key) => key.startsWith(sessionId));
   return matches.length === 1 ? matches[0] : void 0;
 };
-var awaitOpen = (inboxes, listeners, sessionId, timeout) => {
-  if (inboxes.has(sessionId)) return Promise.resolve(true);
+var awaitOpen = async (inboxes, listeners, sessionId, timeout) => {
+  if (inboxes.has(sessionId)) return true;
   const waiting = listeners.get(sessionId) ?? /* @__PURE__ */ new Set();
   listeners.set(sessionId, waiting);
-  return new Promise((resolve5) => {
+  return new Promise((resolve3) => {
     const finish = (opened) => {
       clearTimeout(timer);
       waiting.delete(onOpen);
       if (waiting.size === 0 && listeners.get(sessionId) === waiting) listeners.delete(sessionId);
-      resolve5(opened);
+      resolve3(opened);
     };
     const onOpen = () => finish(true);
     const timer = setTimeout(() => finish(false), timeout);
@@ -97,86 +93,36 @@ var deliver = (inbox, content) => {
   }, BATCH_DELAY);
   return true;
 };
-var take = (inbox, after) => {
-  if (inbox === void 0) return Promise.resolve({ status: "stop" });
+var take = async (inbox, after) => {
+  if (inbox === void 0) return { status: "stop" };
   inbox.messages = inbox.messages.filter((message) => message.id > after);
   inbox.waiter?.({ status: "replaced" });
   clearTimeout(inbox.batch);
   inbox.batch = void 0;
-  if (inbox.messages.length > 0) return Promise.resolve(messages(inbox));
-  return new Promise((resolve5) => {
+  if (inbox.messages.length > 0) return messages(inbox);
+  return new Promise((resolve3) => {
     const finish = (delivery) => {
       if (inbox.waiter === finish) inbox.waiter = void 0;
-      resolve5(delivery);
+      resolve3(delivery);
     };
     inbox.waiter = finish;
   });
 };
-var messages = (inbox) => {
-  return { status: "messages", sessionId: inbox.sessionId, messages: [...inbox.messages] };
-};
-
-// src/attachment/inboxes.ts
-var CreateInboxes = mapCreateInboxes;
+var messages = (inbox) => ({
+  status: "messages",
+  sessionId: inbox.sessionId,
+  messages: [...inbox.messages]
+});
 
 // src/attachment/serve-repository.socket.ts
 import { rm } from "node:fs/promises";
-import { createConnection, createServer } from "node:net";
+import { createServer } from "node:net";
 
-// src/rpc/rpc-error.ts
-var RpcErrorCode = {
-  /**
-   * The message is not valid JSON.
-   */
-  PARSE_ERROR: -32700,
-  /**
-   * The message is not a valid request.
-   */
-  INVALID_REQUEST: -32600,
-  /**
-   * No method has the name of the request.
-   */
-  METHOD_NOT_FOUND: -32601,
-  /**
-   * The parameters do not fit the method.
-   */
-  INVALID_PARAMS: -32602,
-  /**
-   * The method failed for a reason that it does not report with a code of its own.
-   */
-  INTERNAL_ERROR: -32603
-};
-var RpcError = class _RpcError extends Error {
-  /**
-   * Code of the failure, one of `RpcErrorCode` or a code of a method.
-   */
-  code;
-  /**
-   * Further details of the failure, or `undefined` for none.
-   */
-  data;
-  /**
-   * Creates the failure with the code `code`, the description `message` and the details `data`.
-   */
-  constructor(code, message, data) {
-    super(message);
-    this.name = "RpcError";
-    this.code = code;
-    this.data = data;
-  }
-  /**
-   * Returns the failure that the error object `object` of a response reports.
-   */
-  static of(object2) {
-    return new _RpcError(object2.code, object2.message, object2.data);
-  }
-  /**
-   * Returns the response to the request `id` that reports this failure.
-   */
-  toResponse(id) {
-    return { jsonrpc: "2.0", id, error: { code: this.code, message: this.message, data: this.data } };
-  }
-};
+// src/entry/error-detail.ts
+var errorDetail = (error62) => error62 instanceof Error ? error62.stack ?? error62.message : String(error62);
+
+// src/attachment/attach.socket.ts
+import { createConnection } from "node:net";
 
 // node_modules/zod/v4/classic/external.js
 var external_exports = {};
@@ -3792,8 +3738,8 @@ var $ZodObjectJIT = /* @__PURE__ */ $constructor("$ZodObjectJIT", (inst, def) =>
   const _normalized = cached(() => normalizeDef(def));
   const memo2 = globalConfig.memoizer;
   const generateFastpass = (shape) => {
-    const normalized2 = _normalized.value;
-    const syms = normalized2.symbolKeys;
+    const normalized = _normalized.value;
+    const syms = normalized.symbolKeys;
     const doc = new Doc(["payload", "ctx"], { shape, inst, memo: memo2, syms });
     const parseStr = (k) => `shape[${k}]._zod.run({ value: input[${k}], issues: [] }, ctx)`;
     const prefixStr = (id, k) => `
@@ -3811,11 +3757,11 @@ var $ZodObjectJIT = /* @__PURE__ */ $constructor("$ZodObjectJIT", (inst, def) =>
     doc.write(`const input = payload.value;`);
     const ids = /* @__PURE__ */ Object.create(null);
     let counter = 0;
-    for (const key of normalized2.allKeys) {
+    for (const key of normalized.allKeys) {
       ids[key] = `key_${counter++}`;
     }
     doc.write(memo2 ? `const newResult = memo.alloc(inst, payload, {}, ctx);` : `const newResult = {};`);
-    for (const key of normalized2.allKeys) {
+    for (const key of normalized.allKeys) {
       if (key === "__proto__")
         continue;
       const id = ids[key];
@@ -5245,7 +5191,7 @@ var recursive = /* @__PURE__ */ new WeakMap();
 var NONE = 0;
 var ASSUMED = 1;
 var PROVEN = 2;
-function isRecursive(inst, stack, resolve5) {
+function isRecursive(inst, stack, resolve3) {
   const cached2 = recursive.get(inst);
   if (cached2 !== void 0)
     return cached2 ? PROVEN : NONE;
@@ -5255,7 +5201,7 @@ function isRecursive(inst, stack, resolve5) {
   let result = NONE;
   const check2 = (child) => {
     if (result !== PROVEN && child?._zod) {
-      const answer = isRecursive(child, stack, resolve5);
+      const answer = isRecursive(child, stack, resolve3);
       if (answer > result)
         result = answer;
     }
@@ -5266,13 +5212,13 @@ function isRecursive(inst, stack, resolve5) {
       const desc = Object.getOwnPropertyDescriptor(sh, key);
       if (spread && !desc.enumerable)
         continue;
-      const child = desc.get ? ASSUMED : desc.value?._zod ? isRecursive(desc.value, stack, resolve5) : NONE;
+      const child = desc.get ? ASSUMED : desc.value?._zod ? isRecursive(desc.value, stack, resolve3) : NONE;
       if (child > answer)
         answer = child;
     }
     return answer;
   };
-  const merge3 = (answer) => {
+  const merge2 = (answer) => {
     if (answer > result)
       result = answer;
   };
@@ -5281,7 +5227,7 @@ function isRecursive(inst, stack, resolve5) {
   switch (kind) {
     case "object": {
       const raw = rawShape(def);
-      merge3(raw ? shape(raw, true) : ASSUMED);
+      merge2(raw ? shape(raw, true) : ASSUMED);
       check2(def.catchall);
       break;
     }
@@ -5330,8 +5276,8 @@ function isRecursive(inst, stack, resolve5) {
       break;
     // `$ZodLazy` caches its inner on the def, so a resolved edge is followed exactly
     case "lazy": {
-      const inner = def._cachedInner ?? (resolve5 ? inst._zod.innerType : void 0);
-      merge3(inner ? isRecursive(inner, stack, false) : ASSUMED);
+      const inner = def._cachedInner ?? (resolve3 ? inst._zod.innerType : void 0);
+      merge2(inner ? isRecursive(inner, stack, false) : ASSUMED);
       break;
     }
     // a leaf by choice: `parts` are regex fragments, not data positions
@@ -10889,8 +10835,8 @@ var error43 = () => {
       case "not_multiple_of":
         return `N\xFAmero inv\xE1lido: deve ser m\xFAltiplo de ${issue2.divisor}`;
       case "unrecognized_keys": {
-        const plural2 = issue2.keys.length > 1 ? "s" : "";
-        return `Chave${plural2} inv\xE1lida${plural2}: ${joinValues(issue2.keys, ", ")}`;
+        const plural3 = issue2.keys.length > 1 ? "s" : "";
+        return `Chave${plural3} inv\xE1lida${plural3}: ${joinValues(issue2.keys, ", ")}`;
       }
       case "invalid_key":
         return `Entrada inv\xE1lida n${translateOriginWithArticle(issue2.origin, "definite")}`;
@@ -11034,8 +10980,8 @@ var error44 = () => {
       case "not_multiple_of":
         return `N\xFAmero inv\xE1lido: deve ser m\xFAltiplo de ${issue2.divisor}`;
       case "unrecognized_keys": {
-        const plural2 = issue2.keys.length > 1 ? "s" : "";
-        return `Chave${plural2} inv\xE1lida${plural2}: ${joinValues(issue2.keys, ", ")}`;
+        const plural3 = issue2.keys.length > 1 ? "s" : "";
+        return `Chave${plural3} inv\xE1lida${plural3}: ${joinValues(issue2.keys, ", ")}`;
       }
       case "invalid_key":
         return `Entrada inv\xE1lida n${translateOriginWithArticle(issue2.origin, "definite")}`;
@@ -19654,23 +19600,23 @@ function fromJSONSchema(schema, params) {
   if (typeof schema === "boolean") {
     return schema ? z.any() : z.never();
   }
-  let normalized2;
+  let normalized;
   try {
-    normalized2 = JSON.parse(JSON.stringify(schema));
+    normalized = JSON.parse(JSON.stringify(schema));
   } catch {
     throw new Error("fromJSONSchema input is not valid JSON (possibly cyclic); use $defs/$ref for recursive schemas");
   }
-  const version2 = detectVersion(normalized2, params?.defaultTarget);
-  const defs = normalized2.$defs || normalized2.definitions || {};
+  const version2 = detectVersion(normalized, params?.defaultTarget);
+  const defs = normalized.$defs || normalized.definitions || {};
   const ctx = {
     version: version2,
     defs,
     refs: /* @__PURE__ */ new Map(),
     processing: /* @__PURE__ */ new Set(),
-    rootSchema: normalized2,
+    rootSchema: normalized,
     registry: params?.registry ?? globalRegistry
   };
-  return convertSchema(normalized2, ctx);
+  return convertSchema(normalized, ctx);
 }
 
 // node_modules/zod/v4/core/visit.js
@@ -19895,15 +19841,65 @@ function date4(params) {
   return _coercedDate(ZodDate, params);
 }
 
-// src/attachment/bind-session.ts
-var BIND_SESSION_METHOD = "bindSession";
-var BIND_SESSION_PARAMS = external_exports.object({
-  sessionId: external_exports.string().min(1)
-});
+// src/rpc/rpc-error.ts
+var RPC_ERROR_CODES = {
+  /**
+   * The message is not valid JSON.
+   */
+  PARSE_ERROR: -32700,
+  /**
+   * The message is not a valid request.
+   */
+  INVALID_REQUEST: -32600,
+  /**
+   * No method has the name of the request.
+   */
+  METHOD_NOT_FOUND: -32601,
+  /**
+   * The parameters do not fit the method.
+   */
+  INVALID_PARAMS: -32602,
+  /**
+   * The method failed for a reason that it does not report with a code of its own.
+   */
+  INTERNAL_ERROR: -32603
+};
+var RpcError = class _RpcError extends Error {
+  /**
+   * Code of the failure, one of `RPC_ERROR_CODES` or a code of a method.
+   */
+  code;
+  /**
+   * Further details of the failure, or `undefined` for none.
+   */
+  data;
+  /**
+   * Creates the failure with the code `code`, the description `message` and the details `data`.
+   */
+  constructor(code, message, data) {
+    super(message);
+    this.name = "RpcError";
+    this.code = code;
+    this.data = data;
+  }
+  /**
+   * Returns the failure that the error object `object` of a response reports.
+   */
+  static of(object2) {
+    return new _RpcError(object2.code, object2.message, object2.data);
+  }
+  /**
+   * Returns the response to the request `id` that reports this failure.
+   */
+  toResponse(id) {
+    return { jsonrpc: "2.0", id, error: { code: this.code, message: this.message, data: this.data } };
+  }
+};
 
 // src/attachment/hello.ts
 var PROTOCOL_VERSION = 21;
 var HELLO_METHOD = "hello";
+var REPOSITORY_CLOSING = -32e3;
 var HELLO_PARAMS = external_exports.object({
   protocol: external_exports.number().int(),
   role: external_exports.enum(["session", "client"])
@@ -19911,23 +19907,79 @@ var HELLO_PARAMS = external_exports.object({
 var HELLO_RESULT = external_exports.object({
   url: external_exports.string()
 });
+var helloMethod = (url2, attachSession) => ({
+  name: HELLO_METHOD,
+  description: "Opens the connection. A client calls it first.",
+  agent: false,
+  params: HELLO_PARAMS,
+  handle: async ({ protocol, role }) => {
+    if (protocol !== PROTOCOL_VERSION) {
+      const message = `Protocol ${protocol} is not supported, only ${PROTOCOL_VERSION}`;
+      throw new RpcError(RPC_ERROR_CODES.INVALID_PARAMS, message);
+    }
+    if (role === "session" && !attachSession())
+      throw new RpcError(REPOSITORY_CLOSING, "The repository server is closing, and attaches no session server");
+    return { url: url2 };
+  }
+});
+
+// src/attachment/attach.socket.ts
+var connectCatching = async (address) => new Promise((resolve3) => {
+  const socket = createConnection(address);
+  socket.once("error", resolve3);
+  socket.once("connect", () => {
+    socket.off("error", resolve3);
+    resolve3(socket);
+  });
+});
+
+// src/attachment/bind-session.ts
+var BIND_SESSION_METHOD = "bindSession";
+var BIND_SESSION_PARAMS = external_exports.object({
+  sessionId: external_exports.string().min(1)
+});
+var bindSessionMethod = (sessionConnection) => ({
+  name: BIND_SESSION_METHOD,
+  description: "Binds a session to the connection, so that the repository server reaches the session over it.",
+  agent: false,
+  params: BIND_SESSION_PARAMS,
+  handle: async ({ sessionId }, { sessionConnections, inboxes }) => {
+    const connection = sessionConnection();
+    if (connection === void 0) {
+      throw new RpcError(RPC_ERROR_CODES.INVALID_REQUEST, "Only a session server can bind a session");
+    }
+    const previous = sessionConnections.bind(sessionId, connection);
+    if (previous !== void 0) inboxes.move(previous, sessionId);
+    inboxes.open(sessionId, connection.closed);
+  }
+});
 
 // src/attachment/serve-repository.socket.ts
 var FIRST_ATTACH_TIMEOUT = 1e4;
 var socketServeRepository = async (address, url2, methods, context, dependencies) => {
   const server = createServer();
-  const closed = new Promise((resolve5) => server.once("close", () => resolve5()));
+  const closed = new Promise((resolve3) => server.once("close", () => resolve3()));
   const repository = {
     server,
     url: url2,
     methods,
     context,
     dependencies,
+    connections: /* @__PURE__ */ new Set(),
     sessions: 0,
     firstAttachTimer: void 0
   };
   server.on("connection", (socket) => serve(repository, socket));
   await listenReclaiming(server, address);
+  server.on("error", (error62) => dependencies.log(`The repository server at ${address} failed: ${errorDetail(error62)}`));
+  try {
+    await dependencies.listening?.();
+  } catch (error62) {
+    server.close();
+    for (const socket of repository.connections) socket.destroy();
+    await closed;
+    throw error62;
+  }
   repository.firstAttachTimer = setTimeout(() => server.close(), FIRST_ATTACH_TIMEOUT);
   await closed;
 };
@@ -19935,12 +19987,19 @@ var serve = (repository, socket) => {
   const { dispatch, openConnection } = repository.dependencies;
   let session = false;
   const attachSession = () => {
-    if (session) return;
+    if (session) return true;
+    if (!repository.server.listening) {
+      setImmediate(() => connection.close());
+      return false;
+    }
     session = true;
     repository.sessions += 1;
     clearTimeout(repository.firstAttachTimer);
+    return true;
   };
+  repository.connections.add(socket);
   socket.once("close", () => {
+    repository.connections.delete(socket);
     if (session) repository.sessions -= 1;
     if (session && repository.sessions === 0) repository.server.close();
   });
@@ -19954,71 +20013,37 @@ var serve = (repository, socket) => {
     (message) => dispatch(methods, { ...repository.context, caller: connection }, message)
   );
 };
-var helloMethod = (url2, attachSession) => {
-  return {
-    name: HELLO_METHOD,
-    description: "Opens the connection. A client calls it first.",
-    agent: false,
-    params: HELLO_PARAMS,
-    handle: async ({ protocol, role }) => {
-      if (protocol !== PROTOCOL_VERSION)
-        throw new RpcError(
-          RpcErrorCode.INVALID_PARAMS,
-          `Protocol ${protocol} is not supported, only ${PROTOCOL_VERSION}`
-        );
-      if (role === "session") attachSession();
-      return { url: url2 };
-    }
-  };
-};
-var bindSessionMethod = (sessionConnection) => {
-  return {
-    name: BIND_SESSION_METHOD,
-    description: "Binds a session to the connection, so that the repository server reaches the session over it.",
-    agent: false,
-    params: BIND_SESSION_PARAMS,
-    handle: async ({ sessionId }, { sessionConnections, inboxes }) => {
-      const connection = sessionConnection();
-      if (connection === void 0)
-        throw new RpcError(RpcErrorCode.INVALID_REQUEST, "Only a session server can bind a session");
-      const previous = sessionConnections.bind(sessionId, connection);
-      if (previous !== void 0) inboxes.move(previous, sessionId);
-      inboxes.open(sessionId, connection.closed);
-    }
-  };
-};
 var listenReclaiming = async (server, address) => {
   const error62 = await listenCatching(server, address);
-  if (error62 === void 0) return;
+  if (!(error62 instanceof Error)) return;
   if (error62.code !== "EADDRINUSE" || process.platform === "win32" || await isServed(address)) throw error62;
   await rm(address, { force: true });
   const retryError = await listenCatching(server, address);
-  if (retryError !== void 0) throw retryError;
+  if (retryError instanceof Error) throw retryError;
 };
-var listenCatching = (server, address) => {
-  return new Promise((resolve5) => {
-    server.once("error", resolve5);
-    server.listen(address, () => {
-      server.off("error", resolve5);
-      resolve5(void 0);
-    });
+var listenCatching = async (server, address) => new Promise((resolve3) => {
+  server.once("error", resolve3);
+  server.listen(address, () => {
+    server.off("error", resolve3);
+    resolve3(void 0);
   });
+});
+var isServed = async (address) => {
+  const socket = await connectCatching(address);
+  if (socket instanceof Error) return false;
+  socket.destroy();
+  return true;
 };
-var isServed = (address) => {
-  return new Promise((resolve5) => {
-    const socket = createConnection(address);
-    socket.once("error", () => resolve5(false));
-    socket.once("connect", () => {
-      socket.destroy();
-      resolve5(true);
-    });
-  });
-};
-
-// src/attachment/serve-repository.ts
-var ServeRepository = socketServeRepository;
 
 // src/attachment/session-activity.map.ts
+var UNREPORTED = {
+  status: "idle",
+  at: Number.NEGATIVE_INFINITY,
+  turnStartedAt: null,
+  turnEndedAt: null,
+  action: null,
+  actionAt: null
+};
 var mapCreateSessionActivity = () => {
   const activities = /* @__PURE__ */ new Map();
   return {
@@ -20038,18 +20063,11 @@ var update = (activities, sessionId, next) => {
   activities.set(sessionId, updated);
   return current === void 0 || !sameActivity(activityOf(current), activityOf(updated));
 };
-var reported = (current = UNREPORTED, status, at) => {
+var reported = (reportedActivity, status, at) => {
+  const current = reportedActivity ?? UNREPORTED;
   if (at < current.at) return movedTurnStart(current, status, at);
   if (status === "idle") return { ...current, status, at, turnStartedAt: null, turnEndedAt: at, action: null };
   return { ...current, status, at, turnStartedAt: current.turnStartedAt ?? at };
-};
-var UNREPORTED = {
-  status: "idle",
-  at: Number.NEGATIVE_INFINITY,
-  turnStartedAt: null,
-  turnEndedAt: null,
-  action: null,
-  actionAt: null
 };
 var movedTurnStart = (current, status, at) => {
   const { turnStartedAt, turnEndedAt } = current;
@@ -20069,10 +20087,6 @@ var activityOf = ({ status, turnStartedAt, action }) => ({
   latestAction: status === "working" ? action : null
 });
 var sameActivity = (a, b) => a.status === b.status && a.turnStartedAt === b.turnStartedAt && a.latestAction === b.latestAction;
-
-// src/attachment/session-activity.ts
-var ACTIVITY_STATUSES = ["idle", "working", "waiting"];
-var CreateSessionActivity = mapCreateSessionActivity;
 
 // src/attachment/session-connections.map.ts
 var mapCreateSessionConnections = () => {
@@ -20094,9 +20108,6 @@ var bind = (connections, sessionId, connection) => {
   return previous;
 };
 
-// src/attachment/session-connections.ts
-var CreateSessionConnections = mapCreateSessionConnections;
-
 // src/attachment/subagents.map.ts
 var mapCreateSubagents = () => {
   const subagents = /* @__PURE__ */ new Map();
@@ -20116,8 +20127,8 @@ var start = (subagents, sessionId, parentId, connection) => {
     if (subagents.get(sessionId) === subagent) stop(subagents, sessionId);
   });
 };
-var waitForAttach = (subagent, sessionId, signal) => {
-  if (subagent === void 0) return Promise.reject(new Error(`No subagent ${sessionId} is started`));
+var waitForAttach = async (subagent, sessionId, signal) => {
+  if (subagent === void 0) throw new Error(`No subagent ${sessionId} is started`);
   const aborted2 = new Promise((_, reject) => {
     signal.addEventListener("abort", () => reject(signal.reason), { once: true });
   });
@@ -20135,41 +20146,35 @@ var stop = (subagents, sessionId) => {
   subagent.attached.reject(new Error(`The subagent ${sessionId} was stopped`));
   return true;
 };
-var list = (subagents) => {
-  return [...subagents].filter(([, subagent]) => subagent.isAttached).map(([sessionId, { parentId }]) => ({ sessionId, parentId }));
-};
-
-// src/attachment/subagents.ts
-var CreateSubagents = mapCreateSubagents;
+var list = (subagents) => [...subagents].filter(([, subagent]) => subagent.isAttached).map(([sessionId, { parentId }]) => ({ sessionId, parentId }));
 
 // src/attachment/ticket-claims.map.ts
 var mapCreateTicketClaims = () => {
   const holders = /* @__PURE__ */ new Map();
   return {
-    claim: (taskId, ticketId, claimant) => {
-      const key = keyOf(taskId, ticketId);
-      const holder = holders.get(key);
-      if (holder === claimant) return "kept";
-      if (holder !== void 0) return "refused";
-      holders.set(key, claimant);
-      void claimant.closed.then(() => {
-        if (holders.get(key) === claimant) holders.delete(key);
-      });
-      return "claimed";
-    },
-    isHeldByOther: (taskId, ticketId, caller) => {
-      const holder = holders.get(keyOf(taskId, ticketId));
-      return holder !== void 0 && holder !== caller;
-    },
-    release: (taskId, ticketId) => {
-      holders.delete(keyOf(taskId, ticketId));
-    }
+    claim: (taskId, ticketId, claimant) => claim2(holders, keyOf(taskId, ticketId), claimant),
+    isHeldByOther: (taskId, ticketId, caller) => isHeldByOther(holders, keyOf(taskId, ticketId), caller),
+    release: (taskId, ticketId) => release(holders, keyOf(taskId, ticketId))
   };
 };
+var claim2 = (holders, key, claimant) => {
+  const holder = holders.get(key);
+  if (holder === claimant) return "kept";
+  if (holder !== void 0) return "refused";
+  holders.set(key, claimant);
+  void claimant.closed.then(() => {
+    if (holders.get(key) === claimant) holders.delete(key);
+  });
+  return "claimed";
+};
+var isHeldByOther = (holders, key, caller) => {
+  const holder = holders.get(key);
+  return holder !== void 0 && holder !== caller;
+};
+var release = (holders, key) => {
+  holders.delete(key);
+};
 var keyOf = (taskId, ticketId) => `${taskId}/${ticketId}`;
-
-// src/attachment/ticket-claims.ts
-var CreateTicketClaims = mapCreateTicketClaims;
 
 // src/changes/change-feed.timer.ts
 var COALESCE_DELAY = 50;
@@ -20196,9 +20201,6 @@ var subscribe = (feed, listener) => {
   return () => void feed.listeners.delete(subscription);
 };
 
-// src/changes/change-feed.ts
-var CreateChangeFeed = timerCreateChangeFeed;
-
 // src/changes/publish-changes.feed.ts
 var feedPublishChanges = (services, changes2) => ({
   messageLog: publishingMessageLog(services.messageLog, changes2),
@@ -20208,19 +20210,18 @@ var feedPublishChanges = (services, changes2) => ({
   subagents: publishingSubagents(services.subagents, changes2),
   activity: publishingActivity(services.activity, changes2)
 });
-var published = async (write, changes2, resource) => {
+var published = async (write, changes2, resource) => publishedIf(write, changes2, resource, () => true);
+var publishedIf = async (write, changes2, resource, changed) => {
   const result = await write;
-  changes2.publish(resource);
+  if (changed(result)) changes2.publish(resource);
   return result;
 };
+var isChange = (result) => result;
+var isCount = (count) => count > 0;
 var publishingMessageLog = (store, changes2) => ({
   append: (message) => published(store.append(message), changes2, "messages"),
   list: (query) => store.list(query),
-  deleteSession: async (sessionId) => {
-    const deleted = await store.deleteSession(sessionId);
-    if (deleted > 0) changes2.publish("messages");
-    return deleted;
-  },
+  deleteSession: (sessionId) => publishedIf(store.deleteSession(sessionId), changes2, "messages", isCount),
   latestTimes: () => store.latestTimes()
 });
 var publishingTasks = (store, changes2) => {
@@ -20237,47 +20238,33 @@ var publishingTasks = (store, changes2) => {
     setTickets: (taskId, tickets) => write(store.setTickets(taskId, tickets)),
     setStatus: (taskId, status) => write(store.setStatus(taskId, status)),
     setBaseBranch: (taskId, branch) => write(store.setBaseBranch(taskId, branch)),
-    setTicketProgress: (taskId, ticketId, progress) => write(store.setTicketProgress(taskId, ticketId, progress))
+    setTicketProgress: (taskId, ticketId, progress) => write(store.setTicketProgress(taskId, ticketId, progress)),
+    startRun: (taskId, at) => publishedIf(store.startRun(taskId, at), changes2, "tasks", isChange),
+    endRun: (taskId, at, startedAt) => publishedIf(store.endRun(taskId, at, startedAt), changes2, "tasks", isChange),
+    endRuns: (at) => publishedIf(store.endRuns(at), changes2, "tasks", isCount)
   };
 };
-var publishingSessions = (store, changes2) => ({
-  register: (session) => store.register(session),
-  get: (id) => store.get(id),
-  list: () => store.list(),
-  setTask: async (id, taskId) => {
-    const changed = await store.setTask(id, taskId);
-    if (changed) changes2.publish("sessions");
-    return changed;
-  },
-  moveTask: async (id, taskId) => {
-    const changed = await store.moveTask(id, taskId);
-    if (changed) changes2.publish("sessions");
-    return changed;
-  },
-  setTicket: async (id, ticketId) => {
-    const changed = await store.setTicket(id, ticketId);
-    if (changed) changes2.publish("sessions");
-    return changed;
-  },
-  setAlias: async (id, alias) => {
-    const changed = await store.setAlias(id, alias);
-    if (changed) changes2.publish("sessions");
-    return changed;
-  },
-  setUsage: async (id, usage) => {
-    const changed = await store.setUsage(id, usage);
-    if (changed) changes2.publish("sessions");
-    return changed;
-  },
-  delete: async (id) => {
-    const deleted = await store.delete(id);
-    if (deleted) {
-      changes2.publish("sessions");
-      changes2.publish("messages");
+var publishingSessions = (store, changes2) => {
+  const write = (result) => publishedIf(result, changes2, "sessions", isChange);
+  return {
+    register: (session) => store.register(session),
+    get: (id) => store.get(id),
+    list: () => store.list(),
+    setTask: (id, taskId) => write(store.setTask(id, taskId)),
+    moveTask: (id, taskId) => write(store.moveTask(id, taskId)),
+    setTicket: (id, ticketId) => write(store.setTicket(id, ticketId)),
+    setAlias: (id, alias) => write(store.setAlias(id, alias)),
+    setUsage: (id, usage) => write(store.setUsage(id, usage)),
+    delete: async (id) => {
+      const deleted = await store.delete(id);
+      if (deleted) {
+        changes2.publish("sessions");
+        changes2.publish("messages");
+      }
+      return deleted;
     }
-    return deleted;
-  }
-});
+  };
+};
 var publishingSessionConnections = (connections, changes2) => ({
   bind: (sessionId, connection) => {
     const previous = connections.bind(sessionId, connection);
@@ -20318,8 +20305,24 @@ var publishingActivity = (activity, changes2) => {
   };
 };
 
-// src/changes/publish-changes.ts
-var PublishChanges = feedPublishChanges;
+// src/clock/clock.system.ts
+var systemClock = {
+  now: () => Date.now()
+};
+
+// src/entry/entry-point.ts
+import { join } from "node:path";
+var BUNDLE_EXTENSION = ".mjs";
+var isSource = () => import.meta.filename.endsWith(".ts");
+var entryPointPath = (name) => isSource() ? join(import.meta.dirname, "..", `${name}.main.ts`) : join(import.meta.dirname, `${name}${BUNDLE_EXTENSION}`);
+var webDirectoryPath = () => isSource() ? join(import.meta.dirname, "..", "..", "..", "plugin", "dist", "web") : join(import.meta.dirname, "web");
+
+// src/rpc/create-session-id.crypto.ts
+import { randomUUID } from "node:crypto";
+var cryptoCreateSessionId = () => randomUUID();
+
+// src/rpc/error-message.ts
+var errorMessage = (error62) => error62 instanceof Error ? error62.message : String(error62);
 
 // src/rpc/dispatch.zod.ts
 var REQUEST = external_exports.object({
@@ -20330,7 +20333,8 @@ var REQUEST = external_exports.object({
 });
 var zodDispatch = async (methods, context, message) => {
   const request2 = REQUEST.safeParse(message);
-  if (!request2.success) return new RpcError(RpcErrorCode.INVALID_REQUEST, "Invalid request").toResponse(idOf(message));
+  if (!request2.success)
+    return new RpcError(RPC_ERROR_CODES.INVALID_REQUEST, "Invalid request").toResponse(idOf(message));
   const { id, method, params } = request2.data;
   const outcome = await call(methods, context, method, params);
   if (id === void 0) return void 0;
@@ -20343,9 +20347,10 @@ var idOf = (message) => {
 var call = async (methods, context, name, params) => {
   const method = methods.find((candidate) => candidate.name === name);
   if (method === void 0)
-    return { error: { code: RpcErrorCode.METHOD_NOT_FOUND, message: `Unknown method ${name}` } };
+    return { error: { code: RPC_ERROR_CODES.METHOD_NOT_FOUND, message: `Unknown method ${name}` } };
   const parsed = method.params.safeParse(params ?? {});
-  if (!parsed.success) return { error: { code: RpcErrorCode.INVALID_PARAMS, message: external_exports.prettifyError(parsed.error) } };
+  if (!parsed.success)
+    return { error: { code: RPC_ERROR_CODES.INVALID_PARAMS, message: external_exports.prettifyError(parsed.error) } };
   try {
     return { result: await method.handle(parsed.data, context) ?? null };
   } catch (error62) {
@@ -20354,42 +20359,122 @@ var call = async (methods, context, name, params) => {
 };
 var errorObject = (error62) => {
   if (error62 instanceof RpcError) return { code: error62.code, message: error62.message, data: error62.data };
-  return { code: RpcErrorCode.INTERNAL_ERROR, message: error62 instanceof Error ? error62.message : String(error62) };
+  return { code: RPC_ERROR_CODES.INTERNAL_ERROR, message: errorMessage(error62) };
 };
 
-// src/rpc/dispatch.ts
-var Dispatch = zodDispatch;
+// src/rpc/slug.ts
+var SLUG = external_exports.string().max(60).regex(/^[a-z0-9]+-[a-z0-9]+-[a-z0-9]+$/, "Must be three lowercase words joined by hyphens");
 
-// src/rpc/method.inbox-await-command.ts
+// src/rpc/find-task.ts
+var TASK_REFERENCE = external_exports.union([external_exports.number().int().positive(), external_exports.string().min(1)]).describe("Task: its identifier, its slug, or both as <id>-<slug>, such as 3-cache-layer-redis");
+var findTask = async (reference, tasks) => {
+  const word = String(reference);
+  if (/^\d+$/.test(word)) return taskOfId(Number(word), tasks);
+  const [, id = "", slug = ""] = /^(\d+)-(.+)$/.exec(word) ?? [];
+  if (!SLUG.safeParse(slug).success) return taskOfSlug(word, tasks);
+  const task = await taskOfId(Number(id), tasks);
+  if (task.slug !== slug)
+    throw new RpcError(RPC_ERROR_CODES.INVALID_PARAMS, `No task ${word} exists: task ${id} is ${id}-${task.slug}`);
+  return task;
+};
+var taskOfId = async (id, tasks) => {
+  const task = await tasks.get(id);
+  if (task === void 0) throw new RpcError(RPC_ERROR_CODES.INVALID_PARAMS, `No task ${id} exists`);
+  return task;
+};
+var taskOfSlug = async (slug, tasks) => {
+  const [match, ...others] = (await tasks.list()).filter((task) => task.slug === slug);
+  if (match === void 0) throw new RpcError(RPC_ERROR_CODES.INVALID_PARAMS, `No task has the slug ${slug}`);
+  if (others.length > 0) {
+    const names = [match, ...others].map(({ id }) => `${id}-${slug}`).join(", ");
+    throw new RpcError(
+      RPC_ERROR_CODES.INVALID_PARAMS,
+      `Several tasks have the slug ${slug}: ${names}. Name one by its id`
+    );
+  }
+  return taskOfId(match.id, tasks);
+};
+
+// src/rpc/task-guards.ts
+var openTask = async (taskId, tasks) => {
+  const task = await openAmendableTask(taskId, tasks);
+  if (task.status === "complete")
+    throw new RpcError(
+      RPC_ERROR_CODES.INVALID_REQUEST,
+      `The plan of task ${taskId} is complete, so only its design and the tickets whose work has not started can change`
+    );
+  return task;
+};
+var openAmendableTask = async (taskId, tasks) => {
+  const task = await findTask(taskId, tasks);
+  if (task.status === "done")
+    throw new RpcError(RPC_ERROR_CODES.INVALID_REQUEST, `Task ${taskId} is done, so its plan cannot change`);
+  return task;
+};
+var openCompleteTask = async (taskId, tasks) => {
+  const task = await findTask(taskId, tasks);
+  checkComplete(task);
+  return task;
+};
+var openTicket = async (taskId, ticketId, tasks) => {
+  const task = await openCompleteTask(taskId, tasks);
+  return { task, ticket: ticketOf(task, ticketId) };
+};
+var checkComplete = (task) => {
+  if (task.status === "done")
+    throw new RpcError(RPC_ERROR_CODES.INVALID_REQUEST, `Task ${task.id} is done, and its branch landed already`);
+  if (task.status !== "complete") throw notCompleteError(task);
+};
+var notCompleteError = (task) => new RpcError(RPC_ERROR_CODES.INVALID_REQUEST, `The plan of task ${task.id} is not complete. Complete it first`);
+var ticketOf = (task, ticketId) => {
+  const ticket = task.tickets.find(({ id }) => id === ticketId);
+  if (ticket === void 0)
+    throw new RpcError(RPC_ERROR_CODES.INVALID_PARAMS, `Task ${task.id} has no ticket ${ticketId}`);
+  return ticket;
+};
+
+// src/rpc/method.design-save.ts
 var PARAMS = external_exports.object({
-  sessionId: external_exports.string().min(1).describe("Session id of the session or subagent that waits, or its beginning"),
-  after: external_exports.number().int().min(0).default(0).describe("Number of the last message that the session has received")
+  taskId: external_exports.number().int().positive().describe("Identifier of the task"),
+  design: external_exports.string().trim().min(1).describe("Whole design of the task in Markdown, which replaces the stored one")
 });
-var inboxAwaitCommandMethod = {
-  name: "inboxAwaitCommand",
-  description: "Waits for the next messages of a session or a subagent, and acknowledges the ones before.",
-  agent: false,
+var designSaveMethod = {
+  name: "designSave",
+  description: "Replaces the design of a task of the atomic workflow with a whole new draft of it, and returns the task. The design of a complete task can change too, until the task is done.",
+  agent: true,
   params: PARAMS,
-  handle: async ({ sessionId: name, after }, { subagents, inboxes }) => {
-    const sessionId = inboxes.find(name) ?? name;
-    subagents.attach(sessionId);
-    return inboxes.take(sessionId, after);
+  handle: async ({ taskId, design }, { tasks }) => {
+    await openAmendableTask(taskId, tasks);
+    await tasks.setDesign(taskId, design);
+    return findTask(taskId, tasks);
   }
 };
 
-// src/rpc/method.inbox-await.ts
-var BIND_TIMEOUT = 5e3;
-var PARAMS2 = external_exports.object({
-  sessionId: external_exports.string().min(1).describe("Session id of the session whose inbox to wait for")
-});
-var inboxAwaitMethod = {
-  name: "inboxAwait",
-  description: "Waits a few seconds for a session to have an inbox, and returns the command that waits for its messages.",
-  agent: false,
+// src/rpc/method.echo.ts
+var PARAMS2 = external_exports.object({ message: external_exports.string().describe("Text to send back") });
+var echoMethod = {
+  name: "echo",
+  description: "Sends a message to the atomic-workflow server, which returns it unchanged. Use it to test the connection.",
+  agent: true,
   params: PARAMS2,
-  handle: async ({ sessionId }, { inboxes, awaitCommandLine }) => {
-    const opened = await inboxes.awaitOpen(sessionId, BIND_TIMEOUT);
-    return { commandLine: opened ? awaitCommandLine(sessionId) : null };
+  handle: async ({ message }) => ({ message })
+};
+
+// src/rpc/method.goal-delete.ts
+var PARAMS3 = external_exports.object({
+  taskId: external_exports.number().int().positive().describe("Identifier of the task"),
+  goalId: external_exports.number().int().positive().describe("Number of the goal to delete within the task, counted from 1. Each later goal moves down by one")
+});
+var goalDeleteMethod = {
+  name: "goalDelete",
+  description: "Deletes a goal of a task of the atomic workflow, and returns the task.",
+  agent: true,
+  params: PARAMS3,
+  handle: async ({ taskId, goalId }, { tasks }) => {
+    await openTask(taskId, tasks);
+    if (!await tasks.deleteGoal(taskId, goalId))
+      throw new RpcError(RPC_ERROR_CODES.INVALID_PARAMS, `Task ${taskId} has no goal ${goalId}`);
+    return findTask(taskId, tasks);
   }
 };
 
@@ -20399,105 +20484,79 @@ var GOAL_SOURCES = ["user", "agent"];
 var TICKET_MODES = ["unattended", "attended", "manual"];
 var TICKET_COMPLEXITIES = ["simple", "complex"];
 var TICKET_TYPES = ["code", "other"];
+var TICKET_STATUSES = ["not-started", "in-progress", "needs-review", "blocked", "done"];
 var TICKET_STAGES = ["prototype", "tests", "refactor"];
 
-// src/rpc/slug.ts
-var SLUG = external_exports.string().max(60).regex(/^[a-z0-9]+-[a-z0-9]+-[a-z0-9]+$/, "Must be three lowercase words joined by hyphens");
-
-// src/rpc/method.task-create.ts
-var PARAMS3 = external_exports.object({
-  slug: SLUG.describe(
-    "Short name of the task, derived from what the user asked for: exactly three lowercase words joined by hyphens"
-  ),
-  summary: external_exports.string().trim().min(1).regex(/^[^\r\n]*$/, "Must be one line").describe("Summary of the first goal, on one line"),
-  details: external_exports.string().trim().min(1).optional().describe("Further information and comments on the first goal"),
-  source: external_exports.enum(GOAL_SOURCES).describe("Who the first goal came from: user, or agent for an accepted suggestion")
-});
-var taskCreateMethod = {
-  name: "taskCreate",
-  description: "Creates a task of the atomic workflow with its first goal, once the user approved that goal, and returns it.",
-  agent: true,
-  params: PARAMS3,
-  handle: async ({ slug, summary, details = null, source }, { tasks }) => tasks.create({ slug, createdAt: Date.now(), goal: { summary, details, source } })
-};
-
-// src/rpc/method.task-get.ts
-var TASK_REFERENCE = external_exports.union([external_exports.number().int().positive(), external_exports.string().min(1)]).describe("Task: its identifier, its slug, or both as <id>-<slug>, such as 3-cache-layer-redis");
+// src/rpc/method.goal-save.ts
 var PARAMS4 = external_exports.object({
-  task: TASK_REFERENCE
+  taskId: external_exports.number().int().positive().describe("Identifier of the task"),
+  goalId: external_exports.number().int().positive().optional().describe("Number of the goal to edit within the task, counted from 1, a new goal when left out"),
+  summary: external_exports.string().trim().min(1).regex(/^[^\r\n]*$/, "Must be one line").describe("Summary of the goal, on one line"),
+  details: external_exports.string().trim().min(1).optional().describe("Further information and comments on the goal, none when left out"),
+  source: external_exports.enum(GOAL_SOURCES).optional().describe("Who a new goal came from: user, or agent for an accepted suggestion. Required for a new goal only")
 });
-var taskGetMethod = {
-  name: "taskGet",
-  description: "Returns a task of the atomic workflow, named by its id, its slug or both as <id>-<slug>, with its status, its goals, its design and its tickets.",
+var goalSaveMethod = {
+  name: "goalSave",
+  description: "Adds a goal that the user approved to a task of the atomic workflow, or edits one of its goals, and returns the task.",
   agent: true,
   params: PARAMS4,
-  handle: async ({ task }, { tasks }) => findTask(task, tasks)
-};
-var findTask = async (reference, tasks) => {
-  const word = String(reference);
-  if (/^\d+$/.test(word)) return taskOfId(Number(word), tasks);
-  const [, id = "", slug = ""] = /^(\d+)-(.+)$/.exec(word) ?? [];
-  if (!SLUG.safeParse(slug).success) return taskOfSlug(word, tasks);
-  const task = await taskOfId(Number(id), tasks);
-  if (task.slug !== slug)
-    throw new RpcError(RpcErrorCode.INVALID_PARAMS, `No task ${word} exists: task ${id} is ${id}-${task.slug}`);
-  return task;
-};
-var taskOfId = async (id, tasks) => {
-  const task = await tasks.get(id);
-  if (task === void 0) throw new RpcError(RpcErrorCode.INVALID_PARAMS, `No task ${id} exists`);
-  return task;
-};
-var taskOfSlug = async (slug, tasks) => {
-  const [match, ...others] = (await tasks.list()).filter((task) => task.slug === slug);
-  if (match === void 0) throw new RpcError(RpcErrorCode.INVALID_PARAMS, `No task has the slug ${slug}`);
-  if (others.length > 0) {
-    const names = [match, ...others].map(({ id }) => `${id}-${slug}`).join(", ");
-    throw new RpcError(
-      RpcErrorCode.INVALID_PARAMS,
-      `Several tasks have the slug ${slug}: ${names}. Name one by its id`
-    );
+  handle: async ({ taskId, goalId, summary, details = null, source }, { tasks }) => {
+    await openTask(taskId, tasks);
+    if (goalId === void 0) {
+      if (source === void 0) throw new RpcError(RPC_ERROR_CODES.INVALID_PARAMS, "A new goal needs a source");
+      await tasks.addGoal(taskId, { summary, details, source });
+    } else if (!await tasks.editGoal(taskId, goalId, { summary, details }))
+      throw new RpcError(RPC_ERROR_CODES.INVALID_PARAMS, `Task ${taskId} has no goal ${goalId}`);
+    return findTask(taskId, tasks);
   }
-  return taskOfId(match.id, tasks);
 };
 
-// src/rpc/open-task.ts
-var openTask = async (taskId, context) => {
-  const task = await openAmendableTask(taskId, context);
-  if (task.status === "complete")
-    throw new RpcError(
-      RpcErrorCode.INVALID_REQUEST,
-      `The plan of task ${taskId} is complete, so only its design and the tickets whose work has not started can change`
-    );
-  return task;
-};
-var openAmendableTask = async (taskId, context) => {
-  const task = await taskGetMethod.handle({ task: taskId }, context);
-  if (task.status === "done")
-    throw new RpcError(RpcErrorCode.INVALID_REQUEST, `Task ${taskId} is done, so its plan cannot change`);
-  return task;
-};
-
-// src/rpc/method.goal-delete.ts
+// src/rpc/method.inbox-await.ts
+var BIND_TIMEOUT = 5e3;
 var PARAMS5 = external_exports.object({
-  taskId: external_exports.number().int().positive().describe("Identifier of the task"),
-  goalId: external_exports.number().int().positive().describe("Number of the goal to delete within the task, counted from 1. Each later goal moves down by one")
+  sessionId: external_exports.string().min(1).describe("Session id of the session whose inbox to wait for")
 });
-var goalDeleteMethod = {
-  name: "goalDelete",
-  description: "Deletes a goal of a task of the atomic workflow, and returns the task.",
-  agent: true,
+var inboxAwaitMethod = {
+  name: "inboxAwait",
+  description: "Waits a few seconds for a session to have an inbox, and returns the command that waits for its messages.",
+  agent: false,
   params: PARAMS5,
-  handle: async ({ taskId, goalId }, context) => {
-    await openTask(taskId, context);
-    if (!await context.tasks.deleteGoal(taskId, goalId))
-      throw new RpcError(RpcErrorCode.INVALID_PARAMS, `Task ${taskId} has no goal ${goalId}`);
-    return taskGetMethod.handle({ task: taskId }, context);
+  handle: async ({ sessionId }, { inboxes, awaitCommandLine }) => {
+    const opened = await inboxes.awaitOpen(sessionId, BIND_TIMEOUT);
+    return { commandLine: opened ? awaitCommandLine(sessionId) : null };
   }
+};
+
+// src/rpc/method.inbox-await-command.ts
+var PARAMS6 = external_exports.object({
+  sessionId: external_exports.string().min(1).describe("Session id of the session or subagent that waits, or its beginning"),
+  after: external_exports.number().int().min(0).default(0).describe("Number of the last message that the session has received")
+});
+var inboxAwaitCommandMethod = {
+  name: "inboxAwaitCommand",
+  description: "Waits for the next messages of a session or a subagent, and acknowledges the ones before.",
+  agent: false,
+  params: PARAMS6,
+  handle: async ({ sessionId: name, after }, { subagents, inboxes }) => {
+    const sessionId = inboxes.find(name) ?? name;
+    subagents.attach(sessionId);
+    return inboxes.take(sessionId, after);
+  }
+};
+
+// src/rpc/deliver-message.ts
+var deliverUserMessage = async (sessionId, content, context) => {
+  deliverServerMessage(sessionId, content, context.inboxes);
+  const timestamp = context.clock.now();
+  await context.messageLog.append({ sessionId, messageId: null, sender: "user", content, timestamp });
+};
+var deliverServerMessage = (sessionId, content, inboxes) => {
+  if (!inboxes.deliver(sessionId, content))
+    throw new RpcError(RPC_ERROR_CODES.INVALID_PARAMS, `No session ${sessionId} is attached`);
 };
 
 // src/rpc/method.message-deliver.ts
-var PARAMS6 = external_exports.object({
+var PARAMS7 = external_exports.object({
   sessionId: external_exports.string().describe("Identifier of the attached session or subagent to deliver the message to"),
   content: external_exports.string().min(1).describe("Text of the message")
 });
@@ -20505,181 +20564,224 @@ var messageDeliverMethod = {
   name: "messageDeliver",
   description: "Puts a message into the inbox of an attached session of the repository, or of a subagent.",
   agent: false,
-  params: PARAMS6,
-  handle: async ({ sessionId, content }, { inboxes, messageLog }) => {
-    deliverServerMessage(inboxes, sessionId, content);
-    await messageLog.append({ sessionId, messageId: null, sender: "user", content, timestamp: Date.now() });
-  }
-};
-var deliverServerMessage = (inboxes, sessionId, content) => {
-  if (!inboxes.deliver(sessionId, content))
-    throw new RpcError(RpcErrorCode.INVALID_PARAMS, `No session ${sessionId} is attached`);
-};
-
-// src/rpc/method.echo.ts
-var PARAMS7 = external_exports.object({ message: external_exports.string().describe("Text to send back") });
-var echoMethod = {
-  name: "echo",
-  description: "Sends a message to the atomic-workflow server, which returns it unchanged. Use it to test the connection.",
-  agent: true,
   params: PARAMS7,
-  handle: async ({ message }) => ({ message })
+  handle: async ({ sessionId, content }, context) => deliverUserMessage(sessionId, content, context)
 };
 
-// src/rpc/method.subagent-end.ts
+// src/storage/session-store.ts
+var AGENTS = ["claude", "codex"];
+var SESSION_ROLES = ["orchestrator", "subagent"];
+var SESSION_ALIAS_MAX_LENGTH = 60;
+
+// src/rpc/method.message-list.ts
 var PARAMS8 = external_exports.object({
-  sessionId: external_exports.string().describe("Session id of the subagent that has ended")
+  sessionId: external_exports.string().optional().describe("Identifier of the session whose messages to return, all when left out"),
+  role: external_exports.enum(SESSION_ROLES).optional().describe("Role of the sessions whose messages to return, all when left out"),
+  after: external_exports.number().int().nonnegative().optional().describe("Identifier after which the list starts, 0 for the start, the latest messages when left out"),
+  limit: external_exports.number().int().min(1).max(1e3).default(100).describe("Greatest number of messages to return")
 });
-var subagentEndMethod = {
-  name: "subagentEnd",
-  description: "Removes a subagent that has ended from the started subagents.",
+var messageListMethod = {
+  name: "messageList",
+  description: "Returns the messages of the message log of the repository after an identifier, or the latest ones.",
   agent: false,
   params: PARAMS8,
-  handle: async ({ sessionId }, { subagents, inboxes }) => {
-    if (subagents.stop(sessionId)) inboxes.close(sessionId);
-  }
+  handle: async ({ sessionId, role, after, limit }, { messageLog }) => ({
+    messages: await messageLog.list({ sessionId, role, after, limit })
+  })
 };
 
-// src/rpc/method.task-list.ts
-var PARAMS9 = external_exports.object({});
-var taskListMethod = {
-  name: "taskList",
-  description: "Returns every task of the atomic workflow with its slug, its status, its creation time and its number of completed tickets, whose work landed, and its total number of tickets.",
-  agent: true,
-  params: PARAMS9,
-  handle: async (_params, { tasks }) => ({ tasks: await tasks.list() })
+// src/storage/message-log-store.ts
+var MESSAGE_SENDERS = ["user", "agent"];
+
+// src/rpc/registered-session.ts
+var registeredSession = async (sessionId, sessions) => {
+  const session = await sessions.get(sessionId);
+  if (session === void 0)
+    throw new RpcError(RPC_ERROR_CODES.INVALID_PARAMS, `No session ${sessionId} is registered`);
+  return session;
 };
 
-// src/worktree/worktree-error.ts
-var WorktreeError = class extends Error {
-  /**
-   * Kind of the refusal.
-   */
-  kind;
-  /**
-   * Paths of the files in conflict, relative to the worktree and with forward slashes, for a `conflict`. Empty for
-   * every other kind.
-   */
-  files;
-  /**
-   * Creates the refusal of the kind `kind` with the description `message` and the conflicting files `files`.
-   */
-  constructor(kind, message, files = []) {
-    super(message);
-    this.name = "WorktreeError";
-    this.kind = kind;
-    this.files = files;
-  }
-};
-
-// src/rpc/open-ticket.ts
-var openTicket = async (taskId, ticketId, context) => {
-  const task = await openCompleteTask(taskId, context);
-  const ticket = task.tickets.find(({ id }) => id === ticketId);
-  if (ticket === void 0) throw new RpcError(RpcErrorCode.INVALID_PARAMS, `Task ${taskId} has no ticket ${ticketId}`);
-  return { task, ticket };
-};
-var openCompleteTask = async (taskId, context) => {
-  const task = await taskGetMethod.handle({ task: taskId }, context);
-  if (task.status === "done")
-    throw new RpcError(RpcErrorCode.INVALID_REQUEST, `Task ${taskId} is done, and its branch landed already`);
-  if (task.status !== "complete")
-    throw new RpcError(RpcErrorCode.INVALID_REQUEST, `The plan of task ${taskId} is not complete. Complete it first`);
-  return task;
-};
-var hasLanded = (status) => status === "needs-review" || status === "done";
-var pendingDependencies = (task, ticket) => ticket.dependsOn.filter((id) => {
-  const dependency = task.tickets.find((other) => other.id === id);
-  return dependency === void 0 || !hasLanded(dependency.status);
+// src/rpc/method.message-log.ts
+var PARAMS9 = external_exports.object({
+  sessionId: external_exports.string().describe("Identifier of the registered session that the message belongs to"),
+  messageId: external_exports.string().optional().describe("Identifier that the agent gives the message, unique in its session"),
+  sender: external_exports.enum(MESSAGE_SENDERS).describe("Who wrote the message: user or agent"),
+  content: external_exports.string().describe("Text of the message"),
+  timestamp: external_exports.number().int().nonnegative().optional().describe("Time of the message in ms since the epoch")
 });
-var lastingHolder = (context) => {
-  if (context.caller !== void 0) return context.caller;
-  throw new RpcError(
-    RpcErrorCode.INVALID_REQUEST,
-    "Only a client that is connected to the repository server can start the work on a ticket"
-  );
-};
-var callHolder = (context) => context.caller ?? { closed: new Promise(() => void 0) };
-var claimTickets = (taskId, ticketIds, holder, context) => {
-  const held = ticketIds.filter((id) => context.ticketClaims.isHeldByOther(taskId, id, holder));
-  if (held.length > 0)
-    throw new RpcError(
-      RpcErrorCode.INVALID_REQUEST,
-      `${held.length === 1 ? "Ticket" : "Tickets"} ${held.join(", ")} of task ${taskId} ${held.length === 1 ? "is" : "are"} in progress in another session`
-    );
-  return ticketIds.filter((id) => context.ticketClaims.claim(taskId, id, holder) === "claimed");
-};
-var releaseTickets = (taskId, ticketIds, context) => {
-  for (const id of ticketIds) context.ticketClaims.release(taskId, id);
-};
-var endWork = async (taskId, ticketIds, context, operation) => {
-  claimTickets(taskId, ticketIds, callHolder(context), context);
-  try {
-    return await operation();
-  } finally {
-    releaseTickets(taskId, ticketIds, context);
+var messageLogMethod = {
+  name: "messageLog",
+  description: "Adds a message to the message log of the repository, and returns it with its identifier.",
+  agent: false,
+  params: PARAMS9,
+  handle: async ({ sessionId, messageId, sender, content, timestamp }, { sessions, messageLog, clock }) => {
+    const at = timestamp ?? clock.now();
+    await registeredSession(sessionId, sessions);
+    return messageLog.append({ sessionId, messageId: messageId ?? null, sender, content, timestamp: at });
   }
 };
-var worktreeCall = async (call3) => {
+
+// src/rpc/method.message-log-delete.ts
+var PARAMS10 = external_exports.object({
+  sessionId: external_exports.string().min(1).describe("Identifier of the registered session whose messages to delete")
+});
+var messageLogDeleteMethod = {
+  name: "messageLogDelete",
+  description: "Deletes every message of a session from the message log of the repository, for good.",
+  agent: false,
+  params: PARAMS10,
+  handle: async ({ sessionId }, { sessions, messageLog }) => {
+    await registeredSession(sessionId, sessions);
+    return { deleted: await messageLog.deleteSession(sessionId) };
+  }
+};
+
+// src/rpc/method.repository-get.ts
+import { basename } from "node:path";
+var PARAMS11 = external_exports.object({});
+var repositoryGetMethod = {
+  name: "repositoryGet",
+  description: "Returns the repository of the atomic workflow: the absolute path of its main worktree, and its name, the last segment of that path.",
+  agent: false,
+  params: PARAMS11,
+  handle: async (_params, { mainWorktree }) => ({ name: basename(mainWorktree), directory: mainWorktree })
+};
+
+// src/rpc/method.session-action-report.ts
+var PARAMS12 = external_exports.object({
+  sessionId: external_exports.string().min(1).describe("Identifier of the session whose newest action to report"),
+  action: external_exports.string().min(1).nullable().describe("Newest tool call of the agent in one line, or null for none"),
+  at: external_exports.number().int().nonnegative().describe("Time from which the action stands in ms since the epoch")
+});
+var sessionActionReportMethod = {
+  name: "sessionActionReport",
+  description: "Reports the newest tool call of the agent of a session, or that it has none.",
+  agent: false,
+  params: PARAMS12,
+  handle: async ({ sessionId, action, at }, { activity }) => {
+    activity.reportAction(sessionId, action, at);
+  }
+};
+
+// src/attachment/session-activity.ts
+var ACTIVITY_STATUSES = ["idle", "working", "waiting"];
+
+// src/rpc/method.session-activity-report.ts
+var PARAMS13 = external_exports.object({
+  sessionId: external_exports.string().min(1).describe("Identifier of the session whose status to report"),
+  status: external_exports.enum(ACTIVITY_STATUSES).describe("Status of the agent of the session: idle, working or waiting"),
+  at: external_exports.number().int().nonnegative().optional().describe("Time from which the status stands in ms since the epoch")
+});
+var sessionActivityReportMethod = {
+  name: "sessionActivityReport",
+  description: "Reports whether the agent of a session is idle, works, or waits for the user.",
+  agent: false,
+  params: PARAMS13,
+  handle: async ({ sessionId, status, at }, { activity, clock }) => {
+    activity.report(sessionId, status, at ?? clock.now());
+  }
+};
+
+// src/rpc/method.session-alias-set.ts
+var PARAMS14 = external_exports.object({
+  sessionId: external_exports.string().min(1).describe("Identifier of the registered session"),
+  alias: external_exports.string().min(1).max(SESSION_ALIAS_MAX_LENGTH).regex(/^[^\r\n]*$/, "An alias holds no line break").nullable().describe(
+    `Display name of the session, 1 to ${SESSION_ALIAS_MAX_LENGTH} characters with no line break, or null for none`
+  )
+});
+var sessionAliasSetMethod = {
+  name: "sessionAliasSet",
+  description: "Replaces the alias of a session, the name that shows in place of its id, or clears it for null.",
+  agent: false,
+  params: PARAMS14,
+  handle: async ({ sessionId, alias }, { sessions }) => {
+    await registeredSession(sessionId, sessions);
+    await sessions.setAlias(sessionId, alias);
+  }
+};
+
+// src/rpc/call-method.ts
+var callMethod = async (method, params, connection) => (
+  // The peer runs `method` itself, so the result has the type of `method`. No schema of the result exists to check it.
+  await connection.request(method.name, params)
+);
+
+// src/rpc/session-method.subagent-task-id.ts
+var PARAMS15 = external_exports.object({
+  sessionId: external_exports.string().min(1).describe("Identifier of the session of the subagent")
+});
+var subagentTaskIdSessionMethod = {
+  name: "subagentTaskId",
+  description: "Returns the id of the background task that runs a subagent of the session.",
+  agent: false,
+  params: PARAMS15,
+  handle: async ({ sessionId }, { subagentTaskId }) => ({ backgroundTaskId: subagentTaskId(sessionId) ?? null })
+};
+
+// src/rpc/subagent-queries.ts
+var attachedSubagent = (sessionId, subagents) => subagents.list().find((subagent) => subagent.sessionId === sessionId);
+var attachedSubagentSessions = async (context) => {
+  const attached = new Set(context.subagents.list().map(({ sessionId }) => sessionId));
+  return (await context.sessions.list()).filter(({ id }) => attached.has(id));
+};
+var subagentsOfTask = async (taskId, context) => {
+  const ofTask = new Set(
+    (await context.sessions.list()).filter((session) => session.role === "subagent" && session.taskId === taskId).map(({ id }) => id)
+  );
+  return context.subagents.list().filter(({ sessionId }) => ofTask.has(sessionId));
+};
+
+// src/rpc/stop-subagent.ts
+var stopSubagent = async (sessionId, context) => {
+  const { subagents, inboxes } = context;
+  const subagent = attachedSubagent(sessionId, subagents);
+  if (subagent !== void 0) await killTask(sessionId, subagent.parentId, context);
+  if (!subagents.stop(sessionId)) return false;
+  inboxes.close(sessionId);
+  return true;
+};
+var killTask = async (sessionId, parentId, context) => {
+  const connection = context.sessionConnections.get(parentId);
+  if (connection === void 0) return;
+  const { backgroundTaskId } = await callMethod(subagentTaskIdSessionMethod, { sessionId }, connection);
+  if (backgroundTaskId === null) return;
+  deliverServerMessage(parentId, killMessage(sessionId, backgroundTaskId), context.inboxes);
+};
+var killMessage = (sessionId, backgroundTaskId) => [
+  "Stop a subagent for the atomic-workflow server now, and do nothing else for this message.",
+  `Call the TaskStop tool with task_id "${backgroundTaskId}", the subagent "atomic-workflow subagent ${sessionId.slice(0, 8)}". Do not reply about its end. The atomic-workflow server handles it.`
+].join("\n");
+
+// src/rpc/delete-subagent.ts
+var deleteSubagent = async (sessionId, context) => {
+  await stopDeletedSubagent(sessionId, context);
+  return context.sessions.delete(sessionId);
+};
+var stopDeletedSubagent = async (sessionId, context) => {
   try {
-    return await call3();
-  } catch (error62) {
-    if (!(error62 instanceof WorktreeError)) throw error62;
-    throw new RpcError(RpcErrorCode.INVALID_REQUEST, error62.message, { kind: error62.kind, files: error62.files });
+    await stopSubagent(sessionId, context);
+  } catch {
+    if (context.subagents.stop(sessionId)) context.inboxes.close(sessionId);
   }
 };
 
 // src/rpc/method.session-delete.ts
-var PARAMS10 = external_exports.object({
+var PARAMS16 = external_exports.object({
   sessionId: external_exports.string().min(1).describe("Identifier of the registered subagent to delete")
 });
-var deleteSubagent = async (sessionId, { subagents, inboxes, sessions }) => {
-  if (subagents.stop(sessionId)) inboxes.close(sessionId);
-  return sessions.delete(sessionId);
-};
 var sessionDeleteMethod = {
   name: "sessionDelete",
   description: "Deletes a subagent with its messages, for good, and stops it while it runs.",
   agent: false,
-  params: PARAMS10,
+  params: PARAMS16,
   handle: async ({ sessionId }, context) => {
-    const session = await context.sessions.get(sessionId);
-    if (session === void 0) throw new RpcError(RpcErrorCode.INVALID_PARAMS, `No session ${sessionId} is registered`);
+    const session = await registeredSession(sessionId, context.sessions);
     if (session.role !== "subagent")
-      throw new RpcError(RpcErrorCode.INVALID_PARAMS, `Session ${sessionId} is no subagent, so it cannot be deleted`);
+      throw new RpcError(
+        RPC_ERROR_CODES.INVALID_PARAMS,
+        `Session ${sessionId} is no subagent, so it cannot be deleted`
+      );
     await deleteSubagent(sessionId, context);
-  }
-};
-
-// src/rpc/method.task-delete.ts
-var PARAMS11 = external_exports.object({
-  task: TASK_REFERENCE,
-  force: external_exports.boolean().default(false).describe(
-    "Whether to delete the task also when its branches hold commits that have not landed, or its worktrees hold uncommitted changes, which are then lost"
-  )
-});
-var deleteSubagents = async (taskId, context) => {
-  const subagents = (await context.sessions.list()).filter(
-    (session) => session.role === "subagent" && session.taskId === taskId
-  );
-  for (const { id } of subagents) await deleteSubagent(id, context);
-  return subagents.map(({ id }) => id);
-};
-var taskDeleteMethod = {
-  name: "taskDelete",
-  description: "Deletes a task of the atomic workflow with its goals, its design, its tickets, and its worktrees and branches, for good. Refuses to lose work that has not landed unless forced.",
-  agent: true,
-  params: PARAMS11,
-  handle: async ({ task: reference, force }, context) => {
-    const task = await taskGetMethod.handle({ task: reference }, context);
-    const taskId = task.id;
-    const ticketIds = task.tickets.map(({ id }) => id);
-    return endWork(taskId, ticketIds, context, async () => {
-      const worktrees = await worktreeCall(() => context.worktrees.deleteTask(task, task.baseBranch, force));
-      await context.tasks.delete(taskId);
-      const subagents = await deleteSubagents(taskId, context);
-      return { taskId, slug: task.slug, worktrees, subagents };
-    });
   }
 };
 
@@ -20689,7 +20791,7 @@ var ORCHESTRATOR_JOB = "orchestrator";
 var SHORT_ID_LENGTH = 8;
 var SKILL_COMMAND = /^\/(?:[\w-]+:)?([\w-]+)(?:\s|$)/;
 var jobOfPrompt = (prompt) => SKILL_COMMAND.exec(prompt?.trimStart() ?? "")?.[1] ?? null;
-var isTicketJob = (job) => job !== null && job.startsWith("implement") && job !== "implement-all";
+var isTicketJob = (job) => (job?.startsWith("implement") ?? false) && job !== "implement-all";
 var sessionNames = async (sessions, tasks) => {
   const taskIds = [...new Set(sessions.flatMap(({ taskId }) => taskId === null ? [] : [taskId]))];
   const known = new Map(
@@ -20719,7 +20821,7 @@ var baseNameOf = (session, task) => {
 };
 
 // src/rpc/method.session-list.ts
-var PARAMS12 = external_exports.object({
+var PARAMS17 = external_exports.object({
   attached: external_exports.boolean().optional().describe(
     "true for only the attached sessions, which can take a message now, false for only the others, all when left out"
   )
@@ -20728,7 +20830,7 @@ var sessionListMethod = {
   name: "sessionList",
   description: "Returns the sessions and subagents of the repository, whether each one is attached, so messages can be delivered to it now, and whether its agent is idle, works, waits for the user, or has ended.",
   agent: false,
-  params: PARAMS12,
+  params: PARAMS17,
   handle: async ({ attached }, context) => {
     const registered = await context.sessions.list();
     const details = await detailsOf(registered, context);
@@ -20794,131 +20896,35 @@ var attachedSessions = ({
 ];
 var activityFields = (activity) => activity ?? { status: "idle", turnStartedAt: null, latestAction: null };
 
-// src/rpc/method.session-activity-report.ts
-var PARAMS13 = external_exports.object({
-  sessionId: external_exports.string().min(1).describe("Identifier of the session whose status to report"),
-  status: external_exports.enum(ACTIVITY_STATUSES).describe("Status of the agent of the session: idle, working or waiting"),
-  at: external_exports.number().int().nonnegative().optional().describe("Time from which the status stands in ms since the epoch")
+// src/rpc/new-session.ts
+var newSession = ({
+  id,
+  agent,
+  directory,
+  startedAt,
+  role,
+  parentId,
+  taskId = null,
+  job = null,
+  ticketId = null
+}) => ({
+  id,
+  agent,
+  directory,
+  startedAt,
+  role,
+  parentId,
+  taskId,
+  job,
+  ticketId,
+  alias: null,
+  contextTokens: null,
+  model: null,
+  effort: null
 });
-var sessionActivityReportMethod = {
-  name: "sessionActivityReport",
-  description: "Reports whether the agent of a session is idle, works, or waits for the user.",
-  agent: false,
-  params: PARAMS13,
-  handle: async ({ sessionId, status, at = Date.now() }, { activity }) => {
-    activity.report(sessionId, status, at);
-  }
-};
-
-// src/rpc/method.session-action-report.ts
-var PARAMS14 = external_exports.object({
-  sessionId: external_exports.string().min(1).describe("Identifier of the session whose newest action to report"),
-  action: external_exports.string().min(1).nullable().describe("Newest tool call of the agent in one line, or null for none"),
-  at: external_exports.number().int().nonnegative().describe("Time from which the action stands in ms since the epoch")
-});
-var sessionActionReportMethod = {
-  name: "sessionActionReport",
-  description: "Reports the newest tool call of the agent of a session, or that it has none.",
-  agent: false,
-  params: PARAMS14,
-  handle: async ({ sessionId, action, at }, { activity }) => {
-    activity.reportAction(sessionId, action, at);
-  }
-};
-
-// src/rpc/method.session-usage-set.ts
-var PARAMS15 = external_exports.object({
-  sessionId: external_exports.string().min(1).describe("Identifier of the registered session"),
-  contextTokens: external_exports.number().int().nonnegative().describe("Size of the context of the session in tokens, as the usage of its newest model request shows it"),
-  model: external_exports.string().min(1).nullable().describe("Identifier of the model that answered the newest model request, or null when it is not known"),
-  effort: external_exports.string().min(1).nullable().describe("Reasoning effort of the newest model request, or null when it is not known")
-});
-var sessionUsageSetMethod = {
-  name: "sessionUsageSet",
-  description: "Sets the context size, the model and the effort of a session, from its newest model request.",
-  agent: false,
-  params: PARAMS15,
-  handle: async ({ sessionId, ...usage }, { sessions }) => {
-    if (await sessions.get(sessionId) === void 0)
-      throw new RpcError(RpcErrorCode.INVALID_PARAMS, `No session ${sessionId} is registered`);
-    await sessions.setUsage(sessionId, usage);
-  }
-};
-
-// src/storage/session-store.ts
-var AGENTS = ["claude", "codex"];
-var SESSION_ROLES = ["orchestrator", "subagent"];
-var SESSION_ALIAS_MAX_LENGTH = 60;
-
-// src/rpc/method.message-list.ts
-var PARAMS16 = external_exports.object({
-  sessionId: external_exports.string().optional().describe("Identifier of the session whose messages to return, all when left out"),
-  role: external_exports.enum(SESSION_ROLES).optional().describe("Role of the sessions whose messages to return, all when left out"),
-  after: external_exports.number().int().nonnegative().optional().describe("Identifier after which the list starts, 0 for the start, the latest messages when left out"),
-  limit: external_exports.number().int().min(1).max(1e3).default(100).describe("Greatest number of messages to return")
-});
-var messageListMethod = {
-  name: "messageList",
-  description: "Returns the messages of the message log of the repository after an identifier, or the latest ones.",
-  agent: false,
-  params: PARAMS16,
-  handle: async ({ sessionId, role, after, limit }, { messageLog }) => ({
-    messages: await messageLog.list({ sessionId, role, after, limit })
-  })
-};
-
-// src/storage/message-log-store.ts
-var MESSAGE_SENDERS = ["user", "agent"];
-
-// src/rpc/method.message-log.ts
-var PARAMS17 = external_exports.object({
-  sessionId: external_exports.string().describe("Identifier of the registered session that the message belongs to"),
-  messageId: external_exports.string().optional().describe("Identifier that the agent gives the message, unique in its session"),
-  sender: external_exports.enum(MESSAGE_SENDERS).describe("Who wrote the message: user or agent"),
-  content: external_exports.string().describe("Text of the message"),
-  timestamp: external_exports.number().int().nonnegative().optional().describe("Time of the message in ms since the epoch")
-});
-var messageLogMethod = {
-  name: "messageLog",
-  description: "Adds a message to the message log of the repository, and returns it with its identifier.",
-  agent: false,
-  params: PARAMS17,
-  handle: async ({ sessionId, messageId, sender, content, timestamp = Date.now() }, { sessions, messageLog }) => {
-    if (await sessions.get(sessionId) === void 0)
-      throw new RpcError(RpcErrorCode.INVALID_PARAMS, `No session ${sessionId} is registered`);
-    return messageLog.append({ sessionId, messageId: messageId ?? null, sender, content, timestamp });
-  }
-};
-
-// src/rpc/method.message-log-delete.ts
-var PARAMS18 = external_exports.object({
-  sessionId: external_exports.string().min(1).describe("Identifier of the registered session whose messages to delete")
-});
-var messageLogDeleteMethod = {
-  name: "messageLogDelete",
-  description: "Deletes every message of a session from the message log of the repository, for good.",
-  agent: false,
-  params: PARAMS18,
-  handle: async ({ sessionId }, { sessions, messageLog }) => {
-    if (await sessions.get(sessionId) === void 0)
-      throw new RpcError(RpcErrorCode.INVALID_PARAMS, `No session ${sessionId} is registered`);
-    return { deleted: await messageLog.deleteSession(sessionId) };
-  }
-};
-
-// src/rpc/method.repository-get.ts
-import { basename } from "node:path";
-var PARAMS19 = external_exports.object({});
-var repositoryGetMethod = {
-  name: "repositoryGet",
-  description: "Returns the repository of the atomic workflow: the absolute path of its main worktree, and its name, the last segment of that path.",
-  agent: false,
-  params: PARAMS19,
-  handle: async (_params, { mainWorktree }) => ({ name: basename(mainWorktree), directory: mainWorktree })
-};
 
 // src/rpc/method.session-register.ts
-var PARAMS20 = external_exports.object({
+var PARAMS18 = external_exports.object({
   sessionId: external_exports.string().min(1).describe("Identifier of the session, as the agent gives it"),
   agent: external_exports.enum(AGENTS).describe("Agent that the session runs in: claude or codex"),
   directory: external_exports.string().min(1).describe("Absolute path of the directory of the project of the session"),
@@ -20930,29 +20936,23 @@ var sessionRegisterMethod = {
   name: "sessionRegister",
   description: "Registers a session of an agent in the repository, so that its messages can be logged.",
   agent: false,
-  params: PARAMS20,
-  handle: ({ sessionId, agent, directory, startedAt = Date.now(), role, parentId = null }, { sessions, activity }) => {
-    activity.forget(sessionId);
-    return sessions.register({
+  params: PARAMS18,
+  handle: async ({ sessionId, agent, directory, startedAt, role, parentId = null }, { sessions, activity, clock }) => {
+    const session = newSession({
       id: sessionId,
       agent,
       directory,
-      startedAt,
+      startedAt: startedAt ?? clock.now(),
       role,
-      parentId,
-      taskId: null,
-      job: null,
-      ticketId: null,
-      alias: null,
-      contextTokens: null,
-      model: null,
-      effort: null
+      parentId
     });
+    activity.forget(sessionId);
+    return sessions.register(session);
   }
 };
 
 // src/rpc/method.session-task-set.ts
-var PARAMS21 = external_exports.object({
+var PARAMS19 = external_exports.object({
   sessionId: external_exports.string().min(1).describe("Identifier of the registered session"),
   taskId: external_exports.number().int().positive().describe("Identifier of the task that the session works on"),
   created: external_exports.boolean().optional().describe("Whether the session created the task, false when left out")
@@ -20961,17 +20961,16 @@ var sessionTaskSetMethod = {
   name: "sessionTaskSet",
   description: "Sets the task that a subagent works on, unless it works on a task already and did not create this one.",
   agent: false,
-  params: PARAMS21,
+  params: PARAMS19,
   handle: async ({ sessionId, taskId, created = false }, { sessions }) => {
-    const session = await sessions.get(sessionId);
-    if (session === void 0) throw new RpcError(RpcErrorCode.INVALID_PARAMS, `No session ${sessionId} is registered`);
+    const session = await registeredSession(sessionId, sessions);
     if (session.role !== "subagent") return;
     await (created ? sessions.moveTask(sessionId, taskId) : sessions.setTask(sessionId, taskId));
   }
 };
 
 // src/rpc/method.session-ticket-set.ts
-var PARAMS22 = external_exports.object({
+var PARAMS20 = external_exports.object({
   sessionId: external_exports.string().min(1).describe("Identifier of the registered session"),
   ticketId: external_exports.number().int().positive().describe("Identifier of the ticket that the session works on")
 });
@@ -20979,37 +20978,203 @@ var sessionTicketSetMethod = {
   name: "sessionTicketSet",
   description: "Sets the ticket that a subagent works on, unless it works on a ticket already.",
   agent: false,
-  params: PARAMS22,
+  params: PARAMS20,
   handle: async ({ sessionId, ticketId }, { sessions }) => {
-    const session = await sessions.get(sessionId);
-    if (session === void 0) throw new RpcError(RpcErrorCode.INVALID_PARAMS, `No session ${sessionId} is registered`);
+    const session = await registeredSession(sessionId, sessions);
     if (session.role === "subagent" && isTicketJob(session.job)) await sessions.setTicket(sessionId, ticketId);
   }
 };
 
-// src/rpc/method.subagent-start.ts
-import { randomUUID } from "node:crypto";
+// src/rpc/method.session-usage-set.ts
+var PARAMS21 = external_exports.object({
+  sessionId: external_exports.string().min(1).describe("Identifier of the registered session"),
+  contextTokens: external_exports.number().int().nonnegative().describe("Size of the context of the session in tokens, as the usage of its newest model request shows it"),
+  model: external_exports.string().min(1).nullable().describe("Identifier of the model that answered the newest model request, or null when it is not known"),
+  effort: external_exports.string().min(1).nullable().describe("Reasoning effort of the newest model request, or null when it is not known")
+});
+var sessionUsageSetMethod = {
+  name: "sessionUsageSet",
+  description: "Sets the context size, the model and the effort of a session, from its newest model request.",
+  agent: false,
+  params: PARAMS21,
+  handle: async ({ sessionId, ...usage }, { sessions }) => {
+    await registeredSession(sessionId, sessions);
+    await sessions.setUsage(sessionId, usage);
+  }
+};
+
+// src/rpc/session-method.skill-list.ts
+var PARAMS22 = external_exports.object({
+  sessionId: external_exports.string().min(1).describe("Identifier of the session that the agent runs now")
+});
+var skillListSessionMethod = {
+  name: "skillList",
+  description: "Returns the skills that the agent of the session can run.",
+  agent: false,
+  params: PARAMS22,
+  handle: async ({ sessionId }, { listSkills }) => ({ skills: listSkills(sessionId) })
+};
+
+// src/rpc/method.skill-list.ts
+var ACTIVATION_SKILL = "atomic-workflow:atomic-workflow";
+var PARAMS23 = external_exports.object({
+  sessionId: external_exports.string().min(1).describe("Identifier of the attached session or subagent")
+});
+var skillListMethod = {
+  name: "skillList",
+  description: "Returns the skills that an attached session or subagent of the repository can run.",
+  agent: false,
+  params: PARAMS23,
+  handle: async ({ sessionId }, context) => {
+    const orchestratorId = orchestratorOf(sessionId, context);
+    const connection = orchestratorId === void 0 ? void 0 : context.sessionConnections.get(orchestratorId);
+    if (orchestratorId === void 0 || connection === void 0)
+      throw new RpcError(RPC_ERROR_CODES.INVALID_PARAMS, `No session ${sessionId} is attached`);
+    const { skills } = await callMethod(skillListSessionMethod, { sessionId: orchestratorId }, connection);
+    return { skills: skills.filter(({ name }) => name !== ACTIVATION_SKILL) };
+  }
+};
+var orchestratorOf = (sessionId, { sessionConnections, subagents }) => {
+  if (sessionConnections.get(sessionId) !== void 0) return sessionId;
+  return attachedSubagent(sessionId, subagents)?.parentId;
+};
+
+// src/rpc/register-subagent.ts
+var registerSubagent = async (parent, work, context) => {
+  const sessionId = context.createSessionId();
+  const { agent, directory } = parent;
+  const startedAt = context.clock.now();
+  await context.sessions.register(
+    newSession({ id: sessionId, agent, directory, startedAt, role: "subagent", parentId: parent.id, ...work })
+  );
+  return sessionId;
+};
 
 // src/rpc/session-method.subagent-follow.ts
-var PARAMS23 = external_exports.object({
+var PARAMS24 = external_exports.object({
   sessionId: external_exports.string().min(1).describe("Identifier of the session of the subagent"),
   parentId: external_exports.string().min(1).describe("Identifier of the orchestrator session that the subagent runs inside"),
   oneShot: external_exports.boolean().default(false).describe(
     "Whether the agent starts the subagent after the call, and the subagent ends once it finishes its prompt"
   )
 });
-var subagentFollowMethod = {
+var subagentFollowSessionMethod = {
   name: "subagentFollow",
   description: "Logs the transcript of a subagent of the session.",
   agent: false,
-  params: PARAMS23,
+  params: PARAMS24,
   handle: async ({ sessionId, parentId, oneShot }, { followSubagent }) => followSubagent(sessionId, parentId, oneShot)
 };
 
-// src/rpc/method.subagent-start.ts
+// src/rpc/method.subagent-create.ts
+var PARAMS25 = external_exports.object({
+  taskId: external_exports.number().int().positive().describe("Identifier of the task that the subagent works on"),
+  ticketId: external_exports.number().int().positive().optional().describe("Identifier of the ticket of the task that the subagent implements, which names its chat")
+});
+var subagentCreateMethod = {
+  name: "subagentCreate",
+  description: "Registers a subagent of this session that works on a task, and returns its session id. Start the subagent with the Agent tool right after, with a prompt whose first line is `Your session id is <session id>.`, so that its chat shows under the task.",
+  agent: true,
+  params: PARAMS25,
+  handle: async ({ taskId, ticketId }, context) => {
+    const { sessions, subagents, caller } = context;
+    const task = await findTask(taskId, context.tasks);
+    if (ticketId !== void 0) await checkTicket(task, ticketId, context);
+    const parentId = sessionOf(context);
+    const parent = parentId === void 0 ? void 0 : await sessions.get(parentId);
+    if (caller === void 0 || parentId === void 0 || parent === void 0)
+      throw new RpcError(RPC_ERROR_CODES.INVALID_REQUEST, "The caller serves no attached session");
+    const job = ticketId === void 0 ? null : "implement";
+    const sessionId = await registerSubagent(parent, { taskId, job, ticketId: ticketId ?? null }, context);
+    subagents.start(sessionId, parentId, caller);
+    subagents.attach(sessionId);
+    try {
+      await callMethod(subagentFollowSessionMethod, { sessionId, parentId, oneShot: true }, caller);
+    } catch (error62) {
+      subagents.stop(sessionId);
+      throw new RpcError(
+        RPC_ERROR_CODES.INTERNAL_ERROR,
+        `The subagent ${sessionId} cannot be followed: ${errorMessage(error62)}`
+      );
+    }
+    return { sessionId };
+  }
+};
+var sessionOf = ({ sessionConnections, caller }) => sessionConnections.list().find((sessionId) => sessionConnections.get(sessionId) === caller);
+var checkTicket = async (task, ticketId, context) => {
+  ticketOf(task, ticketId);
+  const busy = (await attachedSubagentSessions(context)).some(
+    (session) => session.taskId === task.id && session.ticketId === ticketId
+  );
+  if (busy)
+    throw new RpcError(
+      RPC_ERROR_CODES.INVALID_REQUEST,
+      `Ticket ${ticketId} of task ${task.id} runs in another subagent already. Wait for it to end`
+    );
+};
+
+// src/rpc/method.subagent-end.ts
+var PARAMS26 = external_exports.object({
+  sessionId: external_exports.string().describe("Session id of the subagent that has ended")
+});
+var subagentEndMethod = {
+  name: "subagentEnd",
+  description: "Removes a subagent that has ended from the started subagents.",
+  agent: false,
+  params: PARAMS26,
+  handle: async ({ sessionId }, { subagents, inboxes }) => {
+    if (subagents.stop(sessionId)) inboxes.close(sessionId);
+  }
+};
+
+// src/rpc/start-subagent.ts
 var ATTACH_TIMEOUT = 6e4;
 var AGENT_TYPE = "atomic-workflow:worker";
-var PARAMS24 = external_exports.object({
+var startSubagent = async ({ prompt, parentId: pickedId, taskId, job }, context) => {
+  const { sessions, sessionConnections, subagents, inboxes } = context;
+  if (taskId !== void 0) await findTask(taskId, context.tasks);
+  const parentId = pickedId ?? sessionConnections.list().at(-1);
+  const connection = parentId === void 0 ? void 0 : sessionConnections.get(parentId);
+  const parent = parentId === void 0 ? void 0 : await sessions.get(parentId);
+  if (parentId === void 0 || connection === void 0 || parent === void 0)
+    throw new RpcError(RPC_ERROR_CODES.INVALID_REQUEST, "No orchestrator session is attached");
+  const sessionId = await registerSubagent(parent, { taskId: taskId ?? null, job, ticketId: null }, context);
+  subagents.start(sessionId, parentId, connection);
+  inboxes.open(sessionId, connection.closed);
+  if (prompt !== void 0) await deliverUserMessage(sessionId, prompt, context);
+  try {
+    await spawn(parentId, sessionId, context);
+  } catch (error62) {
+    subagents.stop(sessionId);
+    inboxes.close(sessionId);
+    throw new RpcError(
+      RPC_ERROR_CODES.INTERNAL_ERROR,
+      `The subagent ${sessionId} did not attach: ${errorMessage(error62)}`
+    );
+  }
+  await callMethod(subagentFollowSessionMethod, { sessionId, parentId }, connection);
+  return { sessionId };
+};
+var spawn = async (parentId, sessionId, context) => {
+  const attached = context.subagents.waitForAttach(sessionId, context.timeoutSignal(ATTACH_TIMEOUT));
+  attached.catch(() => void 0);
+  const content = spawnMessage(sessionId, context.awaitCommandLine(sessionId));
+  deliverServerMessage(parentId, content, context.inboxes);
+  await attached;
+};
+var spawnMessage = (sessionId, commandLine) => [
+  "Start a subagent for the atomic-workflow server now, and do nothing else for this message.",
+  `Call the Agent tool with run_in_background set to true, subagent_type "${AGENT_TYPE}", description "atomic-workflow subagent ${sessionId.slice(0, 8)}", and exactly this prompt:`,
+  "",
+  "atomic-workflow:",
+  `> Your session id is ${sessionId}. Your wait command is:`,
+  `> \`${commandLine}\``,
+  "",
+  "Each time this subagent reports back, do not act on its report and do not reply about it. The atomic-workflow server handles it."
+].join("\n");
+
+// src/rpc/method.subagent-start.ts
+var PARAMS27 = external_exports.object({
   prompt: external_exports.string().min(1).optional().describe("First command of the subagent, none when left out"),
   parentId: external_exports.string().optional().describe("Session id of the orchestrator, the one that attached last when left out"),
   taskId: external_exports.number().int().positive().optional().describe("Identifier of the task that the subagent works on")
@@ -21018,71 +21183,164 @@ var subagentStartMethod = {
   name: "subagentStart",
   description: "Starts a subagent inside an orchestrator session, by default the one that attached last, and returns its session id.",
   agent: false,
-  params: PARAMS24,
+  params: PARAMS27,
   handle: async ({ prompt, parentId, taskId }, context) => startSubagent({ prompt, parentId, taskId, job: jobOfPrompt(prompt) }, context)
 };
-var startSubagent = async ({ prompt, parentId: pickedId, taskId, job }, context) => {
-  const { sessions, sessionConnections, subagents, inboxes } = context;
-  if (taskId !== void 0) await taskGetMethod.handle({ task: taskId }, context);
-  const parentId = pickedId ?? sessionConnections.list().at(-1);
-  const connection = parentId === void 0 ? void 0 : sessionConnections.get(parentId);
-  const parent = parentId === void 0 ? void 0 : await sessions.get(parentId);
-  if (parentId === void 0 || connection === void 0 || parent === void 0)
-    throw new RpcError(RpcErrorCode.INVALID_REQUEST, "No orchestrator session is attached");
-  const sessionId = randomUUID();
-  const { agent, directory } = parent;
-  await sessions.register({
-    id: sessionId,
-    agent,
-    directory,
-    startedAt: Date.now(),
-    role: "subagent",
-    parentId,
-    taskId: taskId ?? null,
-    job,
-    ticketId: null,
-    alias: null,
-    contextTokens: null,
-    model: null,
-    effort: null
-  });
-  subagents.start(sessionId, parentId, connection);
-  inboxes.open(sessionId, connection.closed);
-  if (prompt !== void 0) await messageDeliverMethod.handle({ sessionId, content: prompt }, context);
-  try {
-    await spawn(context, parentId, sessionId);
-  } catch (error62) {
-    subagents.stop(sessionId);
-    inboxes.close(sessionId);
-    const reason = error62 instanceof Error ? error62.message : String(error62);
-    throw new RpcError(RpcErrorCode.INTERNAL_ERROR, `The subagent ${sessionId} did not attach: ${reason}`);
+
+// src/rpc/method.subagent-stop.ts
+var PARAMS28 = external_exports.object({
+  sessionId: external_exports.string().describe("Session id of the subagent to stop")
+});
+var subagentStopMethod = {
+  name: "subagentStop",
+  description: "Stops a subagent that subagentStart started.",
+  agent: false,
+  params: PARAMS28,
+  handle: async ({ sessionId }, context) => {
+    if (!await stopSubagent(sessionId, context))
+      throw new RpcError(RPC_ERROR_CODES.INVALID_PARAMS, `No subagent ${sessionId} is started`);
   }
-  const params = { sessionId, parentId };
-  await connection.request(subagentFollowMethod.name, params);
-  return { sessionId };
 };
-var spawn = async (context, parentId, sessionId) => {
-  const attached = context.subagents.waitForAttach(sessionId, AbortSignal.timeout(ATTACH_TIMEOUT));
-  attached.catch(() => void 0);
-  const content = spawnMessage(sessionId, context.awaitCommandLine(sessionId));
-  deliverServerMessage(context.inboxes, parentId, content);
-  await attached;
+
+// src/rpc/method.task-create.ts
+var PARAMS29 = external_exports.object({
+  slug: SLUG.describe(
+    "Short name of the task, derived from what the user asked for: exactly three lowercase words joined by hyphens"
+  ),
+  summary: external_exports.string().trim().min(1).regex(/^[^\r\n]*$/, "Must be one line").describe("Summary of the first goal, on one line"),
+  details: external_exports.string().trim().min(1).optional().describe("Further information and comments on the first goal"),
+  source: external_exports.enum(GOAL_SOURCES).describe("Who the first goal came from: user, or agent for an accepted suggestion")
+});
+var taskCreateMethod = {
+  name: "taskCreate",
+  description: "Creates a task of the atomic workflow with its first goal, once the user approved that goal, and returns it.",
+  agent: true,
+  params: PARAMS29,
+  handle: async ({ slug, summary, details = null, source }, { tasks, clock }) => tasks.create({ slug, createdAt: clock.now(), goal: { summary, details, source } })
 };
-var spawnMessage = (sessionId, commandLine) => {
-  return [
-    "Start a subagent for the atomic-workflow server now, and do nothing else for this message.",
-    `Call the Agent tool with run_in_background set to true, subagent_type "${AGENT_TYPE}", description "atomic-workflow subagent ${sessionId.slice(0, 8)}", and exactly this prompt:`,
-    "",
-    "atomic-workflow:",
-    `> Your session id is ${sessionId}. Your wait command is:`,
-    `> \`${commandLine}\``,
-    "",
-    "Each time this subagent reports back, do not act on its report and do not reply about it. The atomic-workflow server handles it."
-  ].join("\n");
+
+// src/rpc/plural.ts
+var plural2 = (count, one, many) => count === 1 ? one : many;
+
+// src/rpc/claim-tickets.ts
+var lastingHolder = (context) => {
+  if (context.caller !== void 0) return context.caller;
+  throw new RpcError(
+    RPC_ERROR_CODES.INVALID_REQUEST,
+    "Only a client that is connected to the repository server can start the work on a ticket"
+  );
+};
+var callHolder = (context) => context.caller ?? { closed: new Promise(() => void 0) };
+var claimTickets = (taskId, ticketIds, holder, context) => {
+  const held = ticketIds.filter((id) => context.ticketClaims.isHeldByOther(taskId, id, holder));
+  if (held.length > 0)
+    throw new RpcError(
+      RPC_ERROR_CODES.INVALID_REQUEST,
+      `${plural2(held.length, "Ticket", "Tickets")} ${held.join(", ")} of task ${taskId} ${plural2(held.length, "is", "are")} in progress in another session`
+    );
+  return ticketIds.filter((id) => context.ticketClaims.claim(taskId, id, holder) === "claimed");
+};
+var releaseTickets = (taskId, ticketIds, context) => {
+  for (const id of ticketIds) context.ticketClaims.release(taskId, id);
+};
+var endWork = async (taskId, ticketIds, operation, context) => {
+  claimTickets(taskId, ticketIds, callHolder(context), context);
+  try {
+    return await operation();
+  } finally {
+    releaseTickets(taskId, ticketIds, context);
+  }
+};
+
+// src/worktree/worktree-error.ts
+var WorktreeError = class extends Error {
+  /**
+   * Kind of the refusal.
+   */
+  kind;
+  /**
+   * Paths of the files in conflict, relative to the worktree and with forward slashes, for a `conflict`. Empty for
+   * every other kind.
+   */
+  files;
+  /**
+   * Creates the refusal of the kind `kind` with the description `message` and the conflicting files `files`.
+   */
+  constructor(kind, message, files = []) {
+    super(message);
+    this.name = "WorktreeError";
+    this.kind = kind;
+    this.files = files;
+  }
+};
+
+// src/rpc/worktree-call.ts
+var worktreeCall = async (call3) => {
+  try {
+    return await call3();
+  } catch (error62) {
+    if (!(error62 instanceof WorktreeError)) throw error62;
+    throw new RpcError(RPC_ERROR_CODES.INVALID_REQUEST, error62.message, { kind: error62.kind, files: error62.files });
+  }
+};
+
+// src/rpc/method.task-delete.ts
+var PARAMS30 = external_exports.object({
+  task: TASK_REFERENCE,
+  force: external_exports.boolean().default(false).describe(
+    "Whether to delete the task also when its branches hold commits that have not landed, or its worktrees hold uncommitted changes, which are then lost"
+  )
+});
+var taskDeleteMethod = {
+  name: "taskDelete",
+  description: "Deletes a task of the atomic workflow with its goals, its design, its tickets, and its worktrees and branches, for good. Refuses to lose work that has not landed unless forced.",
+  agent: true,
+  params: PARAMS30,
+  handle: async ({ task: reference, force }, context) => {
+    const task = await findTask(reference, context.tasks);
+    const taskId = task.id;
+    const remove = async () => {
+      const subagents = await subagentIdsOfTask(taskId, context);
+      await Promise.all(subagents.map((id) => stopDeletedSubagent(id, context)));
+      const worktrees = await worktreeCall(() => context.worktrees.deleteTask(task, task.baseBranch, force));
+      await context.tasks.delete(taskId);
+      for (const id of subagents) await context.sessions.delete(id);
+      return { taskId, slug: task.slug, worktrees, subagents };
+    };
+    return endWork(
+      taskId,
+      task.tickets.map(({ id }) => id),
+      remove,
+      context
+    );
+  }
+};
+var subagentIdsOfTask = async (taskId, context) => (await context.sessions.list()).filter((session) => session.role === "subagent" && session.taskId === taskId).map(({ id }) => id);
+
+// src/rpc/method.task-get.ts
+var PARAMS31 = external_exports.object({
+  task: TASK_REFERENCE
+});
+var taskGetMethod = {
+  name: "taskGet",
+  description: "Returns a task of the atomic workflow, named by its id, its slug or both as <id>-<slug>, with its status, its goals, its design and its tickets.",
+  agent: true,
+  params: PARAMS31,
+  handle: async ({ task }, { tasks }) => findTask(task, tasks)
+};
+
+// src/rpc/method.task-list.ts
+var PARAMS32 = external_exports.object({});
+var taskListMethod = {
+  name: "taskList",
+  description: "Returns every task of the atomic workflow with its slug, its status, its creation time and its number of completed tickets, whose work landed, and its total number of tickets.",
+  agent: true,
+  params: PARAMS32,
+  handle: async (_params, { tasks }) => ({ tasks: await tasks.list() })
 };
 
 // src/rpc/method.task-orchestrator-deliver.ts
-var PARAMS25 = external_exports.object({
+var PARAMS33 = external_exports.object({
   taskId: external_exports.number().int().positive().describe("Identifier of the task whose orchestrator takes the message"),
   content: external_exports.string().min(1).describe("Text of the message, such as a command that runs a skill")
 });
@@ -21090,214 +21348,58 @@ var taskOrchestratorDeliverMethod = {
   name: "taskOrchestratorDeliver",
   description: "Gives a message to the orchestrator of a task, a subagent that takes the commands of the task, and starts it first when none is attached.",
   agent: false,
-  params: PARAMS25,
+  params: PARAMS33,
   handle: async ({ taskId, content }, context) => {
-    await taskGetMethod.handle({ task: taskId }, context);
+    await findTask(taskId, context.tasks);
     const sessionId = await attachedOrchestratorOf(taskId, context);
     if (sessionId !== void 0) {
-      await messageDeliverMethod.handle({ sessionId, content }, context);
+      await deliverUserMessage(sessionId, content, context);
       return { sessionId };
     }
     return startSubagent({ prompt: content, parentId: void 0, taskId, job: ORCHESTRATOR_JOB }, context);
   }
 };
-var attachedOrchestratorOf = async (taskId, context) => {
-  const attached = new Set(context.subagents.list().map(({ sessionId }) => sessionId));
-  return (await context.sessions.list()).findLast(
-    (session) => session.taskId === taskId && session.job === ORCHESTRATOR_JOB && attached.has(session.id) && context.inboxes.find(session.id) === session.id
-  )?.id;
-};
+var attachedOrchestratorOf = async (taskId, context) => (await attachedSubagentSessions(context)).findLast(
+  (session) => session.taskId === taskId && session.job === ORCHESTRATOR_JOB && context.inboxes.find(session.id) === session.id
+)?.id;
 
-// src/rpc/method.session-alias-set.ts
-var PARAMS26 = external_exports.object({
-  sessionId: external_exports.string().min(1).describe("Identifier of the registered session"),
-  alias: external_exports.string().min(1).max(SESSION_ALIAS_MAX_LENGTH).regex(/^[^\r\n]*$/, "An alias holds no line break").nullable().describe(
-    `Display name of the session, 1 to ${SESSION_ALIAS_MAX_LENGTH} characters with no line break, or null for none`
-  )
+// src/rpc/method.task-run-end.ts
+var PARAMS34 = external_exports.object({
+  taskId: external_exports.number().int().positive().describe("Identifier of the task whose unattended run ends")
 });
-var sessionAliasSetMethod = {
-  name: "sessionAliasSet",
-  description: "Replaces the alias of a session, the name that shows in place of its id, or clears it for null.",
-  agent: false,
-  params: PARAMS26,
-  handle: async ({ sessionId, alias }, { sessions }) => {
-    if (await sessions.get(sessionId) === void 0)
-      throw new RpcError(RpcErrorCode.INVALID_PARAMS, `No session ${sessionId} is registered`);
-    await sessions.setAlias(sessionId, alias);
-  }
-};
-
-// src/rpc/session-method.skill-list.ts
-var PARAMS27 = external_exports.object({
-  sessionId: external_exports.string().min(1).describe("Identifier of the session that the agent runs now")
-});
-var skillListSessionMethod = {
-  name: "skillList",
-  description: "Returns the skills that the agent of the session can run.",
-  agent: false,
-  params: PARAMS27,
-  handle: async ({ sessionId }, { listSkills }) => ({ skills: listSkills(sessionId) })
-};
-
-// src/rpc/method.skill-list.ts
-var ACTIVATION_SKILL = "atomic-workflow:atomic-workflow";
-var PARAMS28 = external_exports.object({
-  sessionId: external_exports.string().min(1).describe("Identifier of the attached session or subagent")
-});
-var skillListMethod = {
-  name: "skillList",
-  description: "Returns the skills that an attached session or subagent of the repository can run.",
-  agent: false,
-  params: PARAMS28,
-  handle: async ({ sessionId }, context) => {
-    const orchestratorId = orchestratorOf(context, sessionId);
-    const connection = orchestratorId === void 0 ? void 0 : context.sessionConnections.get(orchestratorId);
-    if (orchestratorId === void 0 || connection === void 0)
-      throw new RpcError(RpcErrorCode.INVALID_PARAMS, `No session ${sessionId} is attached`);
-    const params = { sessionId: orchestratorId };
-    const { skills } = await connection.request(skillListSessionMethod.name, params);
-    return { skills: skills.filter(({ name }) => name !== ACTIVATION_SKILL) };
-  }
-};
-var orchestratorOf = ({ sessionConnections, subagents }, sessionId) => {
-  if (sessionConnections.get(sessionId) !== void 0) return sessionId;
-  return subagents.list().find((subagent) => subagent.sessionId === sessionId)?.parentId;
-};
-
-// src/rpc/method.design-save.ts
-var PARAMS29 = external_exports.object({
-  taskId: external_exports.number().int().positive().describe("Identifier of the task"),
-  design: external_exports.string().trim().min(1).describe("Whole design of the task in Markdown, which replaces the stored one")
-});
-var designSaveMethod = {
-  name: "designSave",
-  description: "Replaces the design of a task of the atomic workflow with a whole new draft of it, and returns the task. The design of a complete task can change too, until the task is done.",
+var taskRunEndMethod = {
+  name: "taskRunEnd",
+  description: "Marks the end of the active unattended run of a task of the atomic workflow, for the run timer of the web app, and returns the task.",
   agent: true,
-  params: PARAMS29,
-  handle: async ({ taskId, design }, context) => {
-    await openAmendableTask(taskId, context);
-    await context.tasks.setDesign(taskId, design);
-    return taskGetMethod.handle({ task: taskId }, context);
+  params: PARAMS34,
+  handle: async ({ taskId }, { tasks, clock }) => {
+    await findTask(taskId, tasks);
+    await tasks.endRun(taskId, clock.now());
+    return findTask(taskId, tasks);
   }
 };
 
-// src/rpc/method.goal-save.ts
-var PARAMS30 = external_exports.object({
-  taskId: external_exports.number().int().positive().describe("Identifier of the task"),
-  goalId: external_exports.number().int().positive().optional().describe("Number of the goal to edit within the task, counted from 1, a new goal when left out"),
-  summary: external_exports.string().trim().min(1).regex(/^[^\r\n]*$/, "Must be one line").describe("Summary of the goal, on one line"),
-  details: external_exports.string().trim().min(1).optional().describe("Further information and comments on the goal, none when left out"),
-  source: external_exports.enum(GOAL_SOURCES).optional().describe("Who a new goal came from: user, or agent for an accepted suggestion. Required for a new goal only")
+// src/rpc/method.task-run-start.ts
+var PARAMS35 = external_exports.object({
+  taskId: external_exports.number().int().positive().describe("Identifier of the task whose unattended run starts")
 });
-var goalSaveMethod = {
-  name: "goalSave",
-  description: "Adds a goal that the user approved to a task of the atomic workflow, or edits one of its goals, and returns the task.",
+var taskRunStartMethod = {
+  name: "taskRunStart",
+  description: "Marks the start of an unattended run of a task of the atomic workflow, for the run timer of the web app, and returns the task.",
   agent: true,
-  params: PARAMS30,
-  handle: async ({ taskId, goalId, summary, details = null, source }, context) => {
-    await openTask(taskId, context);
-    if (goalId === void 0) {
-      if (source === void 0) throw new RpcError(RpcErrorCode.INVALID_PARAMS, "A new goal needs a source");
-      await context.tasks.addGoal(taskId, { summary, details, source });
-    } else if (!await context.tasks.editGoal(taskId, goalId, { summary, details }))
-      throw new RpcError(RpcErrorCode.INVALID_PARAMS, `Task ${taskId} has no goal ${goalId}`);
-    return taskGetMethod.handle({ task: taskId }, context);
+  params: PARAMS35,
+  handle: async ({ taskId }, { tasks, caller, clock }) => {
+    await findTask(taskId, tasks);
+    const startedAt = clock.now();
+    await tasks.startRun(taskId, startedAt);
+    if (caller !== void 0)
+      void caller.closed.then(() => tasks.endRun(taskId, clock.now(), startedAt)).catch(() => void 0);
+    return findTask(taskId, tasks);
   }
-};
-
-// src/rpc/method.tickets-save.ts
-var PARAMS31 = external_exports.object({
-  taskId: external_exports.number().int().positive().describe("Identifier of the task"),
-  tickets: external_exports.array(
-    external_exports.object({
-      mode: external_exports.enum(TICKET_MODES).describe(
-        "Who does the work: unattended for an agent alone from start to finish, attended for an agent that needs the user between turns, manual for the user, whom an agent guides and whose work it checks"
-      ),
-      type: external_exports.enum(TICKET_TYPES).describe(
-        "How the work runs: code for work that changes the code of the repository, in stages, other for any other work, such as research or moving files, in one pass"
-      ),
-      complexity: external_exports.enum(TICKET_COMPLEXITIES).nullable().default(null).describe(
-        "simple for work that follows an existing pattern or makes small decisions inside one part, across one or several files, complex for cross-cutting work, tricky logic or real judgement. null for a manual ticket, and only for one"
-      ),
-      slug: SLUG.describe("Short name of the ticket: exactly three lowercase words joined by hyphens"),
-      summary: external_exports.string().trim().min(1).regex(/^[^\r\n]*$/, "Must be one line").describe("Summary of the ticket in one sentence"),
-      description: external_exports.string().trim().min(1).describe("Description in Markdown, with everything an agent needs to do the ticket in a fresh context"),
-      dependsOn: external_exports.array(external_exports.number().int().positive()).default([]).describe("Numbers of the earlier tickets in this list that must be done first, counted from 1"),
-      fixes: external_exports.number().int().positive().nullable().default(null).describe(
-        "Number of the earlier ticket in this list whose work landed and needs review, and that this follow-up ticket fixes. The ticket then depends on it too. null for a ticket that fixes none"
-      )
-    })
-  ).min(1).describe(
-    "Whole list of tickets in order, which replaces the stored one. Ticket n gets the identifier n. On a complete task, each ticket whose work started stays as stored, with the same number: only a ticket that is not-started may change or go away, and a new ticket goes at the end"
-  )
-});
-var ticketsSaveMethod = {
-  name: "ticketsSave",
-  description: "Replaces the tickets of a task of the atomic workflow with a whole new list of them, and returns the task. On a complete task, each ticket whose work started must stay as stored.",
-  agent: true,
-  params: PARAMS31,
-  handle: async ({ taskId, tickets }, context) => {
-    const stored = await openAmendableTask(taskId, context);
-    checkShape(tickets);
-    const saved = tickets.map(withFixDependency);
-    const notStarted = stored.tickets.filter(({ status }) => status === "not-started").map(({ id }) => id);
-    const fixed = saved.flatMap(({ fixes }) => fixes === null ? [] : [fixes]);
-    return endWork(taskId, [.../* @__PURE__ */ new Set([...notStarted, ...fixed])], context, async () => {
-      const task = await openAmendableTask(taskId, context);
-      checkLocked(task, saved);
-      checkFixes(task, saved);
-      await context.tasks.setTickets(taskId, saved);
-      return taskGetMethod.handle({ task: taskId }, context);
-    });
-  }
-};
-var checkShape = (tickets) => {
-  const invalid = tickets.findIndex(
-    ({ dependsOn }, index) => new Set(dependsOn).size !== dependsOn.length || dependsOn.some((id) => id > index)
-  );
-  if (invalid !== -1)
-    throw new RpcError(RpcErrorCode.INVALID_PARAMS, `Ticket ${invalid + 1} must depend on earlier tickets, each once`);
-  const late = tickets.findIndex(({ fixes }, index) => fixes !== null && fixes > index);
-  if (late !== -1) throw new RpcError(RpcErrorCode.INVALID_PARAMS, `Ticket ${late + 1} must fix an earlier ticket`);
-  const misfit = tickets.findIndex(({ mode, complexity }) => mode === "manual" !== (complexity === null));
-  if (misfit !== -1)
-    throw new RpcError(
-      RpcErrorCode.INVALID_PARAMS,
-      `Ticket ${misfit + 1} must have a complexity, unless its mode is manual, which has none`
-    );
-};
-var withFixDependency = (ticket) => {
-  const dependsOn = ticket.fixes === null ? ticket.dependsOn : [...ticket.dependsOn, ticket.fixes];
-  return { ...ticket, dependsOn: [...new Set(dependsOn)].sort((first, second) => first - second) };
-};
-var checkLocked = (task, tickets) => {
-  const changed = task.tickets.filter(
-    (stored) => stored.status !== "not-started" && !isSameTicket(stored, tickets[stored.id - 1])
-  );
-  if (changed.length === 0) return;
-  const names = changed.map(({ id, status }) => `${id} (${status})`).join(", ");
-  const one = changed.length === 1;
-  throw new RpcError(
-    RpcErrorCode.INVALID_REQUEST,
-    `${one ? "Ticket" : "Tickets"} ${names} of task ${task.id} started already, so ${one ? "it" : "each"} must stay as stored, with the same number, fields and dependencies. Only a ticket that is not-started may change or go away, and a new ticket goes at the end`
-  );
-};
-var isSameTicket = (stored, ticket) => ticket !== void 0 && stored.mode === ticket.mode && stored.type === ticket.type && stored.complexity === ticket.complexity && stored.slug === ticket.slug && stored.summary === ticket.summary && stored.description === ticket.description && stored.fixes === ticket.fixes && stored.dependsOn.join() === ticket.dependsOn.join();
-var checkFixes = (task, tickets) => {
-  tickets.forEach(({ fixes }, index) => {
-    const started = (task.tickets[index]?.status ?? "not-started") !== "not-started";
-    if (fixes === null || started) return;
-    const status = task.tickets[fixes - 1]?.status ?? "not-started";
-    if (status !== "needs-review")
-      throw new RpcError(
-        RpcErrorCode.INVALID_REQUEST,
-        `Ticket ${index + 1} fixes ticket ${fixes}, which is ${status}, and only a ticket whose work landed and needs review can get a fix`
-      );
-  });
 };
 
 // src/rpc/method.task-set-status.ts
-var PARAMS32 = external_exports.object({
+var PARAMS36 = external_exports.object({
   taskId: external_exports.number().int().positive().describe("Identifier of the task"),
   status: external_exports.enum(TASK_STATUSES).exclude(["done"]).describe("Status to set: the stage of planning the user works on, or complete")
 });
@@ -21305,14 +21407,14 @@ var taskSetStatusMethod = {
   name: "taskSetStatus",
   description: "Sets the status of a task of the atomic workflow to the stage of planning the user works on, or to complete once the user is satisfied with the whole plan, and returns the task.",
   agent: true,
-  params: PARAMS32,
-  handle: async ({ taskId, status }, context) => {
-    const task = await openTask(taskId, context);
+  params: PARAMS36,
+  handle: async ({ taskId, status }, { tasks }) => {
+    const task = await openTask(taskId, tasks);
     const missing = missingPart(task, status);
     if (missing !== void 0)
-      throw new RpcError(RpcErrorCode.INVALID_REQUEST, `Task ${taskId} needs ${missing} for the status ${status}`);
-    await context.tasks.setStatus(taskId, status);
-    return taskGetMethod.handle({ task: taskId }, context);
+      throw new RpcError(RPC_ERROR_CODES.INVALID_REQUEST, `Task ${taskId} needs ${missing} for the status ${status}`);
+    await tasks.setStatus(taskId, status);
+    return findTask(taskId, tasks);
   }
 };
 var missingPart = (task, status) => {
@@ -21323,17 +21425,87 @@ var missingPart = (task, status) => {
   return void 0;
 };
 
+// src/rpc/plan-queries.ts
+var hasLanded = (status) => status === "needs-review" || status === "done";
+var isWorking = (status) => status === "in-progress" || status === "blocked";
+var pendingDependencies = (task, ticket) => ticket.dependsOn.filter((id) => {
+  const dependency = task.tickets.find((other) => other.id === id);
+  return dependency === void 0 || !hasLanded(dependency.status);
+});
+
+// src/rpc/method.task-stop.ts
+var PARAMS37 = external_exports.object({
+  taskId: external_exports.number().int().positive().describe("Identifier of the task whose subagents to stop")
+});
+var taskStopMethod = {
+  name: "taskStop",
+  description: "Stops every subagent that works on a task, releases the claims of its tickets, and ends its active run.",
+  agent: false,
+  params: PARAMS37,
+  handle: async ({ taskId }, context) => {
+    const task = await findTask(taskId, context.tasks);
+    const subagents = await subagentsOfTask(taskId, context);
+    const outcomes = await Promise.all(subagents.map((subagent) => stopOne(subagent, context)));
+    const stopped = outcomes.flatMap((outcome) => "stopped" in outcome && outcome.stopped ? [outcome.subagent] : []);
+    releaseClaims(task, holdersOf(stopped, context), context);
+    await context.tasks.endRun(taskId, context.clock.now());
+    const failures = outcomes.flatMap(
+      (outcome) => "failure" in outcome ? [`${outcome.subagent.sessionId}: ${outcome.failure}`] : []
+    );
+    if (failures.length > 0)
+      throw new RpcError(
+        RPC_ERROR_CODES.INTERNAL_ERROR,
+        `Could not stop ${plural2(failures.length, "a subagent", "subagents")} of task ${taskId}: ${failures.join("; ")}`
+      );
+    return { stopped: stopped.map(({ sessionId }) => sessionId) };
+  }
+};
+var stopOne = async (subagent, context) => {
+  try {
+    return { subagent, stopped: await stopSubagent(subagent.sessionId, context) };
+  } catch (error62) {
+    return { subagent, failure: errorMessage(error62) };
+  }
+};
+var holdersOf = (subagents, context) => new Set(subagents.flatMap(({ parentId }) => context.sessionConnections.get(parentId) ?? []));
+var releaseClaims = (task, holders, context) => {
+  const { ticketClaims } = context;
+  for (const ticket of task.tickets) {
+    if (hasLanded(ticket.status)) continue;
+    if ([...holders].some((holder) => !ticketClaims.isHeldByOther(task.id, ticket.id, holder)))
+      ticketClaims.release(task.id, ticket.id);
+  }
+};
+
+// src/rpc/method.ticket-diff.ts
+var PARAMS38 = external_exports.object({
+  taskId: external_exports.number().int().positive().describe("Identifier of the task"),
+  ticketId: external_exports.number().int().positive().describe("Identifier of the ticket within its task")
+});
+var ticketDiffMethod = {
+  name: "ticketDiff",
+  description: "Returns the commit that holds the landed work of a ticket of the atomic workflow, with its patch, or null when none does.",
+  agent: false,
+  params: PARAMS38,
+  handle: async ({ taskId, ticketId }, context) => {
+    const task = await findTask(taskId, context.tasks);
+    const ticket = ticketOf(task, ticketId);
+    const found = await worktreeCall(() => context.worktrees.ticketCommit(task, ticket, task.baseBranch));
+    return found ?? null;
+  }
+};
+
 // src/rpc/method.ticket-next.ts
-var PARAMS33 = external_exports.object({
+var PARAMS39 = external_exports.object({
   taskId: external_exports.number().int().positive().describe("Identifier of the task")
 });
 var ticketNextMethod = {
   name: "ticketNext",
   description: "Returns the next ticket to work on of a task of the atomic workflow whose plan is complete: the first ready ticket in progress, else the first ready ticket not started, or null. Also returns every ticket that can be picked, with its mode, and each ticket whose work has not landed and that cannot be picked, with its cause: elsewhere, blocked or dependencies.",
   agent: true,
-  params: PARAMS33,
+  params: PARAMS39,
   handle: async ({ taskId }, context) => {
-    const task = await openCompleteTask(taskId, context);
+    const task = await openCompleteTask(taskId, context.tasks);
     const open3 = task.tickets.filter(({ status }) => !hasLanded(status));
     const pickable = open3.filter((ticket2) => ticket2.status !== "blocked" && isReady(task, ticket2, context));
     const ticket = pickable.find(({ status }) => status === "in-progress") ?? pickable.find(({ status }) => status === "not-started") ?? null;
@@ -21355,89 +21527,115 @@ var causeOf = (task, ticket, context) => {
 };
 var isElsewhere = (task, ticket, context) => context.ticketClaims.isHeldByOther(task.id, ticket.id, callHolder(context));
 
-// src/rpc/method.ticket-set-status.ts
-var PARAMS34 = external_exports.object({
-  taskId: external_exports.number().int().positive().describe("Identifier of the task"),
-  ticketId: external_exports.number().int().positive().describe("Identifier of the ticket within its task"),
-  status: external_exports.enum(["not-started", "in-progress", "blocked", "done"]).describe(
-    "Status to set: in-progress while the work runs, blocked while it waits for the cause that reason names, done once the review of the landed work passed, not-started to start over. worktreeMerge sets needs-review"
-  ),
-  stage: external_exports.enum(TICKET_STAGES).nullable().optional().describe(
-    "Stage of a ticket of the type code that is in progress or blocked: prototype, tests or refactor. Leave it out to keep the stored stage"
-  ),
-  reason: external_exports.string().trim().min(1).optional().describe("Cause that a blocked ticket waits for, in one sentence. Only for the status blocked")
-});
-var ticketSetStatusMethod = {
-  name: "ticketSetStatus",
-  description: "Sets the status of a ticket of the atomic workflow, with the stage of its work and the reason that it is blocked, and returns the ticket.",
-  agent: true,
-  params: PARAMS34,
-  handle: async ({ taskId, ticketId, status, stage, reason }, context) => {
-    const { ticket } = await openTicket(taskId, ticketId, context);
-    const refusal = refusalOf(ticket, status, stage, reason);
-    if (refusal !== void 0) throw new RpcError(RpcErrorCode.INVALID_REQUEST, refusal);
-    const working = status === "in-progress" || status === "blocked";
-    const progress = {
-      status,
-      stage: working ? stage === void 0 ? ticket.stage : stage : null,
-      blockedReason: reason ?? null
-    };
-    const store = async () => {
-      if (status === "done") await checkFollowUps(taskId, ticketId, context);
-      await context.tasks.setTicketProgress(taskId, ticketId, progress);
-      return { ...ticket, ...progress };
-    };
-    if (status !== "in-progress") return endWork(taskId, [ticketId], context, store);
-    claimTickets(taskId, [ticketId], lastingHolder(context), context);
-    return store();
-  }
+// src/rpc/save-tickets.ts
+var saveTickets = async (taskId, tickets, context) => {
+  const stored = await openAmendableTask(taskId, context.tasks);
+  checkShape(tickets);
+  const saved = tickets.map(withFixDependency);
+  const notStarted = stored.tickets.filter(({ status }) => status === "not-started").map(({ id }) => id);
+  const fixed = saved.flatMap(({ fixes }) => fixes === null ? [] : [fixes]);
+  const store = async () => {
+    const task = await openAmendableTask(taskId, context.tasks);
+    checkLocked(task, saved);
+    checkFixes(task, saved);
+    await context.tasks.setTickets(taskId, saved);
+    return findTask(taskId, context.tasks);
+  };
+  return endWork(taskId, [.../* @__PURE__ */ new Set([...notStarted, ...fixed])], store, context);
 };
-var checkFollowUps = async (taskId, ticketId, context) => {
-  const { tickets } = await taskGetMethod.handle({ task: taskId }, context);
-  const pending = tickets.filter(({ fixes, status }) => fixes === ticketId && !hasLanded(status)).map(({ id, slug, status }) => `${id}-${slug} (${status})`);
-  if (pending.length === 0) return;
-  const one = pending.length === 1;
+var checkShape = (tickets) => {
+  const invalid = tickets.findIndex(
+    ({ dependsOn }, index) => new Set(dependsOn).size !== dependsOn.length || dependsOn.some((id) => id > index)
+  );
+  if (invalid !== -1)
+    throw new RpcError(
+      RPC_ERROR_CODES.INVALID_PARAMS,
+      `Ticket ${invalid + 1} must depend on earlier tickets, each once`
+    );
+  const late = tickets.findIndex(({ fixes }, index) => fixes !== null && fixes > index);
+  if (late !== -1) throw new RpcError(RPC_ERROR_CODES.INVALID_PARAMS, `Ticket ${late + 1} must fix an earlier ticket`);
+  const misfit = tickets.findIndex(({ mode, complexity }) => mode === "manual" !== (complexity === null));
+  if (misfit !== -1)
+    throw new RpcError(
+      RPC_ERROR_CODES.INVALID_PARAMS,
+      `Ticket ${misfit + 1} must have a complexity, unless its mode is manual, which has none`
+    );
+};
+var withFixDependency = (ticket) => {
+  const dependsOn = ticket.fixes === null ? ticket.dependsOn : [...ticket.dependsOn, ticket.fixes];
+  return { ...ticket, dependsOn: [...new Set(dependsOn)].sort((first, second) => first - second) };
+};
+var checkLocked = (task, tickets) => {
+  const changed = task.tickets.filter(
+    (stored) => stored.status !== "not-started" && !isSameTicket(stored, tickets[stored.id - 1])
+  );
+  if (changed.length === 0) return;
+  const names = changed.map(({ id, status }) => `${id} (${status})`).join(", ");
+  const count = changed.length;
   throw new RpcError(
-    RpcErrorCode.INVALID_REQUEST,
-    `Ticket ${ticketId} waits for its follow-up ${one ? "ticket" : "tickets"} ${pending.join(", ")}, which ${one ? "fixes" : "fix"} it and ${one ? "has" : "have"} not landed yet. Land ${one ? "it" : "them"} first`
+    RPC_ERROR_CODES.INVALID_REQUEST,
+    `${plural2(count, "Ticket", "Tickets")} ${names} of task ${task.id} started already, so ${plural2(count, "it", "each")} must stay as stored, with the same number, fields and dependencies. Only a ticket that is not-started may change or go away, and a new ticket goes at the end`
   );
 };
-var refusalOf = (ticket, status, stage, reason) => {
-  const landed = hasLanded(ticket.status);
+var isSameTicket = (stored, ticket) => ticket !== void 0 && stored.mode === ticket.mode && stored.type === ticket.type && stored.complexity === ticket.complexity && stored.slug === ticket.slug && stored.summary === ticket.summary && stored.description === ticket.description && stored.fixes === ticket.fixes && stored.dependsOn.join() === ticket.dependsOn.join();
+var checkFixes = (task, tickets) => {
+  tickets.forEach(({ fixes }, index) => {
+    const started = (task.tickets[index]?.status ?? "not-started") !== "not-started";
+    if (fixes === null || started) return;
+    const status = task.tickets[fixes - 1]?.status ?? "not-started";
+    if (status !== "needs-review")
+      throw new RpcError(
+        RPC_ERROR_CODES.INVALID_REQUEST,
+        `Ticket ${index + 1} fixes ticket ${fixes}, which is ${status}, and only a ticket whose work landed and needs review can get a fix`
+      );
+  });
+};
+
+// src/rpc/set-ticket-status.ts
+var setTicketStatus = async (change, context) => {
+  const { taskId, ticketId, status, stage, reason } = change;
+  const { ticket } = await openTicket(taskId, ticketId, context.tasks);
+  const refusal = refusalOf(ticket, change);
+  if (refusal !== void 0) throw new RpcError(RPC_ERROR_CODES.INVALID_REQUEST, refusal);
+  const progress = {
+    status,
+    stage: isWorking(status) ? stage === void 0 ? ticket.stage : stage : null,
+    blockedReason: reason ?? null
+  };
+  const store = async () => {
+    if (status === "done") await checkFollowUps(taskId, ticketId, context);
+    await context.tasks.setTicketProgress(taskId, ticketId, progress);
+    return { ...ticket, ...progress };
+  };
+  if (status !== "in-progress") return endWork(taskId, [ticketId], store, context);
+  claimTickets(taskId, [ticketId], lastingHolder(context), context);
+  return store();
+};
+var checkFollowUps = async (taskId, ticketId, context) => {
+  const { tickets } = await findTask(taskId, context.tasks);
+  const pending = tickets.filter(({ fixes, status }) => fixes === ticketId && !hasLanded(status)).map(({ id, slug, status }) => `${id}-${slug} (${status})`);
+  if (pending.length === 0) return;
+  const count = pending.length;
+  throw new RpcError(
+    RPC_ERROR_CODES.INVALID_REQUEST,
+    `Ticket ${ticketId} waits for its follow-up ${plural2(count, "ticket", "tickets")} ${pending.join(", ")}, which ${plural2(count, "fixes", "fix")} it and ${plural2(count, "has", "have")} not landed yet. Land ${plural2(count, "it", "them")} first`
+  );
+};
+var refusalOf = (ticket, { status, stage, reason }) => {
   if (status === "done" && ticket.status !== "needs-review")
     return `Ticket ${ticket.id} is ${ticket.status}, and only a ticket that needs review can be done`;
-  if (status !== "done" && landed)
+  if (status !== "done" && hasLanded(ticket.status))
     return `The work of ticket ${ticket.id} landed already, so it cannot be ${status} again. To fix it, add a follow-up ticket that fixes it`;
   if (status === "blocked" !== (reason !== void 0))
     return "A reason is needed for the status blocked, and only for it";
   if (stage === void 0 || stage === null) return void 0;
-  if (status !== "in-progress" && status !== "blocked") return `A ticket that is ${status} has no stage`;
+  if (!isWorking(status)) return `A ticket that is ${status} has no stage`;
   if (ticket.type !== "code") return `Ticket ${ticket.id} is of the type ${ticket.type}, which has no stages`;
   return void 0;
 };
 
-// src/rpc/method.ticket-diff.ts
-var PARAMS35 = external_exports.object({
-  taskId: external_exports.number().int().positive().describe("Identifier of the task"),
-  ticketId: external_exports.number().int().positive().describe("Identifier of the ticket within its task")
-});
-var ticketDiffMethod = {
-  name: "ticketDiff",
-  description: "Returns the commit that holds the landed work of a ticket of the atomic workflow, with its patch, or null when none does.",
-  agent: false,
-  params: PARAMS35,
-  handle: async ({ taskId, ticketId }, context) => {
-    const task = await taskGetMethod.handle({ task: taskId }, context);
-    const ticket = task.tickets.find(({ id }) => id === ticketId);
-    if (ticket === void 0)
-      throw new RpcError(RpcErrorCode.INVALID_PARAMS, `Task ${taskId} has no ticket ${ticketId}`);
-    const found = await worktreeCall(() => context.worktrees.ticketCommit(task, ticket, task.baseBranch));
-    return found ?? null;
-  }
-};
-
 // src/rpc/method.ticket-request-changes.ts
-var PARAMS36 = external_exports.object({
+var PARAMS40 = external_exports.object({
   taskId: external_exports.number().int().positive().describe("Identifier of the task"),
   ticketId: external_exports.number().int().positive().describe("Identifier of the reviewed ticket within its task"),
   review: external_exports.string().trim().min(1).describe("Comments of the review in Markdown, each with the file and the lines that it points at")
@@ -21447,30 +21645,27 @@ var ticketRequestChangesMethod = {
   name: "ticketRequestChanges",
   description: "Adds a ticket that makes the changes that the review of a landed ticket of the atomic workflow asked for, and approves the reviewed ticket.",
   agent: false,
-  params: PARAMS36,
+  params: PARAMS40,
   handle: async ({ taskId, ticketId, review }, context) => {
-    const task = await taskGetMethod.handle({ task: taskId }, context);
+    const task = await findTask(taskId, context.tasks);
     const reviewed = reviewedTicketOf(task, ticketId);
     const saved = await saveReopened(task, [...task.tickets, followUpOf(task, reviewed, review)], context);
     const ticket = saved.tickets[saved.tickets.length - 1];
     if (reviewed.status !== "needs-review") return { ticket, approvalRefusal: null };
     try {
-      await ticketSetStatusMethod.handle({ taskId, ticketId, status: "done" }, context);
+      await setTicketStatus({ taskId, ticketId, status: "done" }, context);
       return { ticket, approvalRefusal: null };
     } catch (error62) {
-      return { ticket, approvalRefusal: error62 instanceof Error ? error62.message : String(error62) };
+      return { ticket, approvalRefusal: errorMessage(error62) };
     }
   }
 };
 var reviewedTicketOf = (task, ticketId) => {
-  if (task.status !== "complete" && task.status !== "done")
-    throw new RpcError(RpcErrorCode.INVALID_REQUEST, `The plan of task ${task.id} is not complete. Complete it first`);
-  const ticket = task.tickets.find(({ id }) => id === ticketId);
-  if (ticket === void 0)
-    throw new RpcError(RpcErrorCode.INVALID_PARAMS, `Task ${task.id} has no ticket ${ticketId}`);
+  if (task.status !== "complete" && task.status !== "done") throw notCompleteError(task);
+  const ticket = ticketOf(task, ticketId);
   if (!hasLanded(ticket.status))
     throw new RpcError(
-      RpcErrorCode.INVALID_REQUEST,
+      RPC_ERROR_CODES.INVALID_REQUEST,
       `Ticket ${ticketId} is ${ticket.status}, so its work has not landed and cannot take a review`
     );
   return ticket;
@@ -21512,16 +21707,69 @@ var saveReopened = async (task, tickets, context) => {
   const reopened = task.status === "done";
   if (reopened) await context.tasks.setStatus(task.id, "complete");
   try {
-    const params = tickets.map((ticket) => ({ ...ticket, dependsOn: [...ticket.dependsOn] }));
-    return await ticketsSaveMethod.handle({ taskId: task.id, tickets: params }, context);
+    return await saveTickets(task.id, tickets, context);
   } catch (error62) {
     if (reopened) await context.tasks.setStatus(task.id, "done");
     throw error62;
   }
 };
 
+// src/rpc/method.ticket-set-status.ts
+var PARAMS41 = external_exports.object({
+  taskId: external_exports.number().int().positive().describe("Identifier of the task"),
+  ticketId: external_exports.number().int().positive().describe("Identifier of the ticket within its task"),
+  status: external_exports.enum(TICKET_STATUSES).exclude(["needs-review"]).describe(
+    "Status to set: in-progress while the work runs, blocked while it waits for the cause that reason names, done once the review of the landed work passed, not-started to start over. worktreeMerge sets needs-review"
+  ),
+  stage: external_exports.enum(TICKET_STAGES).nullable().optional().describe(
+    "Stage of a ticket of the type code that is in progress or blocked: prototype, tests or refactor. Leave it out to keep the stored stage"
+  ),
+  reason: external_exports.string().trim().min(1).optional().describe("Cause that a blocked ticket waits for, in one sentence. Only for the status blocked")
+});
+var ticketSetStatusMethod = {
+  name: "ticketSetStatus",
+  description: "Sets the status of a ticket of the atomic workflow, with the stage of its work and the reason that it is blocked, and returns the ticket.",
+  agent: true,
+  params: PARAMS41,
+  handle: async (params, context) => setTicketStatus(params, context)
+};
+
+// src/rpc/method.tickets-save.ts
+var PARAMS42 = external_exports.object({
+  taskId: external_exports.number().int().positive().describe("Identifier of the task"),
+  tickets: external_exports.array(
+    external_exports.object({
+      mode: external_exports.enum(TICKET_MODES).describe(
+        "Who does the work: unattended for an agent alone from start to finish, attended for an agent that needs the user between turns, manual for the user, whom an agent guides and whose work it checks"
+      ),
+      type: external_exports.enum(TICKET_TYPES).describe(
+        "How the work runs: code for work that changes the code of the repository, in stages, other for any other work, such as research or moving files, in one pass"
+      ),
+      complexity: external_exports.enum(TICKET_COMPLEXITIES).nullable().default(null).describe(
+        "simple for work that follows an existing pattern or makes small decisions inside one part, across one or several files, complex for cross-cutting work, tricky logic or real judgement. null for a manual ticket, and only for one"
+      ),
+      slug: SLUG.describe("Short name of the ticket: exactly three lowercase words joined by hyphens"),
+      summary: external_exports.string().trim().min(1).regex(/^[^\r\n]*$/, "Must be one line").describe("Summary of the ticket in one sentence"),
+      description: external_exports.string().trim().min(1).describe("Description in Markdown, with everything an agent needs to do the ticket in a fresh context"),
+      dependsOn: external_exports.array(external_exports.number().int().positive()).default([]).describe("Numbers of the earlier tickets in this list that must be done first, counted from 1"),
+      fixes: external_exports.number().int().positive().nullable().default(null).describe(
+        "Number of the earlier ticket in this list whose work landed and needs review, and that this follow-up ticket fixes. The ticket then depends on it too. null for a ticket that fixes none"
+      )
+    })
+  ).min(1).describe(
+    "Whole list of tickets in order, which replaces the stored one. Ticket n gets the identifier n. On a complete task, each ticket whose work started stays as stored, with the same number: only a ticket that is not-started may change or go away, and a new ticket goes at the end"
+  )
+});
+var ticketsSaveMethod = {
+  name: "ticketsSave",
+  description: "Replaces the tickets of a task of the atomic workflow with a whole new list of them, and returns the task. On a complete task, each ticket whose work started must stay as stored.",
+  agent: true,
+  params: PARAMS42,
+  handle: async ({ taskId, tickets }, context) => saveTickets(taskId, tickets, context)
+};
+
 // src/rpc/method.worktree-create.ts
-var PARAMS37 = external_exports.object({
+var PARAMS43 = external_exports.object({
   taskId: external_exports.number().int().positive().describe("Identifier of the task"),
   ticketId: external_exports.number().int().positive().describe("Identifier of the ticket within its task")
 });
@@ -21529,15 +21777,15 @@ var worktreeCreateMethod = {
   name: "worktreeCreate",
   description: "Starts the work on a ticket of the atomic workflow: makes the worktree of its task and its own worktree where they do not exist, sets it in-progress, and returns the paths and branches of both worktrees with the ticket. Before it makes the branch of the ticket, it rebases the task branch onto the local base branch. On a conflict of that rebase, resolve and add the files in the worktree of the task that the error names, then call it again.",
   agent: true,
-  params: PARAMS37,
+  params: PARAMS43,
   handle: async ({ taskId, ticketId }, context) => {
-    const { task, ticket } = await openTicket(taskId, ticketId, context);
+    const { task, ticket } = await openTicket(taskId, ticketId, context.tasks);
     if (hasLanded(ticket.status))
-      throw new RpcError(RpcErrorCode.INVALID_REQUEST, `The work of ticket ${ticketId} landed already`);
+      throw new RpcError(RPC_ERROR_CODES.INVALID_REQUEST, `The work of ticket ${ticketId} landed already`);
     const pending = pendingDependencies(task, ticket);
     if (pending.length > 0)
       throw new RpcError(
-        RpcErrorCode.INVALID_REQUEST,
+        RPC_ERROR_CODES.INVALID_REQUEST,
         `Ticket ${ticketId} depends on tickets ${pending.join(", ")}, whose work has not landed yet`
       );
     const claimed = claimTickets(taskId, [ticketId], lastingHolder(context), context);
@@ -21558,7 +21806,7 @@ var start2 = async (task, ticket, context) => {
 };
 
 // src/rpc/method.worktree-delete.ts
-var PARAMS38 = external_exports.object({
+var PARAMS44 = external_exports.object({
   taskId: external_exports.number().int().positive().describe("Identifier of the task"),
   ticketId: external_exports.number().int().positive().optional().describe("Identifier of the ticket whose worktree and branch to delete. Without it, deletes those of the task"),
   force: external_exports.boolean().default(false).describe("Whether to delete branches whose commits have not landed, and worktrees with uncommitted changes")
@@ -21568,38 +21816,46 @@ var worktreeDeleteMethod = {
   name: "worktreeDelete",
   description: "Deletes the worktree and the branch of a ticket of the atomic workflow, or without a ticket, every worktree and branch of the task. Refuses to lose work that has not landed unless forced.",
   agent: true,
-  params: PARAMS38,
+  params: PARAMS44,
   handle: async ({ taskId, ticketId, force }, context) => {
-    const task = await taskGetMethod.handle({ task: taskId }, context);
+    const task = await findTask(taskId, context.tasks);
     if (ticketId === void 0) return deleteTask(task, force, context);
     return deleteTicket(task, ticketId, force, context);
   }
 };
 var deleteTicket = async (task, ticketId, force, context) => {
-  const ticket = task.tickets.find(({ id }) => id === ticketId);
-  if (ticket === void 0)
-    throw new RpcError(RpcErrorCode.INVALID_PARAMS, `Task ${task.id} has no ticket ${ticketId}`);
-  return endWork(task.id, [ticketId], context, async () => {
+  const ticket = ticketOf(task, ticketId);
+  const remove = async () => {
     const deleted = await worktreeCall(() => context.worktrees.deleteTicket(task, ticket, force));
-    if (ticket.status === "in-progress" || ticket.status === "blocked")
-      await context.tasks.setTicketProgress(task.id, ticketId, NOT_STARTED);
+    if (isWorking(ticket.status)) await context.tasks.setTicketProgress(task.id, ticketId, NOT_STARTED);
     return deleted;
-  });
+  };
+  return endWork(task.id, [ticketId], remove, context);
 };
 var deleteTask = async (task, force, context) => {
+  if (force && task.status === "done")
+    throw new RpcError(
+      RPC_ERROR_CODES.INVALID_REQUEST,
+      `Task ${task.id} is done, so a forced deletion cannot reset its tickets`
+    );
   const ticketIds = task.tickets.map(({ id }) => id);
-  return endWork(task.id, ticketIds, context, async () => {
+  const remove = async () => {
+    if (!force) return worktreeCall(() => context.worktrees.deleteTask(task, task.baseBranch, force));
+    const unlanded = await worktreeCall(() => context.worktrees.unlandedTickets(task, task.baseBranch));
     const deleted = await worktreeCall(() => context.worktrees.deleteTask(task, task.baseBranch, force));
-    if (!force) return deleted;
-    for (const id of ticketIds) await context.tasks.setTicketProgress(task.id, id, NOT_STARTED);
-    await context.tasks.setBaseBranch(task.id, null);
+    const lost = task.tickets.filter((ticket) => isThrownAway(ticket, unlanded));
+    for (const { id } of lost) await context.tasks.setTicketProgress(task.id, id, NOT_STARTED);
+    const keepsWork = task.tickets.some((ticket) => hasLanded(ticket.status) && !lost.includes(ticket));
+    if (!keepsWork) await context.tasks.setBaseBranch(task.id, null);
     return deleted;
-  });
+  };
+  return endWork(task.id, ticketIds, remove, context);
 };
+var isThrownAway = (ticket, unlanded) => isWorking(ticket.status) || hasLanded(ticket.status) && unlanded.includes(ticket.id);
 
 // src/rpc/method.worktree-merge.ts
 var SUMMARY_LINE = /^(feat|fix|chore|refactor|docs|test|perf|build|ci|style|revert)(\([^()\r\n]+\))?!?: \S/;
-var PARAMS39 = external_exports.object({
+var PARAMS45 = external_exports.object({
   taskId: external_exports.number().int().positive().describe("Identifier of the task"),
   ticketId: external_exports.number().int().positive().optional().describe(
     "Identifier of the ticket to land on the task branch. Without it, lands the task branch on the base branch once every ticket of the task is done"
@@ -21612,22 +21868,23 @@ var worktreeMergeMethod = {
   name: "worktreeMerge",
   description: "With a ticket, squashes the commits of the worktree of a ticket of the atomic workflow into one commit with the message, rebases it onto the task branch, moves the task branch forward to it, and sets the ticket needs-review. Without a ticket, once every ticket of the task is done, rebases the task branch onto its base branch, moves the base branch forward to it, deletes the worktrees and branches of the task, and sets the task done. On a conflict, resolve and add the files in the worktree that the error names, then call it again.",
   agent: true,
-  params: PARAMS39,
+  params: PARAMS45,
   handle: async ({ taskId, ticketId, message }, context) => {
     if (ticketId === void 0) {
       if (message !== void 0)
-        throw new RpcError(RpcErrorCode.INVALID_PARAMS, "Only the merge of a ticket takes a message");
+        throw new RpcError(RPC_ERROR_CODES.INVALID_PARAMS, "Only the merge of a ticket takes a message");
       return mergeTask(taskId, context);
     }
-    if (message === void 0) throw new RpcError(RpcErrorCode.INVALID_PARAMS, "The merge of a ticket needs a message");
+    if (message === void 0)
+      throw new RpcError(RPC_ERROR_CODES.INVALID_PARAMS, "The merge of a ticket needs a message");
     return mergeTicket(taskId, ticketId, message, context);
   }
 };
 var mergeTicket = async (taskId, ticketId, message, context) => {
-  const { task, ticket } = await openTicket(taskId, ticketId, context);
-  if (ticket.status !== "in-progress" && ticket.status !== "blocked")
+  const { task, ticket } = await openTicket(taskId, ticketId, context.tasks);
+  if (!isWorking(ticket.status))
     throw new RpcError(
-      RpcErrorCode.INVALID_REQUEST,
+      RPC_ERROR_CODES.INVALID_REQUEST,
       `Ticket ${ticketId} is ${ticket.status}, and only a ticket in progress or blocked can merge`
     );
   const claimed = claimTickets(taskId, [ticketId], callHolder(context), context);
@@ -21643,146 +21900,39 @@ var mergeTicket = async (taskId, ticketId, message, context) => {
   }
 };
 var mergeTask = async (taskId, context) => {
-  const { tickets } = await taskGetMethod.handle({ task: taskId }, context);
+  const { tickets } = await findTask(taskId, context.tasks);
+  const merge2 = async () => {
+    const task = await findTask(taskId, context.tasks);
+    const baseBranch = checkMergeable(task);
+    const merged = await worktreeCall(() => context.worktrees.mergeTask(task, baseBranch));
+    await context.tasks.setStatus(taskId, "done");
+    return { ...merged, task: { ...task, status: "done" } };
+  };
   return endWork(
     taskId,
     tickets.map(({ id }) => id),
-    context,
-    async () => {
-      const task = await taskGetMethod.handle({ task: taskId }, context);
-      const baseBranch = checkMergeable(task);
-      const merged = await worktreeCall(() => context.worktrees.mergeTask(task, baseBranch));
-      await context.tasks.setStatus(taskId, "done");
-      return { ...merged, task: { ...task, status: "done" } };
-    }
+    merge2,
+    context
   );
 };
 var checkMergeable = (task) => {
-  if (task.status === "done")
-    throw new RpcError(RpcErrorCode.INVALID_REQUEST, `Task ${task.id} is done, and its branch landed already`);
-  if (task.status !== "complete")
-    throw new RpcError(RpcErrorCode.INVALID_REQUEST, `The plan of task ${task.id} is not complete. Complete it first`);
+  checkComplete(task);
   const open3 = task.tickets.filter(({ status }) => status !== "done").map(({ id }) => id);
   if (open3.length > 0)
     throw new RpcError(
-      RpcErrorCode.INVALID_REQUEST,
-      `${open3.length === 1 ? "Ticket" : "Tickets"} ${open3.join(", ")} of task ${task.id} ${open3.length === 1 ? "is" : "are"} not done, so the task branch cannot land`
+      RPC_ERROR_CODES.INVALID_REQUEST,
+      `${plural2(open3.length, "Ticket", "Tickets")} ${open3.join(", ")} of task ${task.id} ${plural2(open3.length, "is", "are")} not done, so the task branch cannot land`
     );
   if (task.baseBranch === null)
-    throw new RpcError(RpcErrorCode.INVALID_REQUEST, `Task ${task.id} has no base branch to land its task branch on`);
+    throw new RpcError(
+      RPC_ERROR_CODES.INVALID_REQUEST,
+      `Task ${task.id} has no base branch to land its task branch on`
+    );
   return task.baseBranch;
 };
 
-// src/rpc/method.subagent-create.ts
-import { randomUUID as randomUUID2 } from "node:crypto";
-var PARAMS40 = external_exports.object({
-  taskId: external_exports.number().int().positive().describe("Identifier of the task that the subagent works on"),
-  ticketId: external_exports.number().int().positive().optional().describe("Identifier of the ticket of the task that the subagent implements, which names its chat")
-});
-var subagentCreateMethod = {
-  name: "subagentCreate",
-  description: "Registers a subagent of this session that works on a task, and returns its session id. Start the subagent with the Agent tool right after, with a prompt whose first line is `Your session id is <session id>.`, so that its chat shows under the task.",
-  agent: true,
-  params: PARAMS40,
-  handle: async ({ taskId, ticketId }, context) => {
-    const { sessions, subagents, caller } = context;
-    const task = await taskGetMethod.handle({ task: taskId }, context);
-    if (ticketId !== void 0) await checkTicket(task, ticketId, context);
-    const parentId = sessionOf(context);
-    const parent = parentId === void 0 ? void 0 : await sessions.get(parentId);
-    if (caller === void 0 || parentId === void 0 || parent === void 0)
-      throw new RpcError(RpcErrorCode.INVALID_REQUEST, "The caller serves no attached session");
-    const sessionId = randomUUID2();
-    const { agent, directory } = parent;
-    await sessions.register({
-      id: sessionId,
-      agent,
-      directory,
-      startedAt: Date.now(),
-      role: "subagent",
-      parentId,
-      taskId,
-      job: ticketId === void 0 ? null : "implement",
-      ticketId: ticketId ?? null,
-      alias: null,
-      contextTokens: null,
-      model: null,
-      effort: null
-    });
-    subagents.start(sessionId, parentId, caller);
-    subagents.attach(sessionId);
-    const params = { sessionId, parentId, oneShot: true };
-    try {
-      await caller.request(subagentFollowMethod.name, params);
-    } catch (error62) {
-      subagents.stop(sessionId);
-      const reason = error62 instanceof Error ? error62.message : String(error62);
-      throw new RpcError(RpcErrorCode.INTERNAL_ERROR, `The subagent ${sessionId} cannot be followed: ${reason}`);
-    }
-    return { sessionId };
-  }
-};
-var sessionOf = ({ sessionConnections, caller }) => sessionConnections.list().find((sessionId) => sessionConnections.get(sessionId) === caller);
-var checkTicket = async (task, ticketId, context) => {
-  if (!task.tickets.some(({ id }) => id === ticketId))
-    throw new RpcError(RpcErrorCode.INVALID_PARAMS, `Task ${task.id} has no ticket ${ticketId}`);
-  const attached = new Set(context.subagents.list().map(({ sessionId }) => sessionId));
-  const busy = (await context.sessions.list()).some(
-    (session) => attached.has(session.id) && session.taskId === task.id && session.ticketId === ticketId
-  );
-  if (busy)
-    throw new RpcError(
-      RpcErrorCode.INVALID_REQUEST,
-      `Ticket ${ticketId} of task ${task.id} runs in another subagent already. Wait for it to end`
-    );
-};
-
-// src/rpc/session-method.subagent-task-id.ts
-var PARAMS41 = external_exports.object({
-  sessionId: external_exports.string().min(1).describe("Identifier of the session of the subagent")
-});
-var subagentTaskIdMethod = {
-  name: "subagentTaskId",
-  description: "Returns the id of the background task that runs a subagent of the session.",
-  agent: false,
-  params: PARAMS41,
-  handle: async ({ sessionId }, { subagentTaskId }) => ({ backgroundTaskId: subagentTaskId(sessionId) ?? null })
-};
-
-// src/rpc/method.subagent-stop.ts
-var PARAMS42 = external_exports.object({
-  sessionId: external_exports.string().describe("Session id of the subagent to stop")
-});
-var subagentStopMethod = {
-  name: "subagentStop",
-  description: "Stops a subagent that subagentStart started.",
-  agent: false,
-  params: PARAMS42,
-  handle: async ({ sessionId }, context) => {
-    const { subagents, inboxes } = context;
-    const subagent = subagents.list().find((started) => started.sessionId === sessionId);
-    if (subagent !== void 0) await killTask(context, sessionId, subagent.parentId);
-    if (!subagents.stop(sessionId))
-      throw new RpcError(RpcErrorCode.INVALID_PARAMS, `No subagent ${sessionId} is started`);
-    inboxes.close(sessionId);
-  }
-};
-var killTask = async (context, sessionId, parentId) => {
-  const connection = context.sessionConnections.get(parentId);
-  if (connection === void 0) return;
-  const params = { sessionId };
-  const { backgroundTaskId } = await connection.request(subagentTaskIdMethod.name, params);
-  if (backgroundTaskId === null) return;
-  const content = killMessage(sessionId, backgroundTaskId);
-  deliverServerMessage(context.inboxes, parentId, content);
-};
-var killMessage = (sessionId, backgroundTaskId) => [
-  "Stop a subagent for the atomic-workflow server now, and do nothing else for this message.",
-  `Call the TaskStop tool with task_id "${backgroundTaskId}", the subagent "atomic-workflow subagent ${sessionId.slice(0, 8)}". Do not reply about its end. The atomic-workflow server handles it.`
-].join("\n");
-
 // src/rpc/method.ts
-var Methods = [
+var METHODS = [
   echoMethod,
   repositoryGetMethod,
   sessionRegisterMethod,
@@ -21803,6 +21953,9 @@ var Methods = [
   subagentStopMethod,
   subagentEndMethod,
   taskOrchestratorDeliverMethod,
+  taskStopMethod,
+  taskRunStartMethod,
+  taskRunEndMethod,
   skillListMethod,
   inboxAwaitCommandMethod,
   inboxAwaitMethod,
@@ -21830,7 +21983,7 @@ var ndjsonOpenRpcConnection = (stream, handle) => {
   const connection = { stream, pending: /* @__PURE__ */ new Map(), nextId: 1 };
   stream.on("error", () => {
   });
-  const closed = new Promise((resolve5) => stream.once("close", () => resolve5()));
+  const closed = new Promise((resolve3) => stream.once("close", () => resolve3()));
   void closed.then(() => rejectPending(connection));
   createInterface({ input: stream, crlfDelay: Number.POSITIVE_INFINITY }).on("line", (line) => {
     void receive(connection, handle, line);
@@ -21844,39 +21997,36 @@ var ndjsonOpenRpcConnection = (stream, handle) => {
 var rejectPending = (connection) => {
   for (const request2 of connection.pending.values()) request2.reject(new Error("The connection closed"));
 };
-var request = (connection, method, params, signal) => {
-  return new Promise((resolve5, reject) => {
-    if (!connection.stream.writable) return reject(new Error("The connection is closed"));
-    if (signal?.aborted) return reject(abortError(method, signal.reason));
-    const id = connection.nextId;
-    connection.nextId += 1;
-    const abort = () => connection.pending.get(id)?.reject(abortError(method, signal?.reason));
-    const finish = () => {
-      connection.pending.delete(id);
-      signal?.removeEventListener("abort", abort);
-    };
-    signal?.addEventListener("abort", abort, { once: true });
-    connection.pending.set(id, {
-      resolve: (result) => {
-        finish();
-        resolve5(result);
-      },
-      reject: (error62) => {
-        finish();
-        reject(error62);
-      }
-    });
-    send(connection, { jsonrpc: "2.0", id, method, params });
+var request = async (connection, method, params, signal) => new Promise((resolve3, reject) => {
+  if (!connection.stream.writable) return reject(new Error("The connection is closed"));
+  if (signal?.aborted) return reject(abortError(method, signal.reason));
+  const id = connection.nextId;
+  connection.nextId += 1;
+  const abort = () => connection.pending.get(id)?.reject(abortError(method, signal?.reason));
+  const finish = () => {
+    connection.pending.delete(id);
+    signal?.removeEventListener("abort", abort);
+  };
+  signal?.addEventListener("abort", abort, { once: true });
+  connection.pending.set(id, {
+    resolve: (result) => {
+      finish();
+      resolve3(result);
+    },
+    reject: (error62) => {
+      finish();
+      reject(error62);
+    }
   });
-};
-var abortError = (method, reason) => {
-  return new Error(`The request ${method} was aborted`, { cause: reason });
-};
+  const message = { jsonrpc: "2.0", id, method, params };
+  send(connection, message);
+});
+var abortError = (method, reason) => new Error(`The request ${method} was aborted`, { cause: reason });
 var receive = async (connection, handle, line) => {
   if (line.trim() === "") return;
   const message = parseCatching(line);
   if (message instanceof Error)
-    return send(connection, new RpcError(RpcErrorCode.PARSE_ERROR, message.message).toResponse(null));
+    return send(connection, new RpcError(RPC_ERROR_CODES.PARSE_ERROR, message.message).toResponse(null));
   if (isResponse(message)) return settle2(connection, message);
   const response = await handle(message);
   if (response !== void 0) send(connection, response);
@@ -21885,7 +22035,7 @@ var parseCatching = (line) => {
   try {
     return JSON.parse(line);
   } catch (error62) {
-    return error62 instanceof Error ? error62 : new Error(String(error62));
+    return error62 instanceof Error ? error62 : new Error(String(error62), { cause: error62 });
   }
 };
 var isResponse = (message) => {
@@ -21903,43 +22053,42 @@ var send = (connection, message) => {
 `);
 };
 
-// src/rpc/rpc-connection.ts
-var OpenRpcConnection = ndjsonOpenRpcConnection;
+// src/rpc/timeout-signal.timers.ts
+var timersTimeoutSignal = (delay) => AbortSignal.timeout(delay);
 
-// src/storage/database-path.git.ts
-import { join } from "node:path";
-
-// src/worktree/main-worktree.git.ts
-import { execFile } from "node:child_process";
-import { resolve } from "node:path";
-import { promisify } from "node:util";
-var execFileAsync = promisify(execFile);
-var WORKTREE_PREFIX = "worktree ";
-var gitMainWorktree = async (directory) => {
-  const commandLine = ["worktree", "list", "--porcelain"];
-  const { stdout } = await execFileAsync("git", commandLine, { cwd: directory, windowsHide: true });
-  const [firstLine = ""] = stdout.split("\n");
-  if (!firstLine.startsWith(WORKTREE_PREFIX)) throw new Error(`Git listed no worktree for ${directory}`);
-  return resolve(firstLine.slice(WORKTREE_PREFIX.length).trimEnd());
+// src/session/log.stderr.ts
+var stderrLog = (line) => {
+  process.stderr.write(`${line}
+`);
 };
 
-// src/worktree/main-worktree.ts
-var MainWorktree = gitMainWorktree;
-
-// src/storage/database-path.git.ts
-var DATABASE_FILE = join(".agents", "atomic-workflow", "database", "database.db");
-var gitDatabasePath = async (directory) => join(await MainWorktree(directory), DATABASE_FILE);
-
 // src/storage/database-path.ts
-var DatabasePath = gitDatabasePath;
+import { join as join2 } from "node:path";
+var DATABASE_FILE = join2(".agents", "atomic-workflow", "database", "database.db");
+var databasePath = (mainWorktree) => join2(mainWorktree, DATABASE_FILE);
 
 // src/storage/open-storage.sqlite.ts
 import { mkdir, writeFile } from "node:fs/promises";
-import { dirname, join as join2 } from "node:path";
+import { dirname, join as join3 } from "node:path";
 import { DatabaseSync } from "node:sqlite";
+
+// src/storage/immediate-transaction.sqlite.ts
+var immediateTransaction = (database, work) => {
+  database.exec("BEGIN IMMEDIATE");
+  try {
+    const result = work();
+    database.exec("COMMIT");
+    return result;
+  } catch (error62) {
+    database.exec("ROLLBACK");
+    throw error62;
+  }
+};
 
 // src/storage/message-log-store.sqlite.ts
 var COLUMNS = "id, session_id AS sessionId, message_id AS messageId, sender, content, timestamp";
+var DELETE_SESSION_MESSAGES = "DELETE FROM message_log WHERE session_id = :sessionId";
+var loggedMessage = (row) => ({ ...row });
 var sqliteMessageLogStore = (database) => {
   const insert = database.prepare(
     `INSERT INTO message_log (session_id, message_id, sender, content, timestamp)
@@ -21958,19 +22107,18 @@ var sqliteMessageLogStore = (database) => {
   const selectLatest = database.prepare(
     `SELECT * FROM (SELECT ${COLUMNS} FROM message_log WHERE ${filter} ORDER BY id DESC LIMIT :limit) ORDER BY id`
   );
-  const removeSession = database.prepare("DELETE FROM message_log WHERE session_id = :sessionId");
+  const removeSession = database.prepare(DELETE_SESSION_MESSAGES);
   const selectLatestTimes = database.prepare(
     "SELECT session_id AS sessionId, MAX(timestamp) AS timestamp FROM message_log GROUP BY session_id"
   );
   return {
-    append: async (message) => {
-      const { sessionId, messageId } = message;
-      const row = insert.get({ ...message }) ?? selectMessageId.get({ sessionId, messageId });
-      return row;
+    append: async ({ sessionId, messageId, sender, content, timestamp }) => {
+      const row = insert.get({ sessionId, messageId, sender, content, timestamp }) ?? selectMessageId.get({ sessionId, messageId });
+      return loggedMessage(row ?? {});
     },
     list: async ({ sessionId = null, role = null, after, limit }) => {
       const rows = after === void 0 ? selectLatest.all({ sessionId, role, limit }) : selectAfter.all({ sessionId, role, after, limit });
-      return rows;
+      return rows.map(loggedMessage);
     },
     deleteSession: async (sessionId) => Number(removeSession.run({ sessionId }).changes),
     latestTimes: async () => {
@@ -21980,212 +22128,9 @@ var sqliteMessageLogStore = (database) => {
   };
 };
 
-// src/storage/session-store.sqlite.ts
-var COLUMNS2 = "id, agent, directory, started_at AS startedAt, role, parent_id AS parentId, task_id AS taskId, job, ticket_id AS ticketId, alias, context_tokens AS contextTokens, model, effort";
-var sqliteSessionStore = (database) => {
-  const insert = database.prepare(
-    `INSERT INTO session
-      (id, agent, directory, started_at, role, parent_id, task_id, job, ticket_id, alias, context_tokens, model, effort)
-    VALUES
-      (:id, :agent, :directory, :startedAt, :role, :parentId, :taskId, :job, :ticketId, :alias, :contextTokens, :model,
-      :effort)
-    ON CONFLICT (id) DO NOTHING`
-  );
-  const select = database.prepare(`SELECT ${COLUMNS2} FROM session WHERE id = :id`);
-  const selectAll = database.prepare(`SELECT ${COLUMNS2} FROM session ORDER BY started_at, id`);
-  const updateTask = database.prepare("UPDATE session SET task_id = :taskId WHERE id = :id AND task_id IS NULL");
-  const moveToTask = database.prepare(
-    "UPDATE session SET task_id = :taskId, ticket_id = NULL WHERE id = :id AND task_id IS NOT :taskId"
-  );
-  const updateTicket = database.prepare(
-    "UPDATE session SET ticket_id = :ticketId WHERE id = :id AND task_id IS NOT NULL AND ticket_id IS NULL"
-  );
-  const updateAlias = database.prepare("UPDATE session SET alias = :alias WHERE id = :id AND alias IS NOT :alias");
-  const updateUsage = database.prepare(
-    `UPDATE session SET context_tokens = :contextTokens, model = :model, effort = :effort
-    WHERE id = :id AND (context_tokens IS NOT :contextTokens OR model IS NOT :model OR effort IS NOT :effort)`
-  );
-  const removeMessages = database.prepare("DELETE FROM message_log WHERE session_id = :id");
-  const remove2 = database.prepare("DELETE FROM session WHERE id = :id");
-  const get = (id) => select.get({ id });
-  return {
-    register: async (session) => {
-      insert.run({ ...session });
-      return get(session.id) ?? session;
-    },
-    get: async (id) => get(id),
-    list: async () => selectAll.all(),
-    setTask: async (id, taskId) => updateTask.run({ id, taskId }).changes > 0,
-    moveTask: async (id, taskId) => moveToTask.run({ id, taskId }).changes > 0,
-    setTicket: async (id, ticketId) => updateTicket.run({ id, ticketId }).changes > 0,
-    setAlias: async (id, alias) => updateAlias.run({ id, alias }).changes > 0,
-    setUsage: async (id, usage) => updateUsage.run({ id, ...usage }).changes > 0,
-    delete: async (id) => {
-      database.exec("BEGIN IMMEDIATE");
-      try {
-        removeMessages.run({ id });
-        const deleted = remove2.run({ id }).changes > 0;
-        database.exec("COMMIT");
-        return deleted;
-      } catch (error62) {
-        database.exec("ROLLBACK");
-        throw error62;
-      }
-    }
-  };
-};
-
-// src/storage/task-store.sqlite.ts
-var COMPLETED = `('needs-review', 'done')`;
-var sqliteTaskStore = (database) => {
-  const insertTask = database.prepare(
-    `INSERT INTO task (slug, status, created_at) VALUES (:slug, 'plan-goals', :createdAt) RETURNING id`
-  );
-  const selectTask = database.prepare(
-    `SELECT id, slug, status, created_at AS createdAt, design, base_branch AS baseBranch FROM task WHERE id = :id`
-  );
-  const selectTasks = database.prepare(
-    `SELECT id, slug, status, created_at AS createdAt,
-      (SELECT COUNT(*) FROM ticket WHERE task_id = task.id AND status IN ${COMPLETED}) AS completedTickets,
-      (SELECT COUNT(*) FROM ticket WHERE task_id = task.id) AS totalTickets
-    FROM task ORDER BY id`
-  );
-  const removeTaskGoals = database.prepare(`DELETE FROM goal WHERE task_id = :taskId`);
-  const removeTask = database.prepare(`DELETE FROM task WHERE id = :taskId`);
-  const insertGoal = database.prepare(
-    `INSERT INTO goal (task_id, id, summary, details, source)
-    VALUES (:taskId, (SELECT COALESCE(MAX(id), 0) + 1 FROM goal WHERE task_id = :taskId), :summary, :details, :source)`
-  );
-  const selectGoals = database.prepare(
-    `SELECT id, summary, details, source FROM goal WHERE task_id = :taskId ORDER BY id`
-  );
-  const updateGoal = database.prepare(
-    `UPDATE goal SET summary = :summary, details = :details WHERE id = :goalId AND task_id = :taskId`
-  );
-  const removeGoal = database.prepare(`DELETE FROM goal WHERE id = :goalId AND task_id = :taskId`);
-  const negateLaterGoals = database.prepare(`UPDATE goal SET id = -id WHERE task_id = :taskId AND id > :goalId`);
-  const lowerNegatedGoals = database.prepare(`UPDATE goal SET id = -id - 1 WHERE task_id = :taskId AND id < 0`);
-  const updateDesign = database.prepare(`UPDATE task SET design = :design WHERE id = :taskId`);
-  const upsertTicket = database.prepare(
-    `INSERT INTO ticket (task_id, id, mode, type, complexity, slug, summary, description, fixes)
-    VALUES (:taskId, :id, :mode, :type, :complexity, :slug, :summary, :description, :fixes)
-    ON CONFLICT (task_id, id) DO UPDATE SET mode = excluded.mode, type = excluded.type,
-      complexity = excluded.complexity, slug = excluded.slug, summary = excluded.summary,
-      description = excluded.description, fixes = excluded.fixes`
-  );
-  const insertDependency = database.prepare(
-    `INSERT INTO ticket_dependency (task_id, ticket_id, depends_on_id) VALUES (:taskId, :ticketId, :dependsOnId)`
-  );
-  const selectTickets = database.prepare(
-    `SELECT id, mode, type, complexity, slug, summary, description, fixes, status, stage,
-      blocked_reason AS blockedReason,
-      (SELECT json_group_array(depends_on_id) FROM (
-        SELECT depends_on_id FROM ticket_dependency
-        WHERE task_id = ticket.task_id AND ticket_id = ticket.id ORDER BY depends_on_id
-      )) AS dependsOn
-    FROM ticket WHERE task_id = :taskId ORDER BY id`
-  );
-  const removeDependencies = database.prepare(`DELETE FROM ticket_dependency WHERE task_id = :taskId`);
-  const removeTickets = database.prepare(`DELETE FROM ticket WHERE task_id = :taskId`);
-  const removeLaterTickets = database.prepare(`DELETE FROM ticket WHERE task_id = :taskId AND id > :count`);
-  const updateStatus = database.prepare(`UPDATE task SET status = :status WHERE id = :taskId`);
-  const updateBaseBranch = database.prepare(`UPDATE task SET base_branch = :branch WHERE id = :taskId`);
-  const updateTicketProgress = database.prepare(
-    `UPDATE ticket SET status = :status, stage = :stage, blocked_reason = :blockedReason
-    WHERE task_id = :taskId AND id = :ticketId`
-  );
-  const get = (id) => {
-    const row = selectTask.get({ id });
-    if (row === void 0) return void 0;
-    const goals = selectGoals.all({ taskId: id });
-    return { ...row, goals, tickets: getTickets(id) };
-  };
-  const getTickets = (taskId) => selectTickets.all({ taskId }).map((row) => ({ ...row, dependsOn: JSON.parse(row.dependsOn) }));
-  const storeTickets = (taskId, tickets) => {
-    removeLaterTickets.run({ taskId, count: tickets.length });
-    tickets.forEach(({ mode, type, complexity, slug, summary, description, fixes }, index) => {
-      upsertTicket.run({ taskId, id: index + 1, mode, type, complexity, slug, summary, description, fixes });
-    });
-    tickets.forEach(({ dependsOn }, index) => {
-      for (const dependsOnId of dependsOn) insertDependency.run({ taskId, ticketId: index + 1, dependsOnId });
-    });
-  };
-  return {
-    create: async ({ slug, createdAt, goal }) => {
-      database.exec("BEGIN IMMEDIATE");
-      try {
-        const { id } = insertTask.get({ slug, createdAt });
-        insertGoal.run({ taskId: id, ...goal });
-        database.exec("COMMIT");
-        return get(id);
-      } catch (error62) {
-        database.exec("ROLLBACK");
-        throw error62;
-      }
-    },
-    get: async (id) => get(id),
-    list: async () => selectTasks.all(),
-    delete: async (id) => {
-      database.exec("BEGIN IMMEDIATE");
-      try {
-        removeDependencies.run({ taskId: id });
-        removeTickets.run({ taskId: id });
-        removeTaskGoals.run({ taskId: id });
-        const deleted = removeTask.run({ taskId: id }).changes > 0;
-        database.exec("COMMIT");
-        return deleted;
-      } catch (error62) {
-        database.exec("ROLLBACK");
-        throw error62;
-      }
-    },
-    addGoal: async (taskId, goal) => {
-      insertGoal.run({ taskId, ...goal });
-    },
-    editGoal: async (taskId, goalId, { summary, details }) => updateGoal.run({ taskId, goalId, summary, details }).changes > 0,
-    deleteGoal: async (taskId, goalId) => {
-      database.exec("BEGIN IMMEDIATE");
-      try {
-        const deleted = removeGoal.run({ taskId, goalId }).changes > 0;
-        if (deleted) {
-          negateLaterGoals.run({ taskId, goalId });
-          lowerNegatedGoals.run({ taskId });
-        }
-        database.exec("COMMIT");
-        return deleted;
-      } catch (error62) {
-        database.exec("ROLLBACK");
-        throw error62;
-      }
-    },
-    setDesign: async (taskId, design) => {
-      updateDesign.run({ taskId, design });
-    },
-    setTickets: async (taskId, tickets) => {
-      database.exec("BEGIN IMMEDIATE");
-      try {
-        removeDependencies.run({ taskId });
-        storeTickets(taskId, tickets);
-        database.exec("COMMIT");
-      } catch (error62) {
-        database.exec("ROLLBACK");
-        throw error62;
-      }
-    },
-    setStatus: async (taskId, status) => {
-      updateStatus.run({ taskId, status });
-    },
-    setBaseBranch: async (taskId, branch) => {
-      updateBaseBranch.run({ taskId, branch });
-    },
-    setTicketProgress: async (taskId, ticketId, { status, stage, blockedReason }) => updateTicketProgress.run({ taskId, ticketId, status, stage, blockedReason }).changes > 0
-  };
-};
-
-// src/storage/open-storage.sqlite.ts
-var BUSY_TIMEOUT = 5e3;
-var GITIGNORE = "*\n";
+// src/storage/migrations.sqlite.ts
 var MIGRATIONS = [
+  // Step 1 creates the table `session` and the table `message_log`, with an index on the messages of each session.
   `CREATE TABLE session (
     id TEXT PRIMARY KEY,
     agent TEXT NOT NULL CHECK (agent IN ('claude', 'codex')),
@@ -22202,9 +22147,11 @@ var MIGRATIONS = [
     UNIQUE (session_id, message_id)
   ) STRICT;
   CREATE INDEX message_log_session ON message_log (session_id, id);`,
+  // Step 2 adds the role of a session, and the orchestrator session that a subagent runs inside.
   `ALTER TABLE session ADD COLUMN role TEXT NOT NULL DEFAULT 'orchestrator'
     CHECK (role IN ('orchestrator', 'subagent'));
   ALTER TABLE session ADD COLUMN parent_id TEXT REFERENCES session (id);`,
+  // Step 3 creates the table `task` and the table `goal`, with an index on the goals of each task.
   `CREATE TABLE task (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     slug TEXT NOT NULL,
@@ -22219,6 +22166,8 @@ var MIGRATIONS = [
     source TEXT NOT NULL CHECK (source IN ('user', 'agent'))
   ) STRICT;
   CREATE INDEX goal_task ON goal (task_id, id);`,
+  // Step 4 rebuilds the table `task`, since SQLite cannot change the check of a column. It renames the phase
+  // `decisions` to `design`, and adds the design of a task.
   `CREATE TABLE task_new (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     slug TEXT NOT NULL,
@@ -22230,6 +22179,9 @@ var MIGRATIONS = [
     SELECT id, slug, CASE phase WHEN 'decisions' THEN 'design' ELSE phase END, created_at FROM task;
   DROP TABLE task;
   ALTER TABLE task_new RENAME TO task;`,
+  // Step 5 rebuilds the table `task` to turn its phase into a status: `done` becomes `complete`, and each other phase
+  // `plan-<phase>`. It creates the table `ticket` and the table `ticket_dependency`, and rebuilds the table `goal`, so
+  // that the goals of each task have the identifiers 1 to n.
   `CREATE TABLE task_new (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     slug TEXT NOT NULL,
@@ -22270,6 +22222,8 @@ var MIGRATIONS = [
     SELECT task_id, ROW_NUMBER() OVER (PARTITION BY task_id ORDER BY id), summary, details, source FROM goal;
   DROP TABLE goal;
   ALTER TABLE goal_new RENAME TO goal;`,
+  // Step 6 rebuilds the table `ticket` to add the mode of a ticket. Each ticket stored before is `unattended`, and
+  // only a `manual` ticket has no complexity.
   `CREATE TABLE ticket_new (
     task_id INTEGER NOT NULL REFERENCES task (id),
     id INTEGER NOT NULL,
@@ -22285,12 +22239,15 @@ var MIGRATIONS = [
     SELECT task_id, id, 'unattended', complexity, slug, summary, description FROM ticket;
   DROP TABLE ticket;
   ALTER TABLE ticket_new RENAME TO ticket;`,
+  // Step 7 adds the base branch of a task, and the type, the status, the stage and the blocked reason of a ticket.
   `ALTER TABLE task ADD COLUMN base_branch TEXT;
   ALTER TABLE ticket ADD COLUMN type TEXT NOT NULL DEFAULT 'code' CHECK (type IN ('code', 'other'));
   ALTER TABLE ticket ADD COLUMN status TEXT NOT NULL DEFAULT 'not-started'
     CHECK (status IN ('not-started', 'in-progress', 'needs-review', 'blocked', 'done'));
   ALTER TABLE ticket ADD COLUMN stage TEXT CHECK (stage IN ('prototype', 'refactor', 'tests'));
   ALTER TABLE ticket ADD COLUMN blocked_reason TEXT;`,
+  // Step 8 rebuilds the table `task` to add the status `done`. It keeps the sequence of identifiers in
+  // `sqlite_sequence`, so a new task never gets the identifier of a deleted one.
   `CREATE TABLE task_new (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     slug TEXT NOT NULL,
@@ -22350,12 +22307,237 @@ var MIGRATIONS = [
   // Step 15 adds the model and the reasoning effort of the newest model request of a session. Each session stored
   // before has neither.
   `ALTER TABLE session ADD COLUMN model TEXT;
-  ALTER TABLE session ADD COLUMN effort TEXT;`
+  ALTER TABLE session ADD COLUMN effort TEXT;`,
+  // Step 16 adds the start and the end of the latest run of a task. Each task stored before never ran.
+  `ALTER TABLE task ADD COLUMN run_started_at INTEGER;
+  ALTER TABLE task ADD COLUMN run_ended_at INTEGER;`
 ];
+
+// src/storage/session-store.sqlite.ts
+var COLUMNS2 = {
+  id: "id",
+  agent: "agent",
+  directory: "directory",
+  startedAt: "started_at",
+  role: "role",
+  parentId: "parent_id",
+  taskId: "task_id",
+  job: "job",
+  ticketId: "ticket_id",
+  alias: "alias",
+  contextTokens: "context_tokens",
+  model: "model",
+  effort: "effort"
+};
+var FIELDS = Object.keys(COLUMNS2);
+var INSERTED_COLUMNS = FIELDS.map((field) => COLUMNS2[field]).join(", ");
+var INSERTED_VALUES = FIELDS.map((field) => `:${field}`).join(", ");
+var SELECTED_COLUMNS = FIELDS.map(
+  (field) => COLUMNS2[field] === field ? field : `${COLUMNS2[field]} AS ${field}`
+).join(", ");
+var registeredSession2 = (row) => ({ ...row });
+var sqliteSessionStore = (database) => {
+  const insert = database.prepare(
+    `INSERT INTO session (${INSERTED_COLUMNS}) VALUES (${INSERTED_VALUES}) ON CONFLICT (id) DO NOTHING`
+  );
+  const select = database.prepare(`SELECT ${SELECTED_COLUMNS} FROM session WHERE id = :id`);
+  const selectAll = database.prepare(`SELECT ${SELECTED_COLUMNS} FROM session ORDER BY started_at, id`);
+  const updateTask = database.prepare("UPDATE session SET task_id = :taskId WHERE id = :id AND task_id IS NULL");
+  const moveToTask = database.prepare(
+    "UPDATE session SET task_id = :taskId, ticket_id = NULL WHERE id = :id AND task_id IS NOT :taskId"
+  );
+  const updateTicket = database.prepare(
+    "UPDATE session SET ticket_id = :ticketId WHERE id = :id AND task_id IS NOT NULL AND ticket_id IS NULL"
+  );
+  const updateAlias = database.prepare("UPDATE session SET alias = :alias WHERE id = :id AND alias IS NOT :alias");
+  const updateUsage = database.prepare(
+    `UPDATE session SET context_tokens = :contextTokens, model = :model, effort = :effort
+    WHERE id = :id AND (context_tokens IS NOT :contextTokens OR model IS NOT :model OR effort IS NOT :effort)`
+  );
+  const removeMessages = database.prepare(DELETE_SESSION_MESSAGES);
+  const remove = database.prepare("DELETE FROM session WHERE id = :id");
+  const get = (id) => {
+    const row = select.get({ id });
+    return row === void 0 ? void 0 : registeredSession2(row);
+  };
+  return {
+    register: async (session) => {
+      insert.run(Object.fromEntries(FIELDS.map((field) => [field, session[field]])));
+      return get(session.id) ?? session;
+    },
+    get: async (id) => get(id),
+    list: async () => selectAll.all().map(registeredSession2),
+    setTask: async (id, taskId) => updateTask.run({ id, taskId }).changes > 0,
+    moveTask: async (id, taskId) => moveToTask.run({ id, taskId }).changes > 0,
+    setTicket: async (id, ticketId) => updateTicket.run({ id, ticketId }).changes > 0,
+    setAlias: async (id, alias) => updateAlias.run({ id, alias }).changes > 0,
+    setUsage: async (id, { contextTokens, model, effort }) => updateUsage.run({ id, contextTokens, model, effort }).changes > 0,
+    delete: async (id) => immediateTransaction(database, () => {
+      removeMessages.run({ sessionId: id });
+      return remove.run({ id }).changes > 0;
+    })
+  };
+};
+
+// src/storage/task-store.sqlite.ts
+var COMPLETED = "('needs-review', 'done')";
+var TASK_COLUMNS = "id, slug, status, created_at AS createdAt";
+var RUN_COLUMNS = "run_started_at AS runStartedAt, run_ended_at AS runEndedAt";
+var plain = (row) => ({ ...row });
+var sqliteGoalRows = (database) => {
+  const insert = database.prepare(
+    `INSERT INTO goal (task_id, id, summary, details, source)
+    VALUES (:taskId, (SELECT COALESCE(MAX(id), 0) + 1 FROM goal WHERE task_id = :taskId), :summary, :details, :source)`
+  );
+  const select = database.prepare("SELECT id, summary, details, source FROM goal WHERE task_id = :taskId ORDER BY id");
+  const update2 = database.prepare(
+    "UPDATE goal SET summary = :summary, details = :details WHERE id = :goalId AND task_id = :taskId"
+  );
+  const remove = database.prepare("DELETE FROM goal WHERE id = :goalId AND task_id = :taskId");
+  const negateLater = database.prepare("UPDATE goal SET id = -id WHERE task_id = :taskId AND id > :goalId");
+  const lowerNegated = database.prepare("UPDATE goal SET id = -id - 1 WHERE task_id = :taskId AND id < 0");
+  const removeAll = database.prepare("DELETE FROM goal WHERE task_id = :taskId");
+  return {
+    list: (taskId) => select.all({ taskId }).map((row) => plain(row)),
+    add: (taskId, { summary, details, source }) => {
+      insert.run({ taskId, summary, details, source });
+    },
+    edit: (taskId, goalId, { summary, details }) => update2.run({ taskId, goalId, summary, details }).changes > 0,
+    delete: (taskId, goalId) => {
+      const deleted = remove.run({ taskId, goalId }).changes > 0;
+      if (deleted) {
+        negateLater.run({ taskId, goalId });
+        lowerNegated.run({ taskId });
+      }
+      return deleted;
+    },
+    deleteAll: (taskId) => {
+      removeAll.run({ taskId });
+    }
+  };
+};
+var sqliteTicketRows = (database) => {
+  const upsert = database.prepare(
+    `INSERT INTO ticket (task_id, id, mode, type, complexity, slug, summary, description, fixes)
+    VALUES (:taskId, :id, :mode, :type, :complexity, :slug, :summary, :description, :fixes)
+    ON CONFLICT (task_id, id) DO UPDATE SET mode = excluded.mode, type = excluded.type,
+      complexity = excluded.complexity, slug = excluded.slug, summary = excluded.summary,
+      description = excluded.description, fixes = excluded.fixes`
+  );
+  const insertDependency = database.prepare(
+    "INSERT INTO ticket_dependency (task_id, ticket_id, depends_on_id) VALUES (:taskId, :ticketId, :dependsOnId)"
+  );
+  const select = database.prepare(
+    `SELECT id, mode, type, complexity, slug, summary, description, fixes, status, stage,
+      blocked_reason AS blockedReason,
+      (SELECT json_group_array(depends_on_id) FROM (
+        SELECT depends_on_id FROM ticket_dependency
+        WHERE task_id = ticket.task_id AND ticket_id = ticket.id ORDER BY depends_on_id
+      )) AS dependsOn
+    FROM ticket WHERE task_id = :taskId ORDER BY id`
+  );
+  const removeDependencies = database.prepare("DELETE FROM ticket_dependency WHERE task_id = :taskId");
+  const removeAll = database.prepare("DELETE FROM ticket WHERE task_id = :taskId");
+  const removeLater = database.prepare("DELETE FROM ticket WHERE task_id = :taskId AND id > :count");
+  const updateProgress = database.prepare(
+    `UPDATE ticket SET status = :status, stage = :stage, blocked_reason = :blockedReason
+    WHERE task_id = :taskId AND id = :ticketId`
+  );
+  return {
+    list: (taskId) => select.all({ taskId }).map((row) => plain({ ...row, dependsOn: JSON.parse(String(row.dependsOn)) })),
+    set: (taskId, tickets) => {
+      removeDependencies.run({ taskId });
+      removeLater.run({ taskId, count: tickets.length });
+      tickets.forEach(({ mode, type, complexity, slug, summary, description, fixes }, index) => {
+        upsert.run({ taskId, id: index + 1, mode, type, complexity, slug, summary, description, fixes });
+      });
+      tickets.forEach(({ dependsOn }, index) => {
+        for (const dependsOnId of dependsOn) insertDependency.run({ taskId, ticketId: index + 1, dependsOnId });
+      });
+    },
+    setProgress: (taskId, ticketId, { status, stage, blockedReason }) => updateProgress.run({ taskId, ticketId, status, stage, blockedReason }).changes > 0,
+    deleteAll: (taskId) => {
+      removeDependencies.run({ taskId });
+      removeAll.run({ taskId });
+    }
+  };
+};
+var sqliteRunRows = (database) => {
+  const updateStart = database.prepare("UPDATE task SET run_started_at = :at, run_ended_at = NULL WHERE id = :taskId");
+  const updateEnd = database.prepare(
+    `UPDATE task SET run_ended_at = :at
+    WHERE id = :taskId AND run_started_at IS NOT NULL AND run_ended_at IS NULL
+      AND (:startedAt IS NULL OR run_started_at = :startedAt)`
+  );
+  const updateEnds = database.prepare(
+    "UPDATE task SET run_ended_at = :at WHERE run_started_at IS NOT NULL AND run_ended_at IS NULL"
+  );
+  return {
+    startRun: async (taskId, at) => updateStart.run({ taskId, at }).changes > 0,
+    endRun: async (taskId, at, startedAt) => updateEnd.run({ taskId, at, startedAt: startedAt ?? null }).changes > 0,
+    endRuns: async (at) => Number(updateEnds.run({ at }).changes)
+  };
+};
+var sqliteTaskStore = (database) => {
+  const goals = sqliteGoalRows(database);
+  const tickets = sqliteTicketRows(database);
+  const insert = database.prepare(
+    "INSERT INTO task (slug, status, created_at) VALUES (:slug, 'plan-goals', :createdAt) RETURNING id"
+  );
+  const select = database.prepare(
+    `SELECT ${TASK_COLUMNS}, design, base_branch AS baseBranch, ${RUN_COLUMNS} FROM task WHERE id = :id`
+  );
+  const selectAll = database.prepare(
+    `SELECT ${TASK_COLUMNS},
+      (SELECT COUNT(*) FROM ticket WHERE task_id = task.id AND status IN ${COMPLETED}) AS completedTickets,
+      (SELECT COUNT(*) FROM ticket WHERE task_id = task.id) AS totalTickets,
+      ${RUN_COLUMNS}
+    FROM task ORDER BY id`
+  );
+  const remove = database.prepare("DELETE FROM task WHERE id = :taskId");
+  const updateDesign = database.prepare("UPDATE task SET design = :design WHERE id = :taskId");
+  const updateStatus = database.prepare("UPDATE task SET status = :status WHERE id = :taskId");
+  const updateBaseBranch = database.prepare("UPDATE task SET base_branch = :branch WHERE id = :taskId");
+  const get = (id) => {
+    const row = select.get({ id });
+    if (row === void 0) return void 0;
+    return plain({ ...row, goals: goals.list(id), tickets: tickets.list(id) });
+  };
+  return {
+    create: async ({ slug, createdAt, goal }) => {
+      const id = immediateTransaction(database, () => {
+        const taskId = Number(insert.get({ slug, createdAt })?.id);
+        goals.add(taskId, goal);
+        return taskId;
+      });
+      return get(id);
+    },
+    get: async (id) => get(id),
+    list: async () => selectAll.all().map((row) => plain(row)),
+    delete: async (id) => immediateTransaction(database, () => {
+      tickets.deleteAll(id);
+      goals.deleteAll(id);
+      return remove.run({ taskId: id }).changes > 0;
+    }),
+    addGoal: async (taskId, goal) => goals.add(taskId, goal),
+    editGoal: async (taskId, goalId, text2) => goals.edit(taskId, goalId, text2),
+    deleteGoal: async (taskId, goalId) => immediateTransaction(database, () => goals.delete(taskId, goalId)),
+    setDesign: async (taskId, design) => updateDesign.run({ taskId, design }).changes > 0,
+    setTickets: async (taskId, list2) => immediateTransaction(database, () => tickets.set(taskId, list2)),
+    setStatus: async (taskId, status) => updateStatus.run({ taskId, status }).changes > 0,
+    setBaseBranch: async (taskId, branch) => updateBaseBranch.run({ taskId, branch }).changes > 0,
+    setTicketProgress: async (taskId, ticketId, progress) => tickets.setProgress(taskId, ticketId, progress),
+    ...sqliteRunRows(database)
+  };
+};
+
+// src/storage/open-storage.sqlite.ts
+var BUSY_TIMEOUT = 5e3;
+var GITIGNORE = "*\n";
 var sqliteOpenStorage = async (path) => {
   const directory = dirname(path);
   await mkdir(directory, { recursive: true });
-  await writeFile(join2(directory, ".gitignore"), GITIGNORE);
+  await writeFile(join3(directory, ".gitignore"), GITIGNORE);
   const database = new DatabaseSync(path, { timeout: BUSY_TIMEOUT, enableForeignKeyConstraints: true });
   try {
     database.exec("PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL;");
@@ -22379,9 +22561,9 @@ var migrate = (database) => {
     database.exec("PRAGMA foreign_keys = ON");
   }
 };
-var runMigrations = (database) => {
-  database.exec("BEGIN IMMEDIATE");
-  try {
+var runMigrations = (database) => (
+  // An immediate transaction takes the write lock before it reads the version, so two servers never run one step twice.
+  immediateTransaction(database, () => {
     const version2 = userVersion(database);
     if (version2 > MIGRATIONS.length)
       throw new Error(`The database has schema version ${version2}, newer than ${MIGRATIONS.length}`);
@@ -22389,19 +22571,12 @@ var runMigrations = (database) => {
     if (database.prepare("PRAGMA foreign_key_check").get() !== void 0)
       throw new Error("The steps of the schema leave a foreign key broken");
     database.exec(`PRAGMA user_version = ${MIGRATIONS.length}`);
-    database.exec("COMMIT");
-  } catch (error62) {
-    database.exec("ROLLBACK");
-    throw error62;
-  }
-};
+  })
+);
 var userVersion = (database) => {
   const row = database.prepare("PRAGMA user_version").get();
   return Number(row?.user_version ?? 0);
 };
-
-// src/storage/open-storage.ts
-var OpenStorage = sqliteOpenStorage;
 
 // src/web/start-web-server.http.ts
 import { createServer as createServer2 } from "node:http";
@@ -22411,13 +22586,8 @@ var RPC_PATH = "/rpc";
 var RPC_TYPE = "application/json";
 var EVENTS_PATH = "/events";
 var NOT_BUILT = "The web app is not built. Run npm run build in web/.";
-var httpStartWebServer = (createStaticFiles) => async (handle, options) => {
-  const routes = {
-    handle,
-    changes: options.changes,
-    staticFiles: createStaticFiles({ directory: options.directory })
-  };
-  const server = createServer2((request2, response) => void serve2(routes, request2, response));
+var httpStartWebServer = async (dependencies) => {
+  const server = createServer2((request2, response) => void serve2(dependencies, request2, response));
   await listen(server);
   const { port } = server.address();
   return { url: `http://${HOST}:${port}/`, close: () => close2(server) };
@@ -22425,9 +22595,9 @@ var httpStartWebServer = (createStaticFiles) => async (handle, options) => {
 var serve2 = async (routes, request2, response) => {
   try {
     await route(routes, request2, response);
-  } catch (failure2) {
+  } catch (error62) {
     if (response.headersSent) return void response.destroy();
-    respond(response, 500, "text/plain", failure2 instanceof Error ? failure2.message : String(failure2));
+    respond(response, 500, "text/plain", errorMessage(error62));
   }
 };
 var route = async (routes, request2, response) => {
@@ -22463,9 +22633,9 @@ var sentPath = (url2) => {
   return queryStart === -1 ? url2 : url2.slice(0, queryStart);
 };
 var respondStatic = (response, staticAnswer) => {
-  if (staticAnswer.kind === "refused") return respond(response, 400, "text/plain", staticAnswer.message);
-  if (staticAnswer.kind === "missing") return respond(response, 503, "text/plain", NOT_BUILT);
-  respondFile(response, staticAnswer.file);
+  if (staticAnswer.kind === "refused") respond(response, 400, "text/plain", staticAnswer.message);
+  else if (staticAnswer.kind === "missing") respond(response, 503, "text/plain", NOT_BUILT);
+  else respondFile(response, staticAnswer.file);
 };
 var respondFile = (response, file2) => {
   response.setHeader("content-type", file2.contentType);
@@ -22473,12 +22643,11 @@ var respondFile = (response, file2) => {
   response.writeHead(200);
   response.end(file2.content);
 };
-var call2 = (handle, body) => {
+var call2 = async (handle, body) => {
   try {
     return handle(JSON.parse(body));
   } catch (error62) {
-    const message = error62 instanceof Error ? error62.message : String(error62);
-    return Promise.resolve(new RpcError(RpcErrorCode.PARSE_ERROR, message).toResponse(null));
+    return new RpcError(RPC_ERROR_CODES.PARSE_ERROR, errorMessage(error62)).toResponse(null);
   }
 };
 var respond = (response, status, type, body) => {
@@ -22486,25 +22655,25 @@ var respond = (response, status, type, body) => {
   response.writeHead(status);
   response.end(body);
 };
-var listen = (server) => {
-  return new Promise((resolve5, reject) => {
+var listen = async (server) => {
+  return new Promise((resolve3, reject) => {
     server.once("error", reject);
     server.listen(0, HOST, () => {
       server.off("error", reject);
-      resolve5();
+      resolve3();
     });
   });
 };
-var close2 = (server) => {
-  return new Promise((resolve5, reject) => {
-    server.close((error62) => error62 === void 0 ? resolve5() : reject(error62));
+var close2 = async (server) => {
+  return new Promise((resolve3, reject) => {
+    server.close((error62) => error62 === void 0 ? resolve3() : reject(error62));
     server.closeAllConnections();
   });
 };
 
 // src/web/static-files.directory.ts
 import { readFile, stat } from "node:fs/promises";
-import { extname, join as join3 } from "node:path";
+import { extname, join as join4 } from "node:path";
 var CONTENT_TYPES = {
   ".html": "text/html; charset=utf-8",
   ".js": "text/javascript; charset=utf-8",
@@ -22530,8 +22699,8 @@ var ASSETS_NAME = "assets";
 var IMMUTABLE = "public, max-age=31536000, immutable";
 var FORBIDDEN_CHARACTERS = /[\\:\0]/;
 var NO_FILE_CODES = ["ENOENT", "ENOTDIR", "ENAMETOOLONG", "EINVAL"];
-var directoryCreateStaticFiles = (dependencies) => ({
-  find: (path) => find2(dependencies.directory, path)
+var directoryCreateStaticFiles = (options) => ({
+  find: (path) => find2(options.directory, path)
 });
 var find2 = async (directory, path) => {
   const decoded = decode3(path);
@@ -22564,7 +22733,7 @@ var namesOf = (path) => {
   return names;
 };
 var readStaticFile = async (directory, names) => {
-  const target = join3(directory, ...names);
+  const target = join4(directory, ...names);
   if (!await isFile(target)) return void 0;
   const contentType = CONTENT_TYPES[extname(target).toLowerCase()] ?? DOWNLOAD_TYPE;
   return { content: await readFile(target), contentType, cacheControl: cacheControlOf(names) };
@@ -22573,29 +22742,40 @@ var cacheControlOf = (names) => {
   if (names.length === 1 && names[0] === INDEX_NAME) return "no-cache";
   return names.length > 1 && names[0] === ASSETS_NAME ? IMMUTABLE : void 0;
 };
+var errorCode = (error62) => error62 instanceof Error && "code" in error62 && typeof error62.code === "string" ? error62.code : void 0;
 var isFile = async (target) => {
   try {
     return (await stat(target)).isFile();
-  } catch (failure2) {
-    if (NO_FILE_CODES.includes(failure2.code)) return false;
-    throw failure2;
+  } catch (error62) {
+    if (NO_FILE_CODES.includes(errorCode(error62))) return false;
+    throw error62;
   }
 };
 
-// src/web/static-files.ts
-var CreateStaticFiles = directoryCreateStaticFiles;
-
-// src/web/start-web-server.ts
-var StartWebServer = httpStartWebServer(CreateStaticFiles);
-
 // src/worktree/copy-ignored.disk.ts
-import { execFile as execFile2 } from "node:child_process";
 import { constants } from "node:fs";
 import { copyFile, lstat, mkdir as mkdir2, readdir, readlink, stat as stat2, symlink } from "node:fs/promises";
-import { dirname as dirname2, isAbsolute, join as join4, relative, resolve as resolve2, sep } from "node:path";
-import { promisify as promisify2 } from "node:util";
-var execFileAsync2 = promisify2(execFile2);
-var STORAGE_PATH = ".agents/atomic-workflow";
+import { dirname as dirname2, join as join5, resolve } from "node:path";
+
+// src/worktree/paths.ts
+import { posix, win32 } from "node:path";
+var forwardSlashes = (path) => path.replaceAll("\\", "/");
+var comparablePath = (path, platform) => {
+  const absolute = platformPaths(platform).resolve(path);
+  return platform === "win32" ? absolute.toLowerCase() : absolute;
+};
+var samePath = (first, second, platform) => comparablePath(first, platform) === comparablePath(second, platform);
+var isBelow = (directory, path, platform) => relativeInside(comparablePath(directory, platform), comparablePath(path, platform), platform) !== void 0;
+var relativeInside = (directory, path, platform) => {
+  const paths = platformPaths(platform);
+  const inside = paths.relative(directory, path);
+  if (paths.isAbsolute(inside) || inside === ".." || inside.startsWith(`..${paths.sep}`)) return void 0;
+  return inside;
+};
+var platformPaths = (platform) => platform === "win32" ? win32 : posix;
+
+// src/worktree/copy-ignored.ts
+var NAMED_FAILURE_COUNT = 10;
 var LIST_IGNORED = [
   "ls-files",
   "-z",
@@ -22604,33 +22784,58 @@ var LIST_IGNORED = [
   "--exclude-standard",
   "--directory"
 ];
-var OPERATION_LIMIT = 16;
-var NAMED_FAILURE_COUNT = 10;
-var COPY_FLAGS = constants.COPYFILE_FICLONE | constants.COPYFILE_EXCL;
-var diskCopyIgnored = async (checkout, destination) => {
-  const entries = await listIgnored(checkout);
-  if (entries === void 0) return { count: 1, first: [{ path: ".", code: "GIT_FAILED" }] };
-  const run = {
-    checkout: resolve2(checkout),
-    destination: resolve2(destination),
-    limit: createLimit(OPERATION_LIMIT),
-    failures: []
-  };
-  await Promise.all(entries.map((entry) => copyEntry(run, entry)));
-  if (run.failures.length === 0) return void 0;
-  return { count: run.failures.length, first: run.failures.slice(0, NAMED_FAILURE_COUNT) };
+var copyIgnoredFiles = async (checkout, destination, dependencies) => {
+  const paths = await listIgnored(checkout, dependencies.runGit);
+  if (paths === void 0) return { count: 1, first: [{ path: ".", code: "GIT_FAILED" }] };
+  return dependencies.copyIgnored(checkout, destination, paths);
 };
-var listIgnored = async (checkout) => {
+var copyFailuresOf = (failures) => {
+  if (failures.length === 0) return void 0;
+  return { count: failures.length, first: failures.slice(0, NAMED_FAILURE_COUNT) };
+};
+var joinFailures = (first, second) => {
+  if (first === void 0) return second ?? null;
+  if (second === void 0) return first;
+  return { count: first.count + second.count, first: [...first.first, ...second.first].slice(0, NAMED_FAILURE_COUNT) };
+};
+var copiedLinkTarget = (checkout, destination, text2, resolved, absolute, platform) => {
+  const paths = platformPaths(platform);
+  const inside = relativeInside(checkout, resolved, platform);
+  if (!absolute && !paths.isAbsolute(text2) && inside !== void 0) return text2;
+  return inside === void 0 ? resolved : paths.join(destination, inside);
+};
+var listIgnored = async (checkout, runGit) => {
+  let stdout;
   try {
-    const { stdout } = await execFileAsync2("git", LIST_IGNORED, {
-      cwd: checkout,
-      windowsHide: true,
-      maxBuffer: 64 * 1024 * 1024
-    });
-    return stdout.split("\0").filter((entry) => entry !== "").map((entry) => entry.replace(/\/$/, ""));
+    const output2 = await runGit(checkout, LIST_IGNORED);
+    if (output2.exitCode !== 0) return void 0;
+    stdout = output2.stdout;
   } catch {
     return void 0;
   }
+  return stdout.split("\0").filter((entry) => entry !== "").map((entry) => entry.replace(/\/$/, ""));
+};
+
+// src/worktree/error-details.ts
+var errorCode2 = (error62) => {
+  if (!(error62 instanceof Error) || !("code" in error62)) return void 0;
+  return typeof error62.code === "string" || typeof error62.code === "number" ? error62.code : void 0;
+};
+var errorMessage2 = (error62) => error62 instanceof Error ? error62.message : String(error62);
+
+// src/worktree/copy-ignored.disk.ts
+var STORAGE_PATH = ".agents/atomic-workflow";
+var OPERATION_LIMIT = 16;
+var COPY_FLAGS = constants.COPYFILE_FICLONE | constants.COPYFILE_EXCL;
+var diskCopyIgnored = async (checkout, destination, paths) => {
+  const run = {
+    checkout: resolve(checkout),
+    destination: resolve(destination),
+    limit: createLimit(OPERATION_LIMIT),
+    failures: []
+  };
+  await Promise.all(paths.map((path) => copyEntry(run, path)));
+  return copyFailuresOf(run.failures);
 };
 var createLimit = (size) => {
   let running = 0;
@@ -22649,7 +22854,7 @@ var createLimit = (size) => {
 };
 var copyEntry = async (run, path) => {
   if (isStorage(path)) return;
-  if (!await makeDirectory(run, path, dirname2(join4(run.destination, path)))) return;
+  if (!await makeDirectory(run, path, dirname2(join5(run.destination, path)))) return;
   await copyPath(run, path);
 };
 var isStorage = (path) => path === STORAGE_PATH || path.startsWith(`${STORAGE_PATH}/`);
@@ -22664,19 +22869,16 @@ var attempt = async (run, path, operation, ignoredCodes = []) => {
   try {
     return await run.limit(operation);
   } catch (error62) {
-    const code = codeOf(error62);
-    if (!ignoredCodes.includes(code)) run.failures.push({ path, code });
+    const code = errorCode2(error62);
+    const failure2 = typeof code === "string" ? code : "UNKNOWN";
+    if (!ignoredCodes.includes(failure2)) run.failures.push({ path, code: failure2 });
     return void 0;
   }
 };
-var codeOf = (error62) => {
-  if (error62 instanceof Error && "code" in error62 && typeof error62.code === "string") return error62.code;
-  return "UNKNOWN";
-};
 var copyPath = async (run, path) => {
   if (isStorage(path)) return;
-  const source = join4(run.checkout, path);
-  const target = join4(run.destination, path);
+  const source = join5(run.checkout, path);
+  const target = join5(run.destination, path);
   const stats = await attempt(run, path, () => lstat(source));
   if (stats === void 0) return;
   if (stats.isSymbolicLink()) await copyLink(run, path, source, target);
@@ -22692,17 +22894,11 @@ var copyDirectory = async (run, path, source, target) => {
 var copyLink = async (run, path, source, target) => {
   const text2 = await attempt(run, path, () => readlink(source));
   if (text2 === void 0) return;
-  const resolved = resolve2(dirname2(source), text2);
-  const inside = insideCheckout(run, resolved);
+  const resolved = resolve(dirname2(source), text2);
   const junction = process.platform === "win32" && await isDirectoryOrMissing(run, resolved);
-  const linkTarget = junction ? absoluteTarget(run, resolved, inside) : linkText(run, text2, resolved, inside);
+  const linkTarget = copiedLinkTarget(run.checkout, run.destination, text2, resolved, junction, process.platform);
   const type = junction ? "junction" : "file";
   await attempt(run, path, () => symlink(linkTarget, target, type), ["EEXIST"]);
-};
-var insideCheckout = (run, resolved) => {
-  const path = relative(run.checkout, resolved);
-  if (isAbsolute(path) || path === ".." || path.startsWith(`..${sep}`)) return void 0;
-  return path;
 };
 var isDirectoryOrMissing = async (run, resolved) => {
   try {
@@ -22711,270 +22907,214 @@ var isDirectoryOrMissing = async (run, resolved) => {
     return true;
   }
 };
-var absoluteTarget = (run, resolved, inside) => inside === void 0 ? resolved : join4(run.destination, inside);
-var linkText = (run, text2, resolved, inside) => {
-  if (!isAbsolute(text2) && inside !== void 0) return text2;
-  return absoluteTarget(run, resolved, inside);
+
+// src/worktree/run-git.ts
+var QUOTED_LINE_COUNT = 5;
+var gitOutput = async (directory, commandLine, runGit) => {
+  const output2 = await runGit(directory, commandLine);
+  if (output2.exitCode === 0) return output2.stdout.trim();
+  throw gitFailure(directory, commandLine, output2);
+};
+var gitFailure = (directory, commandLine, output2) => new Error(`Git ${commandLine.join(" ")} failed in ${forwardSlashes(directory)}: ${lastLines(output2)}`);
+var lastLines = (output2) => {
+  const text2 = `${output2.stderr}
+${output2.stdout}`;
+  const lines = text2.split(/\r?\n/).filter((line) => line.trim() !== "");
+  return lines.slice(-QUOTED_LINE_COUNT).join(" ") || `exit code ${output2.exitCode}`;
 };
 
-// src/worktree/copy-ignored.ts
-var CopyIgnored = diskCopyIgnored;
-
-// src/worktree/stop-processes.system.ts
-import { execFile as execFile3 } from "node:child_process";
-import { resolve as resolve3 } from "node:path";
-import { promisify as promisify3 } from "node:util";
-var execFileAsync3 = promisify3(execFile3);
-var WINDOWS = process.platform === "win32";
-var LIST_WINDOWS_PROCESSES = "Get-CimInstance Win32_Process | Select-Object ProcessId,CommandLine | ConvertTo-Json -Compress";
-var WINDOWS_PROCESS = external_exports.object({ ProcessId: external_exports.number(), CommandLine: external_exports.string().nullish() });
-var WINDOWS_PROCESSES = external_exports.union([external_exports.array(WINDOWS_PROCESS), WINDOWS_PROCESS]);
-var PS_LINE = /^\s*(\d+)\s+(.*)$/;
-var WINDOWS_DRIVE = /^([a-z]):/;
-var OUTPUT_LIMIT = 64 * 1024 * 1024;
-var systemStopProcesses = async (directories) => {
-  let processes;
-  try {
-    processes = await listProcesses();
-  } catch (error62) {
-    return { stopped: [], failures: [`The processes could not be listed, so none was stopped: ${reasonOf(error62)}`] };
-  }
-  const prefixes = directories.flatMap(prefixesOf);
-  const found = processes.filter(
-    ({ pid, commandLine }) => pid !== process.pid && prefixes.some((prefix) => comparable(commandLine).includes(prefix))
-  );
-  const failures = await Promise.all(found.map(stopProcess));
-  return {
-    stopped: found.filter((_, index) => failures[index] === void 0),
-    failures: failures.filter((failure2) => failure2 !== void 0)
-  };
-};
-var listProcesses = async () => {
-  if (WINDOWS) {
-    const { stdout: stdout2 } = await execFileAsync3(
-      "powershell.exe",
-      ["-NoProfile", "-NonInteractive", "-Command", LIST_WINDOWS_PROCESSES],
-      {
-        windowsHide: true,
-        maxBuffer: OUTPUT_LIMIT
-      }
-    );
-    const parsed = WINDOWS_PROCESSES.parse(JSON.parse(stdout2));
-    return (Array.isArray(parsed) ? parsed : [parsed]).map(({ ProcessId, CommandLine }) => ({
-      pid: ProcessId,
-      commandLine: CommandLine ?? ""
-    }));
-  }
-  const { stdout } = await execFileAsync3("ps", ["-A", "-ww", "-o", "pid=", "-o", "args="], { maxBuffer: OUTPUT_LIMIT });
-  return stdout.split("\n").flatMap((line) => {
-    const match = PS_LINE.exec(line);
-    return match === null ? [] : [{ pid: Number(match[1]), commandLine: match[2] ?? "" }];
-  });
-};
-var prefixesOf = (directory) => {
-  const prefix = `${comparable(resolve3(directory))}${WINDOWS ? "\\" : "/"}`;
-  if (!WINDOWS) return [prefix];
-  return [prefix, prefix.replace(WINDOWS_DRIVE, "\\$1")];
-};
-var comparable = (text2) => WINDOWS ? text2.toLowerCase().replaceAll("/", "\\") : text2;
-var stopProcess = async ({ pid, commandLine }) => {
-  try {
-    if (WINDOWS) await execFileAsync3("taskkill", ["/PID", String(pid), "/T", "/F"], { windowsHide: true });
-    else process.kill(pid, "SIGTERM");
-    return void 0;
-  } catch (error62) {
-    if (!isRunning(pid)) return void 0;
-    return `The process ${pid} (${commandLine}) could not be stopped: ${reasonOf(error62)}`;
-  }
-};
-var isRunning = (pid) => {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (error62) {
-    return error62 instanceof Error && "code" in error62 && error62.code === "EPERM";
-  }
-};
-var reasonOf = (error62) => (error62 instanceof Error ? error62.message : String(error62)).replace(/\s+/g, " ").trim();
-
-// src/worktree/stop-processes.ts
-var StopProcesses = systemStopProcesses;
-
-// src/worktree/worktrees.git.ts
-import { execFile as execFile4 } from "node:child_process";
+// src/worktree/worktree-layout.ts
 import { createHash } from "node:crypto";
-import { access, mkdir as mkdir3, readFile as readFile2, rm as rm2 } from "node:fs/promises";
-import { basename as basename2, dirname as dirname3, isAbsolute as isAbsolute2, join as join5, relative as relative2, resolve as resolve4, sep as sep2 } from "node:path";
-import { promisify as promisify4 } from "node:util";
-var execFileAsync4 = promisify4(execFile4);
+import { basename as basename2, join as join6 } from "node:path";
 var BRANCH_PREFIX = "atomic-workflow/";
 var TASK_BRANCH_NAME = "main";
 var FORK_POINT_PREFIX = "refs/atomic-workflow/fork-points/";
-var BRANCH_REF_PREFIX = "refs/heads/";
-var TASK_TRAILER = "Atomic-Workflow-Task";
-var TICKET_TRAILER = "Atomic-Workflow-Ticket";
-var MERGE_AGAIN = "merge again";
-var CREATE_AGAIN = "create the worktree of the ticket again";
-var WORKTREES_DIRECTORY = join5(".atomic-workflow", "worktrees");
+var WORKTREES_DIRECTORY = join6(".atomic-workflow", "worktrees");
 var REPOSITORY_KEY_LENGTH = 8;
-var NO_HOOKS = ["-c", "core.hooksPath=/dev/null"];
-var REBASE_OPTIONS = ["--no-autosquash", "--no-autostash", "--no-update-refs"];
-var QUOTED_LINE_COUNT = 5;
-var NAMED_FAILURE_COUNT2 = 10;
-var REMOVAL_RETRY_COUNT = 10;
-var REMOVAL_RETRY_INTERVAL = 200;
-var SHOWN_COMMAND_LINE_LENGTH = 160;
-var WORKTREE_LINE = "worktree ";
-var BRANCH_LINE = "branch refs/heads/";
-var SYNCED = { synced: true, warnings: [] };
-var NOT_SYNCED = { synced: false, warnings: [] };
-var gitCreateWorktrees = (dependencies) => {
-  const queue = createQueue();
+var BRANCH_REF_PREFIX = "refs/heads/";
+var layoutOf = (checkout, home, platform) => {
+  const key = createHash("sha256").update(comparablePath(checkout, platform)).digest("hex");
   return {
-    create: (task, ticket, baseBranch) => queue(() => create(dependencies, task, ticket, baseBranch)),
-    merge: (task, ticket, message) => queue(() => merge2(dependencies, task, ticket, message)),
-    ticketCommit: (task, ticket, baseBranch) => queue(() => ticketCommit(dependencies, task, ticket, baseBranch)),
-    mergeTask: (task, baseBranch) => queue(() => mergeTask2(dependencies, task, baseBranch)),
-    deleteTicket: (task, ticket, force) => queue(() => deleteTicket2(dependencies, task, ticket, force)),
-    deleteTask: (task, baseBranch, force) => queue(() => deleteTask2(dependencies, task, baseBranch, force))
+    checkout,
+    root: join6(home, WORKTREES_DIRECTORY, `${basename2(checkout)}-${key.slice(0, REPOSITORY_KEY_LENGTH)}`)
   };
 };
-var createQueue = () => {
-  let last = Promise.resolve();
-  return (operation) => {
-    const result = last.then(operation);
-    last = result.catch(() => void 0);
-    return result;
-  };
-};
-var layoutOf = async ({ directory, home }) => {
-  const checkout = await mainCheckout(directory);
-  return { checkout, root: join5(home, WORKTREES_DIRECTORY, `${basename2(checkout)}-${repositoryKey(checkout)}`) };
-};
-var mainCheckout = async (directory) => {
-  const [first] = await listWorktrees(directory);
-  if (first === void 0) throw new Error(`Git listed no worktree for ${directory}`);
-  return first.path;
-};
-var repositoryKey = (checkout) => {
-  const normalized2 = resolve4(checkout);
-  const key = process.platform === "win32" ? normalized2.toLowerCase() : normalized2;
-  return createHash("sha256").update(key).digest("hex").slice(0, REPOSITORY_KEY_LENGTH);
-};
+var branchRef = (branch) => `${BRANCH_REF_PREFIX}${branch}`;
 var taskName = (task) => `${task.id}-${task.slug}`;
-var taskDirectory = (layout, task) => join5(layout.root, taskName(task));
+var taskDirectory = (layout, task) => join6(layout.root, taskName(task));
 var taskBranchOf = (task) => `${BRANCH_PREFIX}${taskName(task)}/${TASK_BRANCH_NAME}`;
+var taskBranchesRef = (task) => branchRef(`${BRANCH_PREFIX}${taskName(task)}/`);
 var taskPlaceOf = (layout, task) => ({
-  path: join5(taskDirectory(layout, task), TASK_BRANCH_NAME),
+  path: join6(taskDirectory(layout, task), TASK_BRANCH_NAME),
   branch: taskBranchOf(task)
 });
 var ticketPlaceOf = (layout, task, ticket) => ({
-  path: join5(taskDirectory(layout, task), `${ticket.id}-${ticket.slug}`),
+  path: join6(taskDirectory(layout, task), `${ticket.id}-${ticket.slug}`),
   branch: `${BRANCH_PREFIX}${taskName(task)}/${ticket.id}-${ticket.slug}`
 });
 var shown = (place) => ({ ...place, path: forwardSlashes(place.path) });
-var forwardSlashes = (path) => path.replaceAll("\\", "/");
-var create = async (dependencies, task, ticket, baseBranch) => {
-  const layout = await layoutOf(dependencies);
-  const taskPlace = taskPlaceOf(layout, task);
-  const ticketPlace = ticketPlaceOf(layout, task, ticket);
-  const base = baseBranch ?? await checkedOutBranch(layout.checkout);
-  const taskBranchCreated = !await branchExists(layout.checkout, taskPlace.branch);
-  const uncommittedChanges = taskBranchCreated && (await changes(layout.checkout, false)).length > 0;
-  if (taskBranchCreated) await makeBranch(layout.checkout, taskPlace.branch, base);
-  await gitOutput(layout.checkout, ["worktree", "prune"]);
-  const taskFailures = await ensureWorktree(dependencies, layout, taskPlace, true);
-  const ticketBranchCreated = !await branchExists(layout.checkout, ticketPlace.branch);
-  const sync = await syncTaskBranch(dependencies, layout, task, base, ticketBranchCreated);
-  if (ticketBranchCreated) await makeTicketBranch(layout.checkout, ticketPlace.branch, taskPlace.branch);
-  const ticketFailures = await ensureWorktree(dependencies, layout, ticketPlace, true);
-  return {
-    task: shown(taskPlace),
-    ticket: shown(ticketPlace),
-    baseBranch: base,
-    taskBranchCreated,
-    ticketBranchCreated,
-    taskBranchSynced: sync.synced,
-    uncommittedChanges,
-    copyFailures: joinFailures(taskFailures, ticketFailures),
-    warnings: sync.warnings
-  };
+var forkPointRefOf = (branch) => `${FORK_POINT_PREFIX}${branch.slice(BRANCH_PREFIX.length)}`;
+
+// src/worktree/worktree-list.ts
+import { resolve as resolve2 } from "node:path";
+var WORKTREE_LINE = "worktree ";
+var BRANCH_LINE = `branch ${BRANCH_REF_PREFIX}`;
+var listWorktrees = async (directory, runGit) => parseWorktreeList(await gitOutput(directory, ["worktree", "list", "--porcelain"], runGit));
+var findMainWorktree = async (directory, runGit) => {
+  const [first] = await listWorktrees(directory, runGit);
+  if (first === void 0) throw new Error(`Git listed no worktree for ${forwardSlashes(directory)}`);
+  return first.path;
 };
-var checkedOutBranch = async (checkout) => {
-  const output2 = await runGit(checkout, ["symbolic-ref", "--quiet", "--short", "HEAD"]);
-  if (output2.exitCode === 0) return output2.stdout.trim();
-  throw new WorktreeError(
-    "not-allowed",
-    `The main checkout ${forwardSlashes(checkout)} has no branch checked out, so the task branch has no base. Check out the branch to base the task on, then try again`
-  );
+var parseWorktreeList = (stdout) => stdout.split(/\r?\n\r?\n/).map((block) => block.split(/\r?\n/)).filter((lines) => lines[0]?.startsWith(WORKTREE_LINE)).map((lines) => ({
+  path: resolve2(lines[0].slice(WORKTREE_LINE.length)),
+  branch: lines.find((line) => line.startsWith(BRANCH_LINE))?.slice(BRANCH_LINE.length)
+}));
+
+// src/worktree/branches.ts
+var branchExists = async (branch, context) => {
+  const output2 = await context.runGit(context.layout.checkout, ["rev-parse", "--verify", "--quiet", branchRef(branch)]);
+  return output2.exitCode === 0;
 };
-var makeBranch = async (checkout, branch, start3) => {
-  const output2 = await runGit(checkout, ["branch", "--no-track", branch, start3]);
+var commitOf = async (directory, revision, context) => gitOutput(directory, ["rev-parse", revision], context.runGit);
+var isAncestor = async (directory, ancestor, descendant, context) => {
+  const output2 = await context.runGit(directory, ["merge-base", "--is-ancestor", ancestor, descendant]);
+  return output2.exitCode === 0;
+};
+var taskBranches = async (task, context) => {
+  const commandLine = ["for-each-ref", "--format=%(refname:short)", taskBranchesRef(task)];
+  const stdout = await gitOutput(context.layout.checkout, commandLine, context.runGit);
+  return stdout.split("\n").filter((line) => line !== "");
+};
+var makeBranch = async (branch, start3, context) => {
+  const output2 = await context.runGit(context.layout.checkout, ["branch", "--no-track", branch, start3]);
   if (output2.exitCode === 0) return;
   throw new WorktreeError("not-allowed", `Git refused to make the branch ${branch} at ${start3}: ${lastLines(output2)}`);
 };
-var makeTicketBranch = async (checkout, branch, taskBranch) => {
-  const taskTip = await gitOutput(checkout, ["rev-parse", `refs/heads/${taskBranch}`]);
-  await makeBranch(checkout, branch, taskTip);
-  await setForkPoint(checkout, branch, taskTip);
+var forkPointOf = async (directory, branch, context) => {
+  const commandLine = ["rev-parse", "--verify", "--quiet", `${forkPointRefOf(branch)}^{commit}`];
+  const output2 = await context.runGit(directory, commandLine);
+  return output2.exitCode === 0 ? output2.stdout.trim() : void 0;
 };
-var syncTaskBranch = async (dependencies, layout, task, baseBranch, start3) => {
-  const place = taskPlaceOf(layout, task);
-  const rebase = await stoppedRebase(place.path);
-  if (rebase !== void 0) return resumeSync(layout, place, baseBranch, rebase, start3);
-  if (!start3) return NOT_SYNCED;
-  if (!await branchExists(layout.checkout, baseBranch))
-    return skippedSync(`The base branch ${baseBranch} does not exist`, baseBranch);
-  const baseRef = `refs/heads/${baseBranch}`;
-  const taskRef = `refs/heads/${place.branch}`;
-  if (await isAncestor(layout.checkout, baseRef, taskRef)) return NOT_SYNCED;
-  const cause = await syncBlocker(layout, task, place);
-  if (cause !== void 0) return skippedSync(cause, baseBranch);
-  if (!await isAncestor(layout.checkout, taskRef, baseRef)) {
-    await rebaseOnto(dependencies, layout, place, baseBranch, CREATE_AGAIN);
-    return SYNCED;
-  }
-  const taskTip = await gitOutput(layout.checkout, ["rev-parse", taskRef]);
-  await forwardBranch(layout, place.branch, taskTip, await gitOutput(layout.checkout, ["rev-parse", baseRef]));
-  return SYNCED;
+var setForkPoint = async (directory, branch, commit, context) => {
+  await gitOutput(directory, ["update-ref", forkPointRefOf(branch), commit], context.runGit);
 };
-var skippedSync = (cause, baseBranch) => ({
-  synced: false,
-  warnings: [`${cause}, so the task branch was not synced with ${baseBranch}`]
-});
-var resumeSync = async (layout, place, baseBranch, rebase, start3) => {
-  const sync = rebase.branch === place.branch && await isAncestor(layout.checkout, rebase.onto, `refs/heads/${baseBranch}`);
-  if (!sync && !start3) return NOT_SYNCED;
-  if (!sync) {
+var land = async (target, place, context) => {
+  const { checkout } = context.layout;
+  const targetTip = await commitOf(checkout, branchRef(target), context);
+  const tip = await commitOf(checkout, branchRef(place.branch), context);
+  if (await isAncestor(checkout, tip, targetTip, context)) return null;
+  if (!await isAncestor(checkout, targetTip, tip, context)) {
     throw new WorktreeError(
       "not-allowed",
-      `The worktree ${forwardSlashes(place.path)} of the task branch has a stopped rebase that is no sync of ${place.branch} with ${baseBranch}. Finish or abort it there, then try again`
+      `The branch ${place.branch} does not hold the tip of ${target}, so ${target} cannot move to it. Merge again`
     );
   }
-  const files = await conflictFiles(place.path);
-  if (!start3 && files.length > 0)
-    return skippedSync(
-      `The sync in ${forwardSlashes(place.path)} stopped on a conflict in ${files.join(", ")}`,
-      baseBranch
-    );
-  await continueRebase(place, baseBranch, CREATE_AGAIN);
-  return SYNCED;
+  await forwardBranch(target, targetTip, tip, context);
+  return tip;
 };
-var syncBlocker = async (layout, task, place) => {
-  if ((await changes(place.path, true)).length > 0)
-    return `The worktree ${forwardSlashes(place.path)} of the task branch has changes that no commit holds`;
-  const unforked = [];
-  for (const branch of await taskBranches(layout.checkout, task)) {
-    if (branch !== place.branch && await forkPointOf(layout.checkout, branch) === void 0) unforked.push(branch);
+var forwardBranch = async (branch, oldCommit, newCommit, context) => {
+  const { checkout } = context.layout;
+  const holder = (await listWorktrees(checkout, context.runGit)).find((worktree) => worktree.branch === branch);
+  const output2 = holder === void 0 ? await context.runGit(checkout, ["update-ref", branchRef(branch), newCommit, oldCommit]) : await context.runGit(holder.path, ["merge", "--ff-only", "--quiet", newCommit]);
+  if (output2.exitCode === 0) return;
+  throw new WorktreeError(
+    "not-allowed",
+    `Git refused to move ${branch} forward to ${newCommit}: ${lastLines(output2)}. Remove the cause, then merge again`
+  );
+};
+var checkBranchExists = async (branch, context) => {
+  if (await branchExists(branch, context)) return;
+  throw new WorktreeError("not-allowed", `The branch ${branch} does not exist, so the task branch cannot land`);
+};
+var checkLanded = async (branches, target, context) => {
+  const lacking = [];
+  for (const branch of branches) {
+    const landed = await isAncestor(context.layout.checkout, branchRef(branch), branchRef(target), context);
+    if (!landed) lacking.push(branch);
   }
-  if (unforked.length === 0) return void 0;
-  return `The ticket branches ${unforked.join(", ")} have no fork point, since they were made before fork points were recorded, and a rebase of the task branch would break their squash`;
+  if (lacking.length === 0) return;
+  throw new WorktreeError(
+    "not-allowed",
+    `The branches ${lacking.join(", ")} hold commits that ${target} lacks, so their work would be lost. Merge them first, or delete them with force`
+  );
 };
-var ensureWorktree = async (dependencies, layout, place, copy) => {
-  const listed = await listWorktrees(layout.checkout);
-  const existing = listed.find((worktree) => samePath(worktree.path, place.path));
+var checkTaskLanded = async (branches, taskBranch, baseBranch, context) => {
+  if (!branches.includes(taskBranch)) return;
+  if (baseBranch !== null && await branchExists(baseBranch, context)) {
+    await checkLanded([taskBranch], baseBranch, context);
+    return;
+  }
+  throw new WorktreeError(
+    "not-allowed",
+    `The task branch ${taskBranch} has no base branch to compare it with, so its work may be lost. Delete it with force to delete it anyway`
+  );
+};
+
+// src/worktree/rebase.ts
+import { join as join7 } from "node:path";
+var NO_HOOKS = ["-c", "core.hooksPath=/dev/null"];
+var REBASE_OPTIONS = ["--no-autosquash", "--no-autostash", "--no-update-refs"];
+var REBASE_DIRECTORIES = ["rebase-merge", "rebase-apply"];
+var MERGE_AGAIN = "merge again";
+var CREATE_AGAIN = "create the worktree of the ticket again";
+var startRebase = async (place, target, revisions, retry, context) => {
+  const commandLine = [...NO_HOOKS, "rebase", ...REBASE_OPTIONS, ...revisions];
+  const output2 = await context.runGit(place.path, commandLine);
+  await checkRebaseEnded(place, target, commandLine, output2, retry, context);
+};
+var continueRebase = async (place, target, retry, context) => {
+  const files = await conflictFiles(place.path, context);
+  if (files.length > 0) throw conflict(place, target, files, retry);
+  const commandLine = [...NO_HOOKS, "rebase", "--continue"];
+  const output2 = await context.runGit(place.path, commandLine);
+  await checkRebaseEnded(place, target, commandLine, output2, retry, context);
+};
+var stoppedRebase = async (path, context) => {
+  const directory = await rebaseDirectory(path, context);
+  if (directory === void 0) return void 0;
+  const headName = (await context.fileSystem.readText(join7(directory, "head-name"))).trim();
+  const onto = (await context.fileSystem.readText(join7(directory, "onto"))).trim();
+  const branch = headName.startsWith(BRANCH_REF_PREFIX) ? headName.slice(BRANCH_REF_PREFIX.length) : void 0;
+  return { branch, onto };
+};
+var isRebasing = async (path, context) => await rebaseDirectory(path, context) !== void 0;
+var conflictFiles = async (path, context) => {
+  const stdout = await gitOutput(path, ["diff", "--name-only", "--diff-filter=U"], context.runGit);
+  return stdout.split("\n").filter((line) => line !== "");
+};
+var checkRebaseEnded = async (place, target, commandLine, output2, retry, context) => {
+  if (await isRebasing(place.path, context)) {
+    const files = await conflictFiles(place.path, context);
+    if (files.length > 0) throw conflict(place, target, files, retry);
+    throw new WorktreeError(
+      "not-allowed",
+      `Git stopped the rebase onto ${target} in ${forwardSlashes(place.path)}: ${lastLines(output2)}. Run git status there to see what the rebase waits for`
+    );
+  }
+  if (output2.exitCode !== 0) throw gitFailure(place.path, commandLine, output2);
+};
+var conflict = (place, target, files, retry) => new WorktreeError(
+  "conflict",
+  `The rebase of ${place.branch} onto ${target} stopped on a conflict in ${files.join(", ")}. Resolve the files in ${forwardSlashes(place.path)}, run git add on them there, then ${retry}`,
+  files
+);
+var rebaseDirectory = async (path, context) => {
+  for (const name of REBASE_DIRECTORIES) {
+    const commandLine = ["rev-parse", "--path-format=absolute", "--git-path", name];
+    const directory = await gitOutput(path, commandLine, context.runGit);
+    if (await context.fileSystem.exists(directory)) return directory;
+  }
+  return void 0;
+};
+
+// src/worktree/worktree-state.ts
+import { dirname as dirname3 } from "node:path";
+var ensureWorktree = async (place, copy, context) => {
+  const { checkout } = context.layout;
+  const listed = await listWorktrees(checkout, context.runGit);
+  const existing = listed.find((worktree) => samePath(worktree.path, place.path, context.platform));
   if (existing !== void 0) {
-    if ((existing.branch ?? (await stoppedRebase(place.path))?.branch) === place.branch) return void 0;
+    if ((existing.branch ?? (await stoppedRebase(place.path, context))?.branch) === place.branch) return void 0;
     throw new WorktreeError(
       "not-allowed",
       `The worktree ${forwardSlashes(place.path)} has ${existing.branch ?? "no branch"} checked out in place of ${place.branch}. Check out ${place.branch} there, then try again`
@@ -22987,52 +23127,339 @@ var ensureWorktree = async (dependencies, layout, place, copy) => {
       `The branch ${place.branch} is checked out in ${forwardSlashes(holder.path)}. Check out another branch there, then try again`
     );
   }
-  await mkdir3(dirname3(place.path), { recursive: true });
-  const output2 = await runGit(layout.checkout, ["worktree", "add", "--quiet", place.path, place.branch]);
+  await context.fileSystem.makeDirectory(dirname3(place.path));
+  const output2 = await context.runGit(checkout, ["worktree", "add", "--quiet", place.path, place.branch]);
   if (output2.exitCode !== 0) {
     throw new WorktreeError(
       "not-allowed",
       `Git refused to make the worktree ${forwardSlashes(place.path)} of ${place.branch}: ${lastLines(output2)}`
     );
   }
-  return copy ? dependencies.copyIgnored(layout.checkout, place.path) : void 0;
+  return copy ? copyIgnoredFiles(checkout, place.path, context) : void 0;
 };
-var joinFailures = (first, second) => {
-  if (first === void 0) return second ?? null;
-  if (second === void 0) return first;
-  return { count: first.count + second.count, first: [...first.first, ...second.first].slice(0, NAMED_FAILURE_COUNT2) };
+var checkListed = async (place, context) => {
+  const listed = (await listWorktrees(context.layout.checkout, context.runGit)).find(
+    (worktree) => samePath(worktree.path, place.path, context.platform)
+  );
+  if (listed?.branch === place.branch) return;
+  if (listed !== void 0 && listed.branch === void 0 && await isRebasing(place.path, context)) return;
+  throw new WorktreeError(
+    "not-allowed",
+    `No worktree of ${place.branch} exists at ${forwardSlashes(place.path)}. Create the worktree of the ticket first`
+  );
 };
-var merge2 = async (dependencies, task, ticket, message) => {
-  const layout = await layoutOf(dependencies);
-  const taskPlace = taskPlaceOf(layout, task);
-  const place = ticketPlaceOf(layout, task, ticket);
-  await checkListed(layout, place);
-  await checkNotRebasing(taskPlace);
-  const rebase = await stoppedRebase(place.path);
-  if (rebase === void 0)
-    await squashOnto(
-      place,
-      taskPlace.branch,
-      `${message.trimEnd()}
+var checkNotRebasing = async (place, context) => {
+  if (!await context.fileSystem.exists(place.path) || !await isRebasing(place.path, context)) return;
+  throw new WorktreeError(
+    "not-allowed",
+    `The worktree ${forwardSlashes(place.path)} of the task branch ${place.branch} has a stopped rebase, so the task branch cannot move. Resolve the conflicting files there, run git add on them there, and create the worktree of a ticket again, which ends the rebase. Then merge again`
+  );
+};
+var checkClean = async (path, context) => {
+  const lines = await changes(path, true, context);
+  if (lines.length === 0) return;
+  throw new WorktreeError(
+    "not-allowed",
+    `The worktree ${forwardSlashes(path)} has changes that no commit holds: ${lines.slice(0, QUOTED_LINE_COUNT).join(", ")}. Commit or discard them, then try again`
+  );
+};
+var changes = async (path, untracked, context) => {
+  const option = untracked ? "--untracked-files=all" : "--untracked-files=no";
+  const stdout = await gitOutput(path, ["status", "--porcelain", option], context.runGit);
+  return stdout.split("\n").filter((line) => line.trim() !== "");
+};
+var hasStagedChanges = async (path, context) => {
+  const output2 = await context.runGit(path, ["diff", "--cached", "--quiet"]);
+  return output2.exitCode !== 0;
+};
 
-${trailersOf(task, ticket)}`
-    );
-  else {
-    await continueRebase(place, taskPlace.branch, MERGE_AGAIN);
-    await setForkPoint(place.path, place.branch, rebase.onto);
+// src/worktree/sync-task-branch.ts
+var SYNCED = { synced: true, warnings: [] };
+var NOT_SYNCED = { synced: false, warnings: [] };
+var syncTaskBranch = async (task, baseBranch, start3, context) => {
+  const { checkout } = context.layout;
+  const place = taskPlaceOf(context.layout, task);
+  const rebase = await stoppedRebase(place.path, context);
+  if (rebase !== void 0) return resumeSync(place, baseBranch, rebase, start3, context);
+  if (!start3) return NOT_SYNCED;
+  if (!await branchExists(baseBranch, context)) {
+    return skippedSync(`The base branch ${baseBranch} does not exist`, baseBranch);
   }
-  const commit = await land(layout, taskPlace.branch, place);
-  await setForkPoint(place.path, place.branch, await gitOutput(place.path, ["rev-parse", "HEAD"]));
+  const baseRef = branchRef(baseBranch);
+  const taskRef = branchRef(place.branch);
+  if (await isAncestor(checkout, baseRef, taskRef, context)) return NOT_SYNCED;
+  const cause = await syncBlocker(task, place, context);
+  if (cause !== void 0) return skippedSync(cause, baseBranch);
+  if (!await isAncestor(checkout, taskRef, baseRef, context)) {
+    await rebaseOntoBase(place, baseBranch, CREATE_AGAIN, context);
+    return SYNCED;
+  }
+  const taskTip = await commitOf(checkout, taskRef, context);
+  await forwardBranch(place.branch, taskTip, await commitOf(checkout, baseRef, context), context);
+  return SYNCED;
+};
+var rebaseOntoBase = async (place, baseBranch, retry, context) => {
+  const { checkout } = context.layout;
+  const baseRef = branchRef(baseBranch);
+  const taskRef = branchRef(place.branch);
+  if (await isAncestor(checkout, baseRef, taskRef, context)) return;
+  if (await isAncestor(checkout, taskRef, baseRef, context)) return;
+  await gitOutput(checkout, ["worktree", "prune"], context.runGit);
+  await ensureWorktree(place, false, context);
+  const baseTip = await commitOf(checkout, baseRef, context);
+  await startRebase(place, baseBranch, [baseTip], retry, context);
+};
+var skippedSync = (cause, baseBranch) => ({
+  synced: false,
+  warnings: [`${cause}, so the task branch was not synced with ${baseBranch}`]
+});
+var resumeSync = async (place, baseBranch, rebase, start3, context) => {
+  const sync = rebase.branch === place.branch && await isAncestor(context.layout.checkout, rebase.onto, branchRef(baseBranch), context);
+  if (!sync && !start3) return NOT_SYNCED;
+  if (!sync) {
+    throw new WorktreeError(
+      "not-allowed",
+      `The worktree ${forwardSlashes(place.path)} of the task branch has a stopped rebase that is no sync of ${place.branch} with ${baseBranch}. Finish or abort it there, then try again`
+    );
+  }
+  const files = await conflictFiles(place.path, context);
+  if (!start3 && files.length > 0) {
+    return skippedSync(
+      `The sync in ${forwardSlashes(place.path)} stopped on a conflict in ${files.join(", ")}`,
+      baseBranch
+    );
+  }
+  await continueRebase(place, baseBranch, CREATE_AGAIN, context);
+  return SYNCED;
+};
+var syncBlocker = async (task, place, context) => {
+  if ((await changes(place.path, true, context)).length > 0) {
+    return `The worktree ${forwardSlashes(place.path)} of the task branch has changes that no commit holds`;
+  }
+  const unforked = [];
+  for (const branch of await taskBranches(task, context)) {
+    if (branch !== place.branch && await forkPointOf(context.layout.checkout, branch, context) === void 0) {
+      unforked.push(branch);
+    }
+  }
+  if (unforked.length === 0) return void 0;
+  return `The ticket branches ${unforked.join(", ")} have no fork point, since they were made before fork points were recorded, and a rebase of the task branch would break their squash`;
+};
+
+// src/worktree/create-ticket-worktree.ts
+var createTicketWorktree = async (task, ticket, baseBranch, context) => {
+  const { checkout } = context.layout;
+  const taskPlace = taskPlaceOf(context.layout, task);
+  const ticketPlace = ticketPlaceOf(context.layout, task, ticket);
+  const base = baseBranch ?? await checkedOutBranch(context);
+  const taskBranchCreated = !await branchExists(taskPlace.branch, context);
+  const uncommittedChanges = taskBranchCreated && (await changes(checkout, false, context)).length > 0;
+  if (taskBranchCreated) await makeBranch(taskPlace.branch, base, context);
+  await gitOutput(checkout, ["worktree", "prune"], context.runGit);
+  const taskFailures = await ensureWorktree(taskPlace, true, context);
+  const ticketBranchCreated = !await branchExists(ticketPlace.branch, context);
+  const sync = await syncTaskBranch(task, base, ticketBranchCreated, context);
+  if (ticketBranchCreated) await makeTicketBranch(ticketPlace.branch, taskPlace.branch, context);
+  const ticketFailures = await ensureWorktree(ticketPlace, true, context);
+  return {
+    task: shown(taskPlace),
+    ticket: shown(ticketPlace),
+    baseBranch: base,
+    taskBranchCreated,
+    ticketBranchCreated,
+    taskBranchSynced: sync.synced,
+    uncommittedChanges,
+    copyFailures: joinFailures(taskFailures, ticketFailures),
+    warnings: sync.warnings
+  };
+};
+var checkedOutBranch = async (context) => {
+  const { checkout } = context.layout;
+  const output2 = await context.runGit(checkout, ["symbolic-ref", "--quiet", "--short", "HEAD"]);
+  if (output2.exitCode === 0) return output2.stdout.trim();
+  throw new WorktreeError(
+    "not-allowed",
+    `The main checkout ${forwardSlashes(checkout)} has no branch checked out, so the task branch has no base. Check out the branch to base the task on, then try again`
+  );
+};
+var makeTicketBranch = async (branch, taskBranch, context) => {
+  const { checkout } = context.layout;
+  const taskTip = await commitOf(checkout, branchRef(taskBranch), context);
+  await makeBranch(branch, taskTip, context);
+  await setForkPoint(checkout, branch, taskTip, context);
+};
+
+// src/worktree/delete-worktrees.ts
+var SHOWN_COMMAND_LINE_LENGTH = 160;
+var deleteTicketWorktree = async (task, ticket, force, context) => {
+  const place = ticketPlaceOf(context.layout, task, ticket);
+  const worktrees = await removableWorktrees(
+    [place.branch],
+    (worktree) => samePath(worktree.path, place.path, context.platform) || worktree.branch === place.branch,
+    context
+  );
+  const branches = await branchExists(place.branch, context) ? [place.branch] : [];
+  if (!force) {
+    await checkLanded(branches, taskBranchOf(task), context);
+    for (const worktree of worktrees) await checkClean(worktree.path, context);
+  }
+  return removeWorktrees(task, worktrees, branches, [], context);
+};
+var deleteTaskWorktrees = async (task, baseBranch, force, context) => {
+  const taskBranch = taskBranchOf(task);
+  const branches = await taskBranches(task, context);
+  const worktrees = await taskWorktrees(task, branches, context);
+  if (!force) {
+    await checkTaskLanded(branches, taskBranch, baseBranch, context);
+    await checkLanded(
+      branches.filter((branch) => branch !== taskBranch),
+      taskBranch,
+      context
+    );
+    for (const worktree of worktrees) await checkClean(worktree.path, context);
+  }
+  return removeWorktrees(task, worktrees, branches, [taskDirectory(context.layout, task)], context);
+};
+var taskWorktrees = async (task, branches, context) => {
+  const directory = taskDirectory(context.layout, task);
+  return removableWorktrees(
+    branches,
+    (worktree) => isBelow(directory, worktree.path, context.platform) || branches.includes(worktree.branch ?? ""),
+    context
+  );
+};
+var removableWorktrees = async (branches, isSelected, context) => {
+  const { checkout } = context.layout;
+  const listed = await listWorktrees(checkout, context.runGit);
+  const isCheckout = (worktree) => samePath(worktree.path, checkout, context.platform);
+  const held = listed.find((worktree) => isCheckout(worktree) && branches.includes(worktree.branch ?? ""));
+  if (held !== void 0) {
+    throw new WorktreeError(
+      "not-allowed",
+      `The main checkout ${forwardSlashes(checkout)} has the branch ${held.branch} checked out. Check out another branch there, then try again`
+    );
+  }
+  return listed.filter((worktree) => !isCheckout(worktree) && isSelected(worktree));
+};
+var removeWorktrees = async (task, worktrees, branches, directories, context) => {
+  const paths = [...worktrees.map(({ path }) => path), ...directories];
+  const stopped = await stopHolders(paths, context);
+  const warnings = [...stopped.warnings];
+  const removedWorktrees = [];
+  for (const worktree of worktrees) {
+    if (await removeWorktree(task, worktree.path, warnings, context))
+      removedWorktrees.push(forwardSlashes(worktree.path));
+  }
+  await context.runGit(context.layout.checkout, ["worktree", "prune"]);
+  const removedBranches = [];
+  for (const branch of branches) {
+    if (await removeBranch(branch, warnings, context)) removedBranches.push(branch);
+  }
+  for (const directory of directories) await removeDirectory(directory, warnings, context);
+  return {
+    worktrees: removedWorktrees,
+    branches: removedBranches,
+    stoppedProcesses: stopped.stoppedProcesses,
+    warnings
+  };
+};
+var stopHolders = async (paths, context) => {
+  const existing = [];
+  for (const path of paths) if (await context.fileSystem.exists(path)) existing.push(path);
+  if (existing.length === 0) return { stoppedProcesses: [], warnings: [] };
+  const { stopped, failures } = await context.stopProcesses(existing);
+  return {
+    stoppedProcesses: stopped.map(({ pid, commandLine }) => `${pid} ${shortened(commandLine)}`),
+    warnings: failures
+  };
+};
+var shortened = (commandLine) => commandLine.length <= SHOWN_COMMAND_LINE_LENGTH ? commandLine : `${commandLine.slice(0, SHOWN_COMMAND_LINE_LENGTH)}\u2026`;
+var removeBranch = async (branch, warnings, context) => {
+  const { checkout } = context.layout;
+  const output2 = await context.runGit(checkout, ["branch", "--quiet", "-D", branch]);
+  if (output2.exitCode !== 0) {
+    warnings.push(`The branch ${branch} could not be deleted: ${lastLines(output2)}`);
+    return false;
+  }
+  const forkPoint = await context.runGit(checkout, ["update-ref", "-d", forkPointRefOf(branch)]);
+  if (forkPoint.exitCode !== 0) {
+    warnings.push(`The fork point of the branch ${branch} could not be deleted: ${lastLines(forkPoint)}`);
+  }
+  return true;
+};
+var removeWorktree = async (task, path, warnings, context) => {
+  const output2 = await context.runGit(context.layout.checkout, ["worktree", "remove", "--force", "--force", path]);
+  if (output2.exitCode === 0 && !await context.fileSystem.exists(path)) return true;
+  if (!isInsideTask(task, path, context)) {
+    const reason = output2.exitCode === 0 ? "its directory stayed" : lastLines(output2);
+    warnings.push(`The worktree ${forwardSlashes(path)} could not be removed: ${reason}`);
+    return false;
+  }
+  return removeDirectory(path, warnings, context);
+};
+var isInsideTask = (task, path, context) => {
+  const directory = taskDirectory(context.layout, task);
+  return isBelow(directory, path, context.platform) && !samePath(directory, path, context.platform);
+};
+var removeDirectory = async (path, warnings, context) => {
+  try {
+    await context.fileSystem.removeDirectory(path);
+    return true;
+  } catch (error62) {
+    warnings.push(`The directory ${forwardSlashes(path)} could not be deleted: ${errorMessage2(error62)}`);
+    return false;
+  }
+};
+
+// src/worktree/merge-ticket.ts
+var TASK_TRAILER = "Atomic-Workflow-Task";
+var TICKET_TRAILER = "Atomic-Workflow-Ticket";
+var mergeTicket2 = async (task, ticket, message, context) => {
+  const taskPlace = taskPlaceOf(context.layout, task);
+  const place = ticketPlaceOf(context.layout, task, ticket);
+  await checkListed(place, context);
+  await checkNotRebasing(taskPlace, context);
+  const rebase = await stoppedRebase(place.path, context);
+  if (rebase === void 0) {
+    await squashOnto(place, taskPlace.branch, `${message.trimEnd()}
+
+${trailersOf(task, ticket)}`, context);
+  } else {
+    await continueRebase(place, taskPlace.branch, MERGE_AGAIN, context);
+    await setForkPoint(place.path, place.branch, rebase.onto, context);
+  }
+  const commit = await land(taskPlace.branch, place, context);
+  await setForkPoint(place.path, place.branch, await commitOf(place.path, "HEAD", context), context);
   return { taskBranch: taskPlace.branch, commit };
 };
 var trailersOf = (task, ticket) => `${TASK_TRAILER}: ${task.id}-${task.slug}
 ${TICKET_TRAILER}: ${ticket.id}-${ticket.slug}`;
-var ticketCommit = async (dependencies, task, ticket, baseBranch) => {
-  const layout = await layoutOf(dependencies);
-  const taskBranch = taskPlaceOf(layout, task).branch;
-  const branch = await branchExists(layout.checkout, taskBranch) ? taskBranch : baseBranch;
-  if (branch === null || !await branchExists(layout.checkout, branch)) return void 0;
-  const commit = await gitOutput(layout.checkout, [
+var squashOnto = async (place, taskBranch, message, context) => {
+  await checkClean(place.path, context);
+  const taskTip = await commitOf(place.path, branchRef(taskBranch), context);
+  const head = await commitOf(place.path, "HEAD", context);
+  const base = await forkPointOrMergeBase(place, taskTip, head, context);
+  if (head === base) return;
+  await gitOutput(place.path, ["reset", "--quiet", "--soft", base], context.runGit);
+  if (!await hasStagedChanges(place.path, context)) return;
+  await gitOutput(place.path, [...NO_HOOKS, "commit", "--quiet", "--no-verify", "-m", message], context.runGit);
+  if (base === taskTip) return;
+  await startRebase(place, taskBranch, ["--onto", taskTip, base], MERGE_AGAIN, context);
+  await setForkPoint(place.path, place.branch, taskTip, context);
+};
+var forkPointOrMergeBase = async (place, taskTip, head, context) => {
+  const forkPoint = await forkPointOf(place.path, place.branch, context);
+  if (forkPoint !== void 0 && await isAncestor(place.path, forkPoint, head, context)) return forkPoint;
+  return gitOutput(place.path, ["merge-base", taskTip, head], context.runGit);
+};
+
+// src/worktree/find-ticket-commit.ts
+var findTicketCommit = async (task, ticket, baseBranch, context) => {
+  const { checkout } = context.layout;
+  const taskBranch = taskBranchOf(task);
+  const branch = await branchExists(taskBranch, context) ? taskBranch : baseBranch;
+  if (branch === null || !await branchExists(branch, context)) return void 0;
+  const search = [
     "log",
     "-1",
     "--format=%H",
@@ -23041,354 +23468,123 @@ var ticketCommit = async (dependencies, task, ticket, baseBranch) => {
     // character that a regular expression reads as special.
     `--grep=^${TASK_TRAILER}: ${task.id}-${task.slug}$`,
     `--grep=^${TICKET_TRAILER}: ${ticket.id}-${ticket.slug}$`,
-    `${BRANCH_REF_PREFIX}${branch}`
-  ]);
+    branchRef(branch)
+  ];
+  const commit = await gitOutput(checkout, search, context.runGit);
   if (commit === "") return void 0;
-  const commandLine = ["-c", "core.quotePath=false", "show", "--format=", "--no-color", "--no-ext-diff", "-M", commit];
-  const output2 = await runGit(layout.checkout, commandLine);
-  if (output2.exitCode !== 0) throw new Error(`Git ${commandLine.join(" ")} failed: ${lastLines(output2)}`);
+  const show = ["-c", "core.quotePath=false", "show", "--format=", "--no-color", "--no-ext-diff", "-M", commit];
+  const output2 = await context.runGit(checkout, show);
+  if (output2.exitCode !== 0) throw gitFailure(checkout, show, output2);
   return { commit, patch: output2.stdout };
 };
-var checkListed = async (layout, place) => {
-  const listed = (await listWorktrees(layout.checkout)).find((worktree) => samePath(worktree.path, place.path));
-  if (listed?.branch === place.branch) return;
-  if (listed !== void 0 && listed.branch === void 0 && await isRebasing(place.path)) return;
-  throw new WorktreeError(
-    "not-allowed",
-    `No worktree of ${place.branch} exists at ${forwardSlashes(place.path)}. Create the worktree of the ticket first`
-  );
-};
-var checkNotRebasing = async (place) => {
-  if (!await exists(place.path) || !await isRebasing(place.path)) return;
-  throw new WorktreeError(
-    "not-allowed",
-    `The worktree ${forwardSlashes(place.path)} of the task branch ${place.branch} has a stopped rebase, so the task branch cannot move. Resolve the conflicting files there, run git add on them there, and create the worktree of a ticket again, which ends the rebase. Then merge again`
-  );
-};
-var squashOnto = async (place, taskBranch, message) => {
-  await checkClean(place.path);
-  const taskTip = await gitOutput(place.path, ["rev-parse", `refs/heads/${taskBranch}`]);
-  const head = await gitOutput(place.path, ["rev-parse", "HEAD"]);
-  const base = await forkPointOrMergeBase(place, taskTip, head);
-  if (head === base) return;
-  await gitOutput(place.path, ["reset", "--quiet", "--soft", base]);
-  if (!await hasStagedChanges(place.path)) return;
-  await gitOutput(place.path, [...NO_HOOKS, "commit", "--quiet", "--no-verify", "-m", message]);
-  if (base === taskTip) return;
-  const output2 = await runGit(place.path, [...NO_HOOKS, "rebase", ...REBASE_OPTIONS, "--onto", taskTip, base]);
-  await checkRebaseEnded(place, taskBranch, output2, MERGE_AGAIN);
-  await setForkPoint(place.path, place.branch, taskTip);
-};
-var forkPointOrMergeBase = async (place, taskTip, head) => {
-  const forkPoint = await forkPointOf(place.path, place.branch);
-  if (forkPoint !== void 0 && await isAncestor(place.path, forkPoint, head)) return forkPoint;
-  return gitOutput(place.path, ["merge-base", taskTip, head]);
-};
-var checkClean = async (path) => {
-  const lines = await changes(path, true);
-  if (lines.length === 0) return;
-  throw new WorktreeError(
-    "not-allowed",
-    `The worktree ${forwardSlashes(path)} has changes that no commit holds: ${lines.slice(0, QUOTED_LINE_COUNT).join(", ")}. Commit or discard them, then try again`
-  );
-};
-var changes = async (path, untracked) => {
-  const option = untracked ? "--untracked-files=all" : "--untracked-files=no";
-  const stdout = await gitOutput(path, ["status", "--porcelain", option]);
-  return stdout.split("\n").filter((line) => line.trim() !== "");
-};
-var hasStagedChanges = async (path) => {
-  const output2 = await runGit(path, ["diff", "--cached", "--quiet"]);
-  return output2.exitCode !== 0;
-};
-var continueRebase = async (place, target, retry) => {
-  const files = await conflictFiles(place.path);
-  if (files.length > 0) throw conflict(place, target, files, retry);
-  const output2 = await runGit(place.path, [...NO_HOOKS, "rebase", "--continue"]);
-  await checkRebaseEnded(place, target, output2, retry);
-};
-var checkRebaseEnded = async (place, target, output2, retry) => {
-  if (await isRebasing(place.path)) {
-    const files = await conflictFiles(place.path);
-    if (files.length > 0) throw conflict(place, target, files, retry);
-    throw new WorktreeError(
-      "not-allowed",
-      `Git stopped the rebase onto ${target} in ${forwardSlashes(place.path)}: ${lastLines(output2)}. Run git status there to see what the rebase waits for`
-    );
+
+// src/worktree/find-unlanded-tickets.ts
+var TICKET_NAME = /^(\d+)-/;
+var findUnlandedTickets = async (task, baseBranch, context) => {
+  const taskBranch = taskBranchOf(task);
+  if (!await branchExists(taskBranch, context)) return [];
+  const hasBase = baseBranch !== null && await branchExists(baseBranch, context);
+  const search = [
+    "log",
+    `--format=%(trailers:key=${TICKET_TRAILER},valueonly)`,
+    // The pattern matches a whole line, so task 1 does not match the trailer of task 11.
+    `--grep=^${TASK_TRAILER}: ${task.id}-${task.slug}$`,
+    branchRef(taskBranch),
+    ...hasBase ? [`^${branchRef(baseBranch)}`] : []
+  ];
+  const stdout = await gitOutput(context.layout.checkout, search, context.runGit);
+  const ids = /* @__PURE__ */ new Set();
+  for (const line of stdout.split("\n")) {
+    const match = TICKET_NAME.exec(line.trim());
+    if (match !== null) ids.add(Number(match[1]));
   }
-  if (output2.exitCode !== 0) throw new Error(`Git rebase failed in ${place.path}: ${lastLines(output2)}`);
+  return [...ids].sort((left, right) => left - right);
 };
-var conflict = (place, target, files, retry) => new WorktreeError(
-  "conflict",
-  `The rebase of ${place.branch} onto ${target} stopped on a conflict in ${files.join(", ")}. Resolve the files in ${forwardSlashes(place.path)}, run git add on them there, then ${retry}`,
-  files
-);
-var isRebasing = async (path) => await rebaseDirectory(path) !== void 0;
-var stoppedRebase = async (path) => {
-  const directory = await rebaseDirectory(path);
-  if (directory === void 0) return void 0;
-  const headName = (await readFile2(join5(directory, "head-name"), "utf8")).trim();
-  const onto = (await readFile2(join5(directory, "onto"), "utf8")).trim();
-  const branch = headName.startsWith(BRANCH_REF_PREFIX) ? headName.slice(BRANCH_REF_PREFIX.length) : void 0;
-  return { branch, onto };
-};
-var rebaseDirectory = async (path) => {
-  for (const name of ["rebase-merge", "rebase-apply"]) {
-    const directory = await gitOutput(path, ["rev-parse", "--path-format=absolute", "--git-path", name]);
-    if (await exists(directory)) return directory;
-  }
-  return void 0;
-};
-var conflictFiles = async (path) => {
-  const stdout = await gitOutput(path, ["diff", "--name-only", "--diff-filter=U"]);
-  return stdout.split("\n").filter((line) => line !== "");
-};
-var land = async (layout, target, place) => {
-  const targetTip = await gitOutput(layout.checkout, ["rev-parse", `refs/heads/${target}`]);
-  const tip = await gitOutput(layout.checkout, ["rev-parse", `refs/heads/${place.branch}`]);
-  if (await isAncestor(layout.checkout, tip, targetTip)) return null;
-  if (!await isAncestor(layout.checkout, targetTip, tip)) {
-    throw new WorktreeError(
-      "not-allowed",
-      `The branch ${place.branch} does not hold the tip of ${target}, so ${target} cannot move to it. Merge again`
-    );
-  }
-  await forwardBranch(layout, target, targetTip, tip);
-  return tip;
-};
-var forwardBranch = async (layout, branch, oldCommit, newCommit) => {
-  const holder = (await listWorktrees(layout.checkout)).find((worktree) => worktree.branch === branch);
-  const output2 = holder === void 0 ? await runGit(layout.checkout, ["update-ref", `refs/heads/${branch}`, newCommit, oldCommit]) : await runGit(holder.path, ["merge", "--ff-only", "--quiet", newCommit]);
-  if (output2.exitCode === 0) return;
-  throw new WorktreeError(
-    "not-allowed",
-    `Git refused to move ${branch} forward to ${newCommit}: ${lastLines(output2)}. Remove the cause, then merge again`
-  );
-};
-var mergeTask2 = async (dependencies, task, baseBranch) => {
-  const layout = await layoutOf(dependencies);
-  const place = taskPlaceOf(layout, task);
-  for (const branch of [place.branch, baseBranch]) await checkBranchExists(layout.checkout, branch);
-  const branches = await taskBranches(layout.checkout, task);
+
+// src/worktree/merge-task.ts
+var mergeTask2 = async (task, baseBranch, context) => {
+  const place = taskPlaceOf(context.layout, task);
+  for (const branch of [place.branch, baseBranch]) await checkBranchExists(branch, context);
+  const branches = await taskBranches(task, context);
   await checkLanded(
-    layout.checkout,
     branches.filter((branch) => branch !== place.branch),
-    place.branch
+    place.branch,
+    context
   );
-  const worktrees = await taskWorktrees(layout, task, branches);
-  const rebasing = worktrees.some((worktree) => samePath(worktree.path, place.path) && worktree.branch === void 0) && await isRebasing(place.path);
+  const worktrees = await taskWorktrees(task, branches, context);
+  const rebasing = worktrees.some(
+    (worktree) => samePath(worktree.path, place.path, context.platform) && worktree.branch === void 0
+  ) && await isRebasing(place.path, context);
   for (const worktree of worktrees) {
-    if (!rebasing || !samePath(worktree.path, place.path)) await checkClean(worktree.path);
+    if (!rebasing || !samePath(worktree.path, place.path, context.platform)) await checkClean(worktree.path, context);
   }
-  if (rebasing) await continueRebase(place, baseBranch, MERGE_AGAIN);
-  else await rebaseOnto(dependencies, layout, place, baseBranch, MERGE_AGAIN);
-  const commit = await land(layout, baseBranch, place);
-  const deleted = await remove(
-    layout,
-    dependencies.stopProcesses,
-    await taskWorktrees(layout, task, branches),
+  if (rebasing) await continueRebase(place, baseBranch, MERGE_AGAIN, context);
+  else await rebaseOntoBase(place, baseBranch, MERGE_AGAIN, context);
+  const commit = await land(baseBranch, place, context);
+  const deleted = await removeWorktrees(
+    task,
+    await taskWorktrees(task, branches, context),
     branches,
-    [taskDirectory(layout, task)]
+    [taskDirectory(context.layout, task)],
+    context
   );
   return { baseBranch, commit, deleted };
 };
-var checkBranchExists = async (checkout, branch) => {
-  if (await branchExists(checkout, branch)) return;
-  throw new WorktreeError("not-allowed", `The branch ${branch} does not exist, so the task branch cannot land`);
-};
-var rebaseOnto = async (dependencies, layout, place, baseBranch, retry) => {
-  const baseRef = `refs/heads/${baseBranch}`;
-  const taskRef = `refs/heads/${place.branch}`;
-  if (await isAncestor(layout.checkout, baseRef, taskRef)) return;
-  if (await isAncestor(layout.checkout, taskRef, baseRef)) return;
-  await gitOutput(layout.checkout, ["worktree", "prune"]);
-  await ensureWorktree(dependencies, layout, place, false);
-  const baseTip = await gitOutput(layout.checkout, ["rev-parse", baseRef]);
-  const output2 = await runGit(place.path, [...NO_HOOKS, "rebase", ...REBASE_OPTIONS, baseTip]);
-  await checkRebaseEnded(place, baseBranch, output2, retry);
-};
-var deleteTicket2 = async (dependencies, task, ticket, force) => {
-  const layout = await layoutOf(dependencies);
-  const place = ticketPlaceOf(layout, task, ticket);
-  const worktrees = (await listWorktrees(layout.checkout)).filter(
-    (worktree) => samePath(worktree.path, place.path) || worktree.branch === place.branch
-  );
-  const branches = await branchExists(layout.checkout, place.branch) ? [place.branch] : [];
-  if (!force) {
-    await checkLanded(layout.checkout, branches, taskBranchOf(task));
-    for (const worktree of worktrees) await checkClean(worktree.path);
-  }
-  return remove(layout, dependencies.stopProcesses, worktrees, branches, []);
-};
-var deleteTask2 = async (dependencies, task, baseBranch, force) => {
-  const layout = await layoutOf(dependencies);
-  const taskBranch = taskBranchOf(task);
-  const branches = await taskBranches(layout.checkout, task);
-  const worktrees = await taskWorktrees(layout, task, branches);
-  if (!force) {
-    await checkTaskLanded(layout.checkout, branches, taskBranch, baseBranch);
-    await checkLanded(
-      layout.checkout,
-      branches.filter((branch) => branch !== taskBranch),
-      taskBranch
-    );
-    for (const worktree of worktrees) await checkClean(worktree.path);
-  }
-  return remove(layout, dependencies.stopProcesses, worktrees, branches, [taskDirectory(layout, task)]);
-};
-var checkTaskLanded = async (checkout, branches, taskBranch, baseBranch) => {
-  if (!branches.includes(taskBranch)) return;
-  if (baseBranch !== null && await branchExists(checkout, baseBranch)) {
-    await checkLanded(checkout, [taskBranch], baseBranch);
-    return;
-  }
-  throw new WorktreeError(
-    "not-allowed",
-    `The task branch ${taskBranch} has no base branch to compare it with, so its work may be lost. Delete it with force to delete it anyway`
-  );
-};
-var checkLanded = async (checkout, branches, target) => {
-  const lacking = [];
-  for (const branch of branches) {
-    const landed = await isAncestor(checkout, `refs/heads/${branch}`, `refs/heads/${target}`);
-    if (!landed) lacking.push(branch);
-  }
-  if (lacking.length === 0) return;
-  throw new WorktreeError(
-    "not-allowed",
-    `The branches ${lacking.join(", ")} hold commits that ${target} lacks, so their work would be lost. Merge them first, or delete them with force`
-  );
-};
-var taskBranches = async (checkout, task) => {
-  const stdout = await gitOutput(checkout, [
-    "for-each-ref",
-    "--format=%(refname:short)",
-    `refs/heads/${BRANCH_PREFIX}${taskName(task)}/`
-  ]);
-  return stdout.split("\n").filter((line) => line !== "");
-};
-var taskWorktrees = async (layout, task, branches) => {
-  const directory = taskDirectory(layout, task);
-  return (await listWorktrees(layout.checkout)).filter(
-    (worktree) => isBelow(directory, worktree.path) || branches.includes(worktree.branch ?? "")
-  );
-};
-var isBelow = (directory, path) => {
-  const inside = relative2(normalized(directory), normalized(path));
-  return !isAbsolute2(inside) && inside !== ".." && !inside.startsWith(`..${sep2}`);
-};
-var remove = async (layout, stopProcesses, worktrees, branches, directories) => {
-  const { stoppedProcesses, warnings } = await stopHolders(stopProcesses, [
-    ...worktrees.map(({ path }) => path),
-    ...directories
-  ]);
-  const removedWorktrees = [];
-  for (const worktree of worktrees) {
-    if (await removeWorktree(layout, worktree.path, warnings)) removedWorktrees.push(forwardSlashes(worktree.path));
-  }
-  await runGit(layout.checkout, ["worktree", "prune"]);
-  const removedBranches = [];
-  for (const branch of branches) {
-    if (await removeBranch(layout, branch, warnings)) removedBranches.push(branch);
-  }
-  for (const directory of directories) await removeDirectory(directory, warnings);
-  return { worktrees: removedWorktrees, branches: removedBranches, stoppedProcesses, warnings };
-};
-var stopHolders = async (stopProcesses, paths) => {
-  const existing = [];
-  for (const path of paths) if (await exists(path)) existing.push(path);
-  if (existing.length === 0) return { stoppedProcesses: [], warnings: [] };
-  const { stopped, failures } = await stopProcesses(existing);
+
+// src/worktree/create-worktrees.ts
+var createWorktrees = ({ checkout, home, platform }, dependencies) => {
+  const context = { ...dependencies, layout: layoutOf(checkout, home, platform), platform };
+  const queue = createQueue();
   return {
-    stoppedProcesses: stopped.map(({ pid, commandLine }) => `${pid} ${shortened(commandLine)}`),
-    warnings: [...failures]
+    create: (task, ticket, baseBranch) => queue(() => createTicketWorktree(task, ticket, baseBranch, context)),
+    merge: (task, ticket, message) => queue(() => mergeTicket2(task, ticket, message, context)),
+    ticketCommit: (task, ticket, baseBranch) => queue(() => findTicketCommit(task, ticket, baseBranch, context)),
+    unlandedTickets: (task, baseBranch) => queue(() => findUnlandedTickets(task, baseBranch, context)),
+    mergeTask: (task, baseBranch) => queue(() => mergeTask2(task, baseBranch, context)),
+    deleteTicket: (task, ticket, force) => queue(() => deleteTicketWorktree(task, ticket, force, context)),
+    deleteTask: (task, baseBranch, force) => queue(() => deleteTaskWorktrees(task, baseBranch, force, context))
   };
 };
-var shortened = (commandLine) => commandLine.length <= SHOWN_COMMAND_LINE_LENGTH ? commandLine : `${commandLine.slice(0, SHOWN_COMMAND_LINE_LENGTH)}\u2026`;
-var removeBranch = async (layout, branch, warnings) => {
-  const output2 = await runGit(layout.checkout, ["branch", "--quiet", "-D", branch]);
-  if (output2.exitCode !== 0) {
-    warnings.push(`The branch ${branch} could not be deleted: ${lastLines(output2)}`);
-    return false;
-  }
-  const forkPoint = await runGit(layout.checkout, ["update-ref", "-d", forkPointRefOf(branch)]);
-  if (forkPoint.exitCode !== 0)
-    warnings.push(`The fork point of the branch ${branch} could not be deleted: ${lastLines(forkPoint)}`);
-  return true;
+var createQueue = () => {
+  let last = Promise.resolve();
+  return (operation) => {
+    const result = last.then(operation);
+    last = result.catch(() => void 0);
+    return result;
+  };
 };
-var removeWorktree = async (layout, path, warnings) => {
-  const output2 = await runGit(layout.checkout, ["worktree", "remove", "--force", "--force", path]);
-  if (output2.exitCode === 0 && !await exists(path)) return true;
-  return removeDirectory(path, warnings);
+
+// src/worktree/file-system.disk.ts
+import { access, mkdir as mkdir3, readFile as readFile2, rm as rm2 } from "node:fs/promises";
+var REMOVAL_RETRY_COUNT = 10;
+var REMOVAL_RETRY_INTERVAL = 200;
+var diskFileSystem = {
+  exists: async (path) => {
+    try {
+      await access(path);
+      return true;
+    } catch {
+      return false;
+    }
+  },
+  readText: async (path) => readFile2(path, "utf8"),
+  makeDirectory: async (path) => {
+    await mkdir3(path, { recursive: true });
+  },
+  removeDirectory: async (path) => rm2(path, { recursive: true, force: true, maxRetries: REMOVAL_RETRY_COUNT, retryDelay: REMOVAL_RETRY_INTERVAL })
 };
-var removeDirectory = async (path, warnings) => {
+
+// src/worktree/run-git.process.ts
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
+var execFileAsync = promisify(execFile);
+var OUTPUT_LIMIT = 64 * 1024 * 1024;
+var processRunGit = async (directory, commandLine) => {
   try {
-    await rm2(path, {
-      recursive: true,
-      force: true,
-      maxRetries: REMOVAL_RETRY_COUNT,
-      retryDelay: REMOVAL_RETRY_INTERVAL
-    });
-    return true;
-  } catch (error62) {
-    const reason = error62 instanceof Error ? error62.message : String(error62);
-    warnings.push(`The directory ${forwardSlashes(path)} could not be deleted: ${reason}`);
-    return false;
-  }
-};
-var branchExists = async (directory, branch) => {
-  const output2 = await runGit(directory, ["rev-parse", "--verify", "--quiet", `refs/heads/${branch}`]);
-  return output2.exitCode === 0;
-};
-var isAncestor = async (directory, ancestor, descendant) => {
-  const output2 = await runGit(directory, ["merge-base", "--is-ancestor", ancestor, descendant]);
-  return output2.exitCode === 0;
-};
-var forkPointRefOf = (branch) => `${FORK_POINT_PREFIX}${branch.slice(BRANCH_PREFIX.length)}`;
-var forkPointOf = async (directory, branch) => {
-  const output2 = await runGit(directory, ["rev-parse", "--verify", "--quiet", `${forkPointRefOf(branch)}^{commit}`]);
-  return output2.exitCode === 0 ? output2.stdout.trim() : void 0;
-};
-var setForkPoint = async (directory, branch, commit) => {
-  await gitOutput(directory, ["update-ref", forkPointRefOf(branch), commit]);
-};
-var listWorktrees = async (directory) => {
-  const stdout = await gitOutput(directory, ["worktree", "list", "--porcelain"]);
-  return stdout.split(/\r?\n\r?\n/).map((block) => block.split(/\r?\n/)).filter((lines) => lines[0]?.startsWith(WORKTREE_LINE)).map((lines) => ({
-    path: resolve4(lines[0].slice(WORKTREE_LINE.length)),
-    branch: lines.find((line) => line.startsWith(BRANCH_LINE))?.slice(BRANCH_LINE.length)
-  }));
-};
-var samePath = (first, second) => normalized(first) === normalized(second);
-var normalized = (path) => {
-  const absolute = resolve4(path);
-  return process.platform === "win32" ? absolute.toLowerCase() : absolute;
-};
-var exists = async (path) => {
-  try {
-    await access(path);
-    return true;
-  } catch {
-    return false;
-  }
-};
-var lastLines = (output2) => {
-  const text2 = `${output2.stderr}
-${output2.stdout}`;
-  const lines = text2.split(/\r?\n/).filter((line) => line.trim() !== "");
-  return lines.slice(-QUOTED_LINE_COUNT).join(" ") || `exit code ${output2.exitCode}`;
-};
-var gitOutput = async (directory, commandLine) => {
-  const output2 = await runGit(directory, commandLine);
-  if (output2.exitCode === 0) return output2.stdout.trim();
-  throw new Error(`Git ${commandLine.join(" ")} failed in ${directory}: ${lastLines(output2)}`);
-};
-var runGit = async (directory, commandLine) => {
-  try {
-    const { stdout, stderr } = await execFileAsync4("git", commandLine, {
+    const { stdout, stderr } = await execFileAsync("git", commandLine, {
       cwd: directory,
       windowsHide: true,
-      maxBuffer: 64 * 1024 * 1024,
+      maxBuffer: OUTPUT_LIMIT,
       env: { ...process.env, GIT_EDITOR: "true", GIT_TERMINAL_PROMPT: "0" }
     });
     return { exitCode: 0, stdout, stderr };
@@ -23397,42 +23593,118 @@ var runGit = async (directory, commandLine) => {
     return { exitCode: error62.code, stdout: error62.stdout, stderr: error62.stderr };
   }
 };
-var isExitError = (error62) => error62 instanceof Error && "code" in error62 && typeof error62.code === "number";
+var isExitError = (error62) => typeof errorCode2(error62) === "number";
 
-// src/worktree/worktrees.ts
-var CreateWorktrees = gitCreateWorktrees;
+// src/worktree/stop-processes.system.ts
+import { execFile as execFile2 } from "node:child_process";
+import { promisify as promisify2 } from "node:util";
+
+// src/worktree/stop-processes.ts
+var WINDOWS_DRIVE = /^([a-z]):/;
+var processesInside = (processes, directories, platform, ownPid) => {
+  const prefixes = directories.flatMap((directory) => prefixesOf(directory, platform));
+  return processes.filter(
+    ({ pid, commandLine }) => pid !== ownPid && prefixes.some((prefix) => comparableText(commandLine, platform).includes(prefix))
+  );
+};
+var prefixesOf = (directory, platform) => {
+  if (platform !== "win32") return [`${comparablePath(directory, platform)}/`];
+  const prefix = `${comparablePath(directory, platform)}\\`;
+  return [prefix, prefix.replace(WINDOWS_DRIVE, "\\$1")];
+};
+var comparableText = (text2, platform) => platform === "win32" ? text2.toLowerCase().replaceAll("/", "\\") : text2;
+
+// src/worktree/stop-processes.system.ts
+var execFileAsync2 = promisify2(execFile2);
+var LIST_WINDOWS_PROCESSES = "Get-CimInstance Win32_Process | Select-Object ProcessId,CommandLine | ConvertTo-Json -Compress";
+var WINDOWS_PROCESS = external_exports.object({ ProcessId: external_exports.number(), CommandLine: external_exports.string().nullish() });
+var WINDOWS_PROCESSES = external_exports.union([external_exports.array(WINDOWS_PROCESS), WINDOWS_PROCESS]);
+var PS_LINE = /^\s*(\d+)\s+(.*)$/;
+var OUTPUT_LIMIT2 = 64 * 1024 * 1024;
+var systemStopProcesses = async (directories) => {
+  let processes;
+  try {
+    processes = await listProcesses();
+  } catch (error62) {
+    return { stopped: [], failures: [`The processes could not be listed, so none was stopped: ${reasonOf(error62)}`] };
+  }
+  const found = processesInside(processes, directories, process.platform, process.pid);
+  const failures = await Promise.all(found.map(stopProcess));
+  return {
+    stopped: found.filter((_, index) => failures[index] === void 0),
+    failures: failures.filter((failure2) => failure2 !== void 0)
+  };
+};
+var listProcesses = async () => {
+  if (process.platform === "win32") {
+    const { stdout: stdout2 } = await execFileAsync2(
+      "powershell.exe",
+      ["-NoProfile", "-NonInteractive", "-Command", LIST_WINDOWS_PROCESSES],
+      { windowsHide: true, maxBuffer: OUTPUT_LIMIT2 }
+    );
+    const parsed = WINDOWS_PROCESSES.parse(JSON.parse(stdout2));
+    return (Array.isArray(parsed) ? parsed : [parsed]).map(({ ProcessId, CommandLine }) => ({
+      pid: ProcessId,
+      commandLine: CommandLine ?? ""
+    }));
+  }
+  const { stdout } = await execFileAsync2("ps", ["-A", "-ww", "-o", "pid=", "-o", "args="], { maxBuffer: OUTPUT_LIMIT2 });
+  return stdout.split("\n").flatMap((line) => {
+    const match = PS_LINE.exec(line);
+    return match === null ? [] : [{ pid: Number(match[1]), commandLine: match[2] ?? "" }];
+  });
+};
+var stopProcess = async ({ pid, commandLine }) => {
+  try {
+    if (process.platform === "win32") {
+      await execFileAsync2("taskkill", ["/PID", String(pid), "/T", "/F"], { windowsHide: true });
+    } else {
+      process.kill(pid, "SIGTERM");
+    }
+    return void 0;
+  } catch (error62) {
+    if (!isRunning(pid)) return void 0;
+    return `The process ${pid} (${commandLine}) could not be stopped: ${reasonOf(error62)}`;
+  }
+};
+var isRunning = (pid) => {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error62) {
+    return errorCode2(error62) === "EPERM";
+  }
+};
+var reasonOf = (error62) => errorMessage2(error62).replace(/\s+/g, " ").trim();
 
 // src/repository-server.main.ts
-var AWAIT_COMMAND = join6(
-  import.meta.dirname,
-  basename3(import.meta.filename).replace("repository-server", "await-command")
-);
-var WEB_DIRECTORY = import.meta.filename.endsWith(".ts") ? join6(import.meta.dirname, "..", "..", "plugin", "dist", "web") : join6(import.meta.dirname, "web");
 var main = async () => {
   const { values } = parseArgs({ options: { address: { type: "string" }, directory: { type: "string" } } });
   if (values.address === void 0) throw new Error("The argument --address <address> is missing");
   if (values.directory === void 0) throw new Error("The argument --directory <directory> is missing");
-  const mainWorktree = await MainWorktree(values.directory);
-  const storage = await OpenStorage(await DatabasePath(values.directory));
+  const mainWorktree = await findMainWorktree(values.directory, processRunGit);
+  process.chdir(mainWorktree);
+  const storage = await sqliteOpenStorage(databasePath(mainWorktree));
   try {
-    await serve3(values.address, values.directory, mainWorktree, storage);
+    await serve3(values.address, mainWorktree, storage);
   } finally {
     storage.close();
   }
 };
-var serve3 = async (address, directory, mainWorktree, storage) => {
-  const changes2 = CreateChangeFeed();
-  const published2 = PublishChanges(
+var serve3 = async (address, mainWorktree, storage) => {
+  const changes2 = timerCreateChangeFeed();
+  const published2 = feedPublishChanges(
     {
       messageLog: storage.messageLog,
       tasks: storage.tasks,
       sessions: storage.sessions,
-      sessionConnections: CreateSessionConnections(),
-      subagents: CreateSubagents(),
-      activity: CreateSessionActivity()
+      sessionConnections: mapCreateSessionConnections(),
+      subagents: mapCreateSubagents(),
+      activity: mapCreateSessionActivity()
     },
     changes2
   );
+  const awaitCommand = entryPointPath("await-command");
   const context = {
     sessions: published2.sessions,
     messageLog: published2.messageLog,
@@ -23440,28 +23712,44 @@ var serve3 = async (address, directory, mainWorktree, storage) => {
     sessionConnections: published2.sessionConnections,
     subagents: published2.subagents,
     activity: published2.activity,
-    inboxes: CreateInboxes(),
-    worktrees: CreateWorktrees({ directory, home: homedir(), copyIgnored: CopyIgnored, stopProcesses: StopProcesses }),
-    ticketClaims: CreateTicketClaims(),
+    inboxes: mapCreateInboxes(),
+    worktrees: createWorktrees(
+      { checkout: mainWorktree, home: homedir(), platform: process.platform },
+      {
+        runGit: processRunGit,
+        fileSystem: diskFileSystem,
+        copyIgnored: diskCopyIgnored,
+        stopProcesses: systemStopProcesses
+      }
+    ),
+    ticketClaims: mapCreateTicketClaims(),
     mainWorktree,
     caller: void 0,
-    awaitCommandLine: (sessionId) => AwaitCommandLine(AWAIT_COMMAND, sessionId)
+    awaitCommandLine: (sessionId) => shellAwaitCommandLine(awaitCommand, sessionId),
+    clock: systemClock,
+    createSessionId: cryptoCreateSessionId,
+    timeoutSignal: timersTimeoutSignal
   };
-  const webServer = await StartWebServer((message) => Dispatch(Methods, context, message), {
-    directory: WEB_DIRECTORY,
-    changes: changes2
+  const webServer = await httpStartWebServer({
+    handle: (message) => zodDispatch(METHODS, context, message),
+    changes: changes2,
+    staticFiles: directoryCreateStaticFiles({ directory: webDirectoryPath() })
   });
   try {
-    await ServeRepository(address, webServer.url, Methods, context, {
-      dispatch: Dispatch,
-      openConnection: OpenRpcConnection
+    await socketServeRepository(address, webServer.url, METHODS, context, {
+      dispatch: zodDispatch,
+      openConnection: ndjsonOpenRpcConnection,
+      log: stderrLog,
+      listening: async () => {
+        await context.tasks.endRuns(context.clock.now());
+      }
     });
   } finally {
     await webServer.close();
   }
 };
 await main().catch((error62) => {
-  process.stderr.write(`${error62 instanceof Error ? error62.stack ?? error62.message : String(error62)}
+  process.stderr.write(`${errorDetail(error62)}
 `);
   process.exitCode = 1;
 });

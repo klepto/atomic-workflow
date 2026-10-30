@@ -100,23 +100,13 @@ export interface RegisteredSession {
 }
 
 /**
- * Token usage of the newest model request of a session.
+ * Token usage of the newest model request of a session, with the fields of a registered session that hold it.
  */
-export interface SessionUsage {
+export interface SessionUsage extends Pick<RegisteredSession, 'model' | 'effort'> {
   /**
    * Size of the context of the session in tokens.
    */
   readonly contextTokens: number;
-
-  /**
-   * Identifier of the model that answered the request, or `null` when it is not known.
-   */
-  readonly model: string | null;
-
-  /**
-   * Reasoning effort of the request, or `null` when it is not known.
-   */
-  readonly effort: string | null;
 }
 
 /**
@@ -126,6 +116,8 @@ export interface SessionStore {
   /**
    * Registers `session`, and returns it as registered. A session with the identifier of `session` that is registered
    * already stays as it is, with its alias, and is returned instead.
+   * If `session` is new and its `parentId` names a session that is not registered, or if it holds an alias of no
+   * character or of more than `SESSION_ALIAS_MAX_LENGTH` characters or a negative `contextTokens`, rejects.
    */
   register(session: RegisteredSession): Promise<RegisteredSession>;
 
@@ -137,7 +129,7 @@ export interface SessionStore {
   /**
    * Returns every registered session, in the order of its start.
    */
-  list(): Promise<RegisteredSession[]>;
+  list(): Promise<readonly RegisteredSession[]>;
 
   /**
    * Sets the task that the session `id` works on to `taskId`, and returns `true`. A session that works on a task
@@ -161,12 +153,14 @@ export interface SessionStore {
   /**
    * Sets the alias of the session `id` to `alias`, or clears it for `null`, and returns `true`. If no such session is
    * registered, or it holds `alias` already, returns `false` instead.
+   * If `alias` holds no character or more than `SESSION_ALIAS_MAX_LENGTH` characters, rejects.
    */
   setAlias(id: string, alias: string | null): Promise<boolean>;
 
   /**
    * Sets the context size, the model and the effort of the session `id` to the ones of `usage`, and returns `true`. If
    * no such session is registered, or it holds all three already, returns `false` instead.
+   * If the `contextTokens` of `usage` is negative, rejects.
    */
   setUsage(id: string, usage: SessionUsage): Promise<boolean>;
 

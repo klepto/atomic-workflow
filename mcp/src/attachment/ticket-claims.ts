@@ -1,5 +1,3 @@
-import { mapCreateTicketClaims } from './ticket-claims.map.ts';
-
 /**
  * Outcomes of a claim of a ticket: `claimed` when the ticket was free and the claimant holds it now, `kept` when the
  * claimant held it already, and `refused` when another holder holds it.
@@ -47,8 +45,3 @@ export interface TicketClaims {
  * Function that returns new, empty `TicketClaims`.
  */
 export type CreateTicketClaimsFunction = () => TicketClaims;
-
-/**
- * Default `CreateTicketClaimsFunction`, which keeps the claims in memory.
- */
-export const CreateTicketClaims: CreateTicketClaimsFunction = mapCreateTicketClaims;

@@ -9,49 +9,49 @@ import { Hint } from '@/components/ui/hint.tsx';
 import { Textarea } from '@/components/ui/textarea.tsx';
 
 /**
- * Props of the composer of the console.
+ * Props of `ConsoleComposer`.
  */
-export interface ConsoleComposerProps {
+interface ConsoleComposerProps {
   /**
-   * The text that the empty box shows, which names who receives a message.
+   * Text that the empty box shows, which names who receives a message.
    */
-  placeholder: string;
+  readonly placeholder: string;
 
   /**
    * What the user should know before sending, such as that the server is not reachable now, or `null` when nothing.
    * It never keeps a text from being sent.
    */
-  notice: string | null;
+  readonly notice: string | null;
 
   /**
-   * The skills that the session of the chat can run, or `undefined` while they are not known yet.
+   * Skills that the session of the chat can run, or `undefined` while they are not known yet.
    */
-  skills: readonly Skill[] | undefined;
+  readonly skills: readonly Skill[] | undefined;
 
   /**
-   * The message of the latest failed read of the skills, or `null` when none failed.
+   * Message of the latest failed read of the skills, or `null` when none failed.
    */
-  skillsFailure: string | null;
+  readonly skillsFailure: string | null;
 
   /**
    * Where a skill that the composer sends runs, such as `a new subagent`.
    */
-  runsIn: ReactNode;
+  readonly runsIn: ReactNode;
 
   /**
    * Called each time the menu of the skills opens, so that the skills can be read again.
    */
-  onMenuOpen: () => void;
+  readonly onMenuOpen: () => void;
 
   /**
    * Takes the text `text` as the user typed it.
    */
-  onSend: (text: string) => void;
+  readonly onSend: (text: string) => void;
 }
 
 /**
- * Returns the line below the box: `notice` when there is one, else where the skill that `text` runs would run, else
- * the keys of the box.
+ * Returns the line below the box: `notice` when it is not `null`, else that the skill `skill` would run in `runsIn`,
+ * else, while `skill` is `undefined`, the keys of the box.
  */
 const hintOf = (notice: string | null, skill: Skill | undefined, runsIn: ReactNode): ReactNode => {
   if (notice !== null) {
@@ -67,7 +67,7 @@ const hintOf = (notice: string | null, skill: Skill | undefined, runsIn: ReactNo
 };
 
 /**
- * The composer of the console: a text box that grows with its text up to a limit, and a button that hands the text
+ * Composer of the console: a text box that grows with its text up to a limit, and a button that hands the text
  * over as it is. Enter sends, and Shift+Enter starts a new line. The box is emptied and keeps the focus after a send.
  * A slash opens the menu of the skills of the session, and a picked skill puts its command into the box. While the text
  * runs a skill, the line below the box says where it runs. While `notice` is not `null`, the composer shows it below
@@ -91,7 +91,7 @@ export const ConsoleComposer = ({
   /**
    * Hands the text over as it is, empties the box, and gives the focus back to the box.
    */
-  const send = () => {
+  const send = (): void => {
     if (!sendable) {
       return;
     }
@@ -101,10 +101,10 @@ export const ConsoleComposer = ({
   };
 
   /**
-   * Lets the open menu use the key first. Otherwise sends the text on Enter without Shift. Enter while an input method
-   * composes a character is left to it.
+   * Lets the open menu use the key of `event` first. Otherwise sends the text on Enter without Shift. Enter while an
+   * input method composes a character is left to it.
    */
-  const handleKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
+  const handleKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>): void => {
     if (menu.handleKeyDown(event)) {
       return;
     }

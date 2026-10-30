@@ -1,7 +1,9 @@
 import { z } from 'zod';
 import type { Task, Ticket, TicketMode, TicketStatus } from '../storage/task-store.ts';
+import { callHolder } from './claim-tickets.ts';
 import type { Method, MethodContext } from './method.ts';
-import { callHolder, hasLanded, openCompleteTask, pendingDependencies } from './open-ticket.ts';
+import { hasLanded, pendingDependencies } from './plan-queries.ts';
+import { openCompleteTask } from './task-guards.ts';
 
 /**
  * Schema of the parameters of `ticketNext`.
@@ -120,7 +122,7 @@ export const ticketNextMethod: Method<typeof PARAMS, TicketNextResult> = {
   agent: true,
   params: PARAMS,
   handle: async ({ taskId }, context) => {
-    const task = await openCompleteTask(taskId, context);
+    const task = await openCompleteTask(taskId, context.tasks);
     const open = task.tickets.filter(({ status }) => !hasLanded(status));
     const pickable = open.filter((ticket) => ticket.status !== 'blocked' && isReady(task, ticket, context));
     const ticket =

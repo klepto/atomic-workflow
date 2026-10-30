@@ -24,11 +24,34 @@ export const feedPublishChanges: PublishChangesFunction = (services, changes) =>
  * Returns the result of `write`, and publishes `resource` to `changes` once `write` resolves. A write that rejects
  * publishes nothing.
  */
-const published = async <T>(write: Promise<T>, changes: ChangeFeed, resource: ChangedResource): Promise<T> => {
+const published = async <T>(write: Promise<T>, changes: ChangeFeed, resource: ChangedResource): Promise<T> =>
+  publishedIf(write, changes, resource, () => true);
+
+/**
+ * Returns the result of `write`, and publishes `resource` to `changes` once `write` resolves with a result for which
+ * `changed` returns `true`. A write that rejects publishes nothing.
+ */
+const publishedIf = async <T>(
+  write: Promise<T>,
+  changes: ChangeFeed,
+  resource: ChangedResource,
+  changed: (result: T) => boolean,
+): Promise<T> => {
   const result = await write;
-  changes.publish(resource);
+  if (changed(result)) changes.publish(resource);
   return result;
 };
+
+/**
+ * Returns whether a write that resolved with `result` changed something: `true` for a write that returns whether it
+ * changed something.
+ */
+const isChange = (result: boolean): boolean => result;
+
+/**
+ * Returns whether a write that resolved with the count `count` changed something: a count above 0.
+ */
+const isCount = (count: number): boolean => count > 0;
 
 /**
  * Wraps `store`, so that `append` publishes `messages` to `changes` once it resolves, and `deleteSession` once it
@@ -37,11 +60,7 @@ const published = async <T>(write: Promise<T>, changes: ChangeFeed, resource: Ch
 const publishingMessageLog = (store: MessageLogStore, changes: ChangeFeed): MessageLogStore => ({
   append: (message) => published(store.append(message), changes, 'messages'),
   list: (query) => store.list(query),
-  deleteSession: async (sessionId) => {
-    const deleted = await store.deleteSession(sessionId);
-    if (deleted > 0) changes.publish('messages');
-    return deleted;
-  },
+  deleteSession: (sessionId) => publishedIf(store.deleteSession(sessionId), changes, 'messages', isCount),
   latestTimes: () => store.latestTimes(),
 });
 
@@ -64,66 +83,38 @@ const publishingTasks = (store: TaskStore, changes: ChangeFeed): TaskStore => {
     setStatus: (taskId, status) => write(store.setStatus(taskId, status)),
     setBaseBranch: (taskId, branch) => write(store.setBaseBranch(taskId, branch)),
     setTicketProgress: (taskId, ticketId, progress) => write(store.setTicketProgress(taskId, ticketId, progress)),
-    startRun: async (taskId, at) => {
-      const changed = await store.startRun(taskId, at);
-      if (changed) changes.publish('tasks');
-      return changed;
-    },
-    endRun: async (taskId, at, startedAt) => {
-      const changed = await store.endRun(taskId, at, startedAt);
-      if (changed) changes.publish('tasks');
-      return changed;
-    },
-    endRuns: async (at) => {
-      const ended = await store.endRuns(at);
-      if (ended > 0) changes.publish('tasks');
-      return ended;
-    },
+    startRun: (taskId, at) => publishedIf(store.startRun(taskId, at), changes, 'tasks', isChange),
+    endRun: (taskId, at, startedAt) => publishedIf(store.endRun(taskId, at, startedAt), changes, 'tasks', isChange),
+    endRuns: (at) => publishedIf(store.endRuns(at), changes, 'tasks', isCount),
   };
 };
 
 /**
- * Wraps `store`, so that `setTask`, `moveTask`, `setTicket`, `setAlias` and `setUsage` publish `sessions` to `changes` once
- * they resolve with `true`, and `delete` publishes `sessions` and `messages` once it resolves with `true`.
+ * Wraps `store`, so that `setTask`, `moveTask`, `setTicket`, `setAlias` and `setUsage` publish `sessions` to
+ * `changes` once they resolve with `true`, and `delete` publishes `sessions` and `messages` once it resolves with
+ * `true`.
  */
-const publishingSessions = (store: SessionStore, changes: ChangeFeed): SessionStore => ({
-  register: (session) => store.register(session),
-  get: (id) => store.get(id),
-  list: () => store.list(),
-  setTask: async (id, taskId) => {
-    const changed = await store.setTask(id, taskId);
-    if (changed) changes.publish('sessions');
-    return changed;
-  },
-  moveTask: async (id, taskId) => {
-    const changed = await store.moveTask(id, taskId);
-    if (changed) changes.publish('sessions');
-    return changed;
-  },
-  setTicket: async (id, ticketId) => {
-    const changed = await store.setTicket(id, ticketId);
-    if (changed) changes.publish('sessions');
-    return changed;
-  },
-  setAlias: async (id, alias) => {
-    const changed = await store.setAlias(id, alias);
-    if (changed) changes.publish('sessions');
-    return changed;
-  },
-  setUsage: async (id, usage) => {
-    const changed = await store.setUsage(id, usage);
-    if (changed) changes.publish('sessions');
-    return changed;
-  },
-  delete: async (id) => {
-    const deleted = await store.delete(id);
-    if (deleted) {
-      changes.publish('sessions');
-      changes.publish('messages');
-    }
-    return deleted;
-  },
-});
+const publishingSessions = (store: SessionStore, changes: ChangeFeed): SessionStore => {
+  const write = (result: Promise<boolean>): Promise<boolean> => publishedIf(result, changes, 'sessions', isChange);
+  return {
+    register: (session) => store.register(session),
+    get: (id) => store.get(id),
+    list: () => store.list(),
+    setTask: (id, taskId) => write(store.setTask(id, taskId)),
+    moveTask: (id, taskId) => write(store.moveTask(id, taskId)),
+    setTicket: (id, ticketId) => write(store.setTicket(id, ticketId)),
+    setAlias: (id, alias) => write(store.setAlias(id, alias)),
+    setUsage: (id, usage) => write(store.setUsage(id, usage)),
+    delete: async (id) => {
+      const deleted = await store.delete(id);
+      if (deleted) {
+        changes.publish('sessions');
+        changes.publish('messages');
+      }
+      return deleted;
+    },
+  };
+};
 
 /**
  * Wraps `connections`, so that `bind` publishes `sessions` to `changes`, and again once the bound connection closes.

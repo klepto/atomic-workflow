@@ -1,6 +1,8 @@
 import { z } from 'zod';
-import type { Method, MethodContext } from './method.ts';
-import { RpcError, RpcErrorCode } from './rpc-error.ts';
+import { deleteSubagent } from './delete-subagent.ts';
+import type { Method } from './method.ts';
+import { registeredSession } from './registered-session.ts';
+import { RPC_ERROR_CODES, RpcError } from './rpc-error.ts';
 
 /**
  * Schema of the parameters of `sessionDelete`.
@@ -10,21 +12,9 @@ const PARAMS = z.object({
 });
 
 /**
- * Stops the subagent `sessionId` with the services of `context` while it is started, and closes its inbox, then deletes
- * it with its messages in the message log. Returns `false` if no such session is registered.
- */
-export const deleteSubagent = async (
-  sessionId: string,
-  { subagents, inboxes, sessions }: MethodContext,
-): Promise<boolean> => {
-  if (subagents.stop(sessionId)) inboxes.close(sessionId);
-  return sessions.delete(sessionId);
-};
-
-/**
  * `Method` named `sessionDelete`, which deletes the subagent `sessionId` with its messages in the message log, for
- * good. A subagent that is started is stopped first, and its inbox closed, so the subagent ends. An orchestrator
- * session, or a session that is not registered, fails with invalid parameters.
+ * good, as `deleteSubagent` does. A subagent that is started is stopped first, at once, as `subagentStop` stops it. An
+ * orchestrator session, or a session that is not registered, fails with invalid parameters.
  */
 export const sessionDeleteMethod: Method<typeof PARAMS, void> = {
   name: 'sessionDelete',
@@ -32,10 +22,12 @@ export const sessionDeleteMethod: Method<typeof PARAMS, void> = {
   agent: false,
   params: PARAMS,
   handle: async ({ sessionId }, context) => {
-    const session = await context.sessions.get(sessionId);
-    if (session === undefined) throw new RpcError(RpcErrorCode.INVALID_PARAMS, `No session ${sessionId} is registered`);
+    const session = await registeredSession(sessionId, context.sessions);
     if (session.role !== 'subagent')
-      throw new RpcError(RpcErrorCode.INVALID_PARAMS, `Session ${sessionId} is no subagent, so it cannot be deleted`);
+      throw new RpcError(
+        RPC_ERROR_CODES.INVALID_PARAMS,
+        `Session ${sessionId} is no subagent, so it cannot be deleted`,
+      );
     await deleteSubagent(sessionId, context);
   },
 };

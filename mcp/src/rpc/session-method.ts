@@ -2,8 +2,8 @@ import type { z } from 'zod';
 import type { TranscriptSkill } from '../transcript/find-transcript.ts';
 import type { Method } from './method.ts';
 import { skillListSessionMethod } from './session-method.skill-list.ts';
-import { subagentFollowMethod } from './session-method.subagent-follow.ts';
-import { subagentTaskIdMethod } from './session-method.subagent-task-id.ts';
+import { subagentFollowSessionMethod } from './session-method.subagent-follow.ts';
+import { subagentTaskIdSessionMethod } from './session-method.subagent-task-id.ts';
 
 /**
  * Services of a session server that a method of the session server uses to do its work.
@@ -34,8 +34,8 @@ export interface SessionMethodContext {
 /**
  * Methods that the repository server can call on a session server.
  */
-export const SessionMethods: readonly Method<z.ZodObject, unknown, SessionMethodContext>[] = [
-  subagentFollowMethod,
+export const SESSION_METHODS: readonly Method<z.ZodObject, unknown, SessionMethodContext>[] = [
+  subagentFollowSessionMethod,
   skillListSessionMethod,
-  subagentTaskIdMethod,
+  subagentTaskIdSessionMethod,
 ];

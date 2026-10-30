@@ -21,7 +21,7 @@ export const sessionActivityReportMethod: Method<typeof PARAMS, void> = {
   description: 'Reports whether the agent of a session is idle, works, or waits for the user.',
   agent: false,
   params: PARAMS,
-  handle: async ({ sessionId, status, at = Date.now() }, { activity }) => {
-    activity.report(sessionId, status, at);
+  handle: async ({ sessionId, status, at }, { activity, clock }) => {
+    activity.report(sessionId, status, at ?? clock.now());
   },
 };

@@ -1,21 +1,52 @@
 import type { TaskSummary } from '@/api/types.ts';
-import { useNow } from '@/conversation/use-now.ts';
 import { cn } from '@/lib/utils.ts';
+import { isRunActive } from '@/tasks/run-state.ts';
+import { useNow } from '@/time/use-now.ts';
 
 /**
- * The length of a second in milliseconds.
+ * Length of a second, in ms.
  */
 const SECOND = 1000;
 
 /**
- * The visible label of the timer, which names what it counts.
+ * Visible label of the timer, which names what it counts.
  */
 const LABEL = 'Unattended run';
 
 /**
- * The span `milliseconds` in whole hours, minutes and seconds, each rounded down. A span below 0 counts as 0.
+ * Span in whole hours, minutes and seconds.
  */
-const partsOf = (milliseconds: number) => {
+interface SpanParts {
+  /**
+   * Whole hours of the span.
+   */
+  readonly hours: number;
+
+  /**
+   * Whole minutes of the span beyond its hours, from 0 to 59.
+   */
+  readonly minutes: number;
+
+  /**
+   * Whole seconds of the span beyond its minutes, from 0 to 59.
+   */
+  readonly seconds: number;
+}
+
+/**
+ * Props of `RunTimer`.
+ */
+interface RunTimerProps {
+  /**
+   * Task whose latest unattended run the timer shows.
+   */
+  readonly task: TaskSummary;
+}
+
+/**
+ * Returns the span `milliseconds` in whole hours, minutes and seconds, each rounded down. A span below 0 counts as 0.
+ */
+const partsOf = (milliseconds: number): SpanParts => {
   const seconds = Math.floor(Math.max(0, milliseconds) / SECOND);
   return { hours: Math.floor(seconds / 3600), minutes: Math.floor((seconds % 3600) / 60), seconds: seconds % 60 };
 };
@@ -48,18 +79,13 @@ const formatSpokenDuration = (milliseconds: number): string => {
 };
 
 /**
- * Returns whether the latest unattended run of the task `task` is active: it started, and has not ended.
- */
-export const isRunActive = (task: TaskSummary): boolean => task.runStartedAt !== null && task.runEndedAt === null;
-
-/**
- * The duration of the latest unattended run of the task `task`, below the label `Unattended run`. While the run is
- * active, it counts up from `runStartedAt` once per second, in green. Once the run ended, it spans to `runEndedAt`,
- * stays still, and is muted. Its accessible text names the state and the duration in words, such as
+ * Duration of the latest unattended run of the task `task`, below the label `Unattended run`. While the run is active,
+ * it counts up from `runStartedAt` once per second, in green. Once the run ended, it spans to `runEndedAt`, stays
+ * still, and is muted. Its accessible text names the state and the duration in words, such as
  * `Unattended run, running for 4 minutes 7 seconds`. It renders nothing for a task that never ran. Only the timer
  * renders again each second, not the panel around it.
  */
-export const RunTimer = ({ task }: { task: TaskSummary }) => {
+export const RunTimer = ({ task }: RunTimerProps) => {
   const active = isRunActive(task);
   const now = useNow(active);
   if (task.runStartedAt === null) {

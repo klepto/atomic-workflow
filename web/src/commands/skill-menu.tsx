@@ -1,59 +1,143 @@
 import { type ReactNode, useEffect } from 'react';
 import type { Skill } from '@/api/types.ts';
+import { commandOf, groupOf, SKILL_GROUPS, type SkillGroup, skillOptionId } from '@/commands/skill-commands.ts';
 import { cn } from '@/lib/utils.ts';
-import { commandOf, groupOf, SKILL_GROUPS, type SkillGroup } from './skill-commands.ts';
-import { skillOptionId } from './use-skill-menu.ts';
 
 /**
- * Props of the skill menu.
+ * Props of `SkillMenu`.
  */
-export interface SkillMenuProps {
+interface SkillMenuProps {
   /**
-   * The id of the listbox. The id of each option is this id, a hyphen and the name of its skill, and the id of the
-   * heading of each group is this id, a hyphen and the group.
+   * Id of the listbox. The id of each option is this id, a hyphen and the name of its skill, and the id of the heading
+   * of each group is this id, a hyphen and the group.
    */
-  id: string;
+  readonly id: string;
 
   /**
-   * The text of the box, a slash and the letters typed after it.
+   * Text of the box, a slash and the letters typed after it.
    */
-  text: string;
+  readonly text: string;
 
   /**
-   * The skills that the session can run, or `undefined` while they are not known yet.
+   * Skills that the session can run, or `undefined` while they are not known yet.
    */
-  skills: readonly Skill[] | undefined;
+  readonly skills: readonly Skill[] | undefined;
 
   /**
-   * The message of the latest failed read of the skills, or `null` when none failed.
+   * Message of the latest failed read of the skills, or `null` when none failed.
    */
-  failure: string | null;
+  readonly failure: string | null;
 
   /**
-   * The skills to offer, the skills of each group together and the groups in the order of `SKILL_GROUPS`.
+   * Skills to offer, the skills of each group together and the groups in the order of `SKILL_GROUPS`.
    */
-  matches: readonly Skill[];
+  readonly matches: readonly Skill[];
 
   /**
-   * The index of the highlighted skill in `matches`.
+   * Index of the highlighted skill in `matches`.
    */
-  active: number;
+  readonly active: number;
 
   /**
    * Highlights the skill at `index` in `matches`.
    */
-  onHighlight: (index: number) => void;
+  readonly onHighlight: (index: number) => void;
 
   /**
-   * Takes the skill that the user pressed with the mouse.
+   * Takes the skill `skill` that the user pressed with the mouse.
    */
-  onPick: (skill: Skill) => void;
+  readonly onPick: (skill: Skill) => void;
 }
 
 /**
- * The heading of each group of the menu.
+ * Props of `NoMatch`.
  */
-const GROUP_HEADINGS: Record<SkillGroup, string> = {
+interface NoMatchProps {
+  /**
+   * Text of the box, a slash and the letters typed after it.
+   */
+  readonly text: string;
+
+  /**
+   * Skills that the session can run, or `undefined` while they are not known yet.
+   */
+  readonly skills: readonly Skill[] | undefined;
+
+  /**
+   * Message of the latest failed read of the skills, or `null` when none failed.
+   */
+  readonly failure: string | null;
+}
+
+/**
+ * Props of `SkillOption`.
+ */
+interface SkillOptionProps {
+  /**
+   * Id of the option.
+   */
+  readonly id: string;
+
+  /**
+   * Skill of the option.
+   */
+  readonly skill: Skill;
+
+  /**
+   * Whether the option is highlighted.
+   */
+  readonly highlighted: boolean;
+
+  /**
+   * Highlights the option.
+   */
+  readonly onHighlight: () => void;
+
+  /**
+   * Picks the skill of the option.
+   */
+  readonly onPick: () => void;
+}
+
+/**
+ * Props of `OptionGroup`.
+ */
+interface OptionGroupProps {
+  /**
+   * Id of the heading of the group.
+   */
+  readonly id: string;
+
+  /**
+   * Text of the heading of the group.
+   */
+  readonly heading: string;
+
+  /**
+   * Options of the group.
+   */
+  readonly children: ReactNode;
+}
+
+/**
+ * Group of the menu with the skills that it shows, in the order of the matches.
+ */
+interface MenuGroup {
+  /**
+   * Group of the skills.
+   */
+  readonly group: SkillGroup;
+
+  /**
+   * Skills of the group among the matches.
+   */
+  readonly skills: readonly Skill[];
+}
+
+/**
+ * Heading of each group of the menu.
+ */
+const GROUP_HEADINGS: Readonly<Record<SkillGroup, string>> = {
   main: 'Main skills',
   helper: 'Helper skills',
 };
@@ -62,16 +146,16 @@ const GROUP_HEADINGS: Record<SkillGroup, string> = {
  * Returns the groups of the menu that hold some of the skills `matches`, each with its skills in the order of
  * `matches`.
  */
-const groupsOf = (matches: readonly Skill[]) =>
+const groupsOf = (matches: readonly Skill[]): readonly MenuGroup[] =>
   SKILL_GROUPS.map((group) => ({ group, skills: matches.filter((skill) => groupOf(skill) === group) })).filter(
     (entry) => entry.skills.length > 0,
   );
 
 /**
- * The line that the menu shows in place of its options while it offers none: that the skills are being read, why they
+ * Line that the menu shows in place of its options while it offers none: that the skills are being read, why they
  * cannot be read, that the session lists none, or that none matches the text `text`.
  */
-const NoMatch = ({ text, skills, failure }: Pick<SkillMenuProps, 'text' | 'skills' | 'failure'>) => {
+const NoMatch = ({ text, skills, failure }: NoMatchProps) => {
   if (skills === undefined) {
     return failure === null ? (
       <p className="text-muted-foreground">Reading the skills of this session…</p>
@@ -89,23 +173,11 @@ const NoMatch = ({ text, skills, failure }: Pick<SkillMenuProps, 'text' | 'skill
 };
 
 /**
- * One option of the menu: the slash and the command of `skill`, then the first line of its description, cut to the
- * width of the menu. The command of a main skill is set heavier and its row looser than those of a helper skill. It takes the
- * columns of the grid of its listbox.
+ * Option of the menu: the slash and the command of `skill`, then the first line of its description, cut to the width
+ * of the menu. The command of a main skill is set heavier and its row looser than those of a helper skill. It takes
+ * the columns of the grid of its listbox.
  */
-const SkillOption = ({
-  id,
-  skill,
-  highlighted,
-  onHighlight,
-  onPick,
-}: {
-  id: string;
-  skill: Skill;
-  highlighted: boolean;
-  onHighlight: () => void;
-  onPick: () => void;
-}) => {
+const SkillOption = ({ id, skill, highlighted, onHighlight, onPick }: SkillOptionProps) => {
   const command = commandOf(skill);
   const main = groupOf(skill) === 'main';
   return (
@@ -136,11 +208,12 @@ const SkillOption = ({
 };
 
 /**
- * One group of the menu: its heading, which stays at the top of the list while the options of the group scroll under
- * it, then its options `children`. A line parts it from the group above it. It takes the columns of the grid of its
+ * Group of the menu: its heading, which stays at the top of the list while the options of the group scroll under it,
+ * then its options `children`. A line parts it from the group above it. It takes the columns of the grid of its
  * listbox.
  */
-const OptionGroup = ({ id, heading, children }: { id: string; heading: string; children: ReactNode }) => (
+const OptionGroup = ({ id, heading, children }: OptionGroupProps) => (
+  // biome-ignore lint/a11y/useSemanticElements: a group of options in a listbox is no form fieldset.
   <div
     role="group"
     aria-labelledby={id}
@@ -158,12 +231,12 @@ const OptionGroup = ({ id, heading, children }: { id: string; heading: string; c
 );
 
 /**
- * The menu of the skills of a session, which floats above its text box. Its container must be positioned, such as
- * with the class `relative`. The options come in groups under a heading, the main skills first and the helper skills
- * after them, and a group that holds no match is left out. Each option shows the command of a skill in one column and
- * its description in the next, so that the eye runs down the commands. While no skill matches, a line says why. The
- * highlighted option scrolls into view below the heading of its group. A mouse press picks an option and leaves the focus where it is, and the pointer
- * highlights the option under it.
+ * Menu of the skills of a session, which floats above its text box. Its container must be positioned, such as with
+ * the class `relative`. The options come in groups under a heading, the main skills first and the helper skills after
+ * them, and a group that holds no match is left out. Each option shows the command of a skill in one column and its
+ * description in the next, so that the eye runs down the commands. While no skill matches, a line says why. The
+ * highlighted option scrolls into view below the heading of its group. A mouse press picks an option and leaves the
+ * focus where it is, and the pointer highlights the option under it.
  */
 export const SkillMenu = ({ id, text, skills, failure, matches, active, onHighlight, onPick }: SkillMenuProps) => {
   const highlighted = matches[active];

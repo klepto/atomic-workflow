@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { AGENTS, type RegisteredSession, SESSION_ROLES } from '../storage/session-store.ts';
 import type { Method } from './method.ts';
+import { newSession } from './new-session.ts';
 
 /**
  * Schema of the parameters of `sessionRegister`.
@@ -25,22 +26,16 @@ export const sessionRegisterMethod: Method<typeof PARAMS, RegisteredSession> = {
   description: 'Registers a session of an agent in the repository, so that its messages can be logged.',
   agent: false,
   params: PARAMS,
-  handle: ({ sessionId, agent, directory, startedAt = Date.now(), role, parentId = null }, { sessions, activity }) => {
-    activity.forget(sessionId);
-    return sessions.register({
+  handle: async ({ sessionId, agent, directory, startedAt, role, parentId = null }, { sessions, activity, clock }) => {
+    const session = newSession({
       id: sessionId,
       agent,
       directory,
-      startedAt,
+      startedAt: startedAt ?? clock.now(),
       role,
       parentId,
-      taskId: null,
-      job: null,
-      ticketId: null,
-      alias: null,
-      contextTokens: null,
-      model: null,
-      effort: null,
     });
+    activity.forget(sessionId);
+    return sessions.register(session);
   },
 };

@@ -1,9 +1,9 @@
 import { z } from 'zod';
 import { GOAL_SOURCES, type Task } from '../storage/task-store.ts';
-import { taskGetMethod } from './method.task-get.ts';
+import { findTask } from './find-task.ts';
 import type { Method } from './method.ts';
-import { openTask } from './open-task.ts';
-import { RpcError, RpcErrorCode } from './rpc-error.ts';
+import { RPC_ERROR_CODES, RpcError } from './rpc-error.ts';
+import { openTask } from './task-guards.ts';
 
 /**
  * Schema of the parameters of `goalSave`.
@@ -46,13 +46,13 @@ export const goalSaveMethod: Method<typeof PARAMS, Task> = {
     'Adds a goal that the user approved to a task of the atomic workflow, or edits one of its goals, and returns the task.',
   agent: true,
   params: PARAMS,
-  handle: async ({ taskId, goalId, summary, details = null, source }, context) => {
-    await openTask(taskId, context);
+  handle: async ({ taskId, goalId, summary, details = null, source }, { tasks }) => {
+    await openTask(taskId, tasks);
     if (goalId === undefined) {
-      if (source === undefined) throw new RpcError(RpcErrorCode.INVALID_PARAMS, 'A new goal needs a source');
-      await context.tasks.addGoal(taskId, { summary, details, source });
-    } else if (!(await context.tasks.editGoal(taskId, goalId, { summary, details })))
-      throw new RpcError(RpcErrorCode.INVALID_PARAMS, `Task ${taskId} has no goal ${goalId}`);
-    return taskGetMethod.handle({ task: taskId }, context);
+      if (source === undefined) throw new RpcError(RPC_ERROR_CODES.INVALID_PARAMS, 'A new goal needs a source');
+      await tasks.addGoal(taskId, { summary, details, source });
+    } else if (!(await tasks.editGoal(taskId, goalId, { summary, details })))
+      throw new RpcError(RPC_ERROR_CODES.INVALID_PARAMS, `Task ${taskId} has no goal ${goalId}`);
+    return findTask(taskId, tasks);
   },
 };

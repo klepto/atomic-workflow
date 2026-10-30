@@ -1,17 +1,12 @@
 import { z } from 'zod';
 import type { Task, Ticket } from '../storage/task-store.ts';
 import type { CreatedWorktrees } from '../worktree/worktrees.ts';
+import { claimTickets, lastingHolder, releaseTickets } from './claim-tickets.ts';
 import type { Method, MethodContext } from './method.ts';
-import {
-  claimTickets,
-  hasLanded,
-  lastingHolder,
-  openTicket,
-  pendingDependencies,
-  releaseTickets,
-  worktreeCall,
-} from './open-ticket.ts';
-import { RpcError, RpcErrorCode } from './rpc-error.ts';
+import { hasLanded, pendingDependencies } from './plan-queries.ts';
+import { RPC_ERROR_CODES, RpcError } from './rpc-error.ts';
+import { openTicket } from './task-guards.ts';
+import { worktreeCall } from './worktree-call.ts';
 
 /**
  * Schema of the parameters of `worktreeCreate`.
@@ -41,12 +36,12 @@ interface WorktreeCreateResult {
  * task branch, the ticket branch and their worktrees where they do not exist, records the base branch of the task on
  * its first start, and sets the ticket `in-progress`. Before it makes a ticket branch, it syncs the task branch with
  * the base branch, so the ticket starts from both. A sync that stops on a conflict fails, and a call again once the
- * conflicting files are resolved and added in the worktree of the task continues it. A blocked ticket keeps its stage, and a ticket in progress stays
- * as it is. The connection of the caller holds the claim of the ticket until the work on it ends or the connection
- * closes, and a call again over the same connection resumes the work. A task or a ticket that does not exist fails
- * with invalid parameters. A task whose plan is not complete, a ticket whose work landed already, a dependency whose
- * work has not landed, a caller without a connection, a ticket that another session holds, and a refusal of git fail
- * with an invalid request.
+ * conflicting files are resolved and added in the worktree of the task continues it. A blocked ticket keeps its
+ * stage, and a ticket in progress stays as it is. The connection of the caller holds the claim of the ticket until the
+ * work on it ends or the connection closes, and a call again over the same connection resumes the work. A task or a
+ * ticket that does not exist fails with invalid parameters. A task whose plan is not complete, a ticket whose work
+ * landed already, a dependency whose work has not landed, a caller without a connection, a ticket that another
+ * session holds, and a refusal of git fail with an invalid request.
  */
 export const worktreeCreateMethod: Method<typeof PARAMS, WorktreeCreateResult> = {
   name: 'worktreeCreate',
@@ -55,13 +50,13 @@ export const worktreeCreateMethod: Method<typeof PARAMS, WorktreeCreateResult> =
   agent: true,
   params: PARAMS,
   handle: async ({ taskId, ticketId }, context) => {
-    const { task, ticket } = await openTicket(taskId, ticketId, context);
+    const { task, ticket } = await openTicket(taskId, ticketId, context.tasks);
     if (hasLanded(ticket.status))
-      throw new RpcError(RpcErrorCode.INVALID_REQUEST, `The work of ticket ${ticketId} landed already`);
+      throw new RpcError(RPC_ERROR_CODES.INVALID_REQUEST, `The work of ticket ${ticketId} landed already`);
     const pending = pendingDependencies(task, ticket);
     if (pending.length > 0)
       throw new RpcError(
-        RpcErrorCode.INVALID_REQUEST,
+        RPC_ERROR_CODES.INVALID_REQUEST,
         `Ticket ${ticketId} depends on tickets ${pending.join(', ')}, whose work has not landed yet`,
       );
     const claimed = claimTickets(taskId, [ticketId], lastingHolder(context), context);

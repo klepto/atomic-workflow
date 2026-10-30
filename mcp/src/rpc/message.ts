@@ -33,7 +33,7 @@ export interface RpcRequest {
  */
 export interface RpcErrorObject {
   /**
-   * Code of the failure, one of `RpcErrorCode` or a code of a method.
+   * Code of the failure, one of `RPC_ERROR_CODES` or a code of a method.
    */
   readonly code: number;
 
@@ -51,7 +51,7 @@ export interface RpcErrorObject {
 /**
  * JSON-RPC 2.0 response that reports the result of a request.
  */
-export interface RpcSuccess {
+interface RpcSuccess {
   /**
    * Version of JSON-RPC, always `2.0`.
    */

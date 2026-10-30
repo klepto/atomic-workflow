@@ -17,8 +17,8 @@ const LAUNCHER_SCRIPT = [
  * `LaunchFunction` that starts the program through a short-lived launcher process, which starts the program as a
  * detached process and exits.
  */
-export const detachedLaunch: LaunchFunction = (commandLine) => {
-  return new Promise((resolve, reject) => {
+export const detachedLaunch: LaunchFunction = async (commandLine) =>
+  new Promise((resolve, reject) => {
     const launcher = spawn(process.execPath, ['--eval', LAUNCHER_SCRIPT, JSON.stringify(commandLine)], {
       stdio: ['ignore', 'ignore', 'pipe'],
       windowsHide: true,
@@ -33,4 +33,3 @@ export const detachedLaunch: LaunchFunction = (commandLine) => {
       else reject(new Error(`The launcher of ${commandLine[0]} failed: ${errorText}`));
     });
   });
-};

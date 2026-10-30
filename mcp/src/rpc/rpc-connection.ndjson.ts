@@ -1,8 +1,8 @@
 import { createInterface } from 'node:readline';
 import type { Duplex } from 'node:stream';
-import type { RpcHandler, RpcId, RpcResponse } from './message.ts';
+import type { RpcHandler, RpcId, RpcRequest, RpcResponse } from './message.ts';
 import type { OpenRpcConnectionFunction } from './rpc-connection.ts';
-import { RpcError, RpcErrorCode } from './rpc-error.ts';
+import { RPC_ERROR_CODES, RpcError } from './rpc-error.ts';
 
 /**
  * Request that waits for its response.
@@ -68,10 +68,15 @@ const rejectPending = (connection: Connection): void => {
 
 /**
  * Sends the request of the method `method` with the parameters `params` over `connection`, and returns the result of
- * its response.
+ * its response. Rejects as `RpcConnection.request` does.
  */
-const request = (connection: Connection, method: string, params?: object, signal?: AbortSignal): Promise<unknown> => {
-  return new Promise((resolve, reject) => {
+const request = async (
+  connection: Connection,
+  method: string,
+  params?: object,
+  signal?: AbortSignal,
+): Promise<unknown> =>
+  new Promise((resolve, reject) => {
     if (!connection.stream.writable) return reject(new Error('The connection is closed'));
     if (signal?.aborted) return reject(abortError(method, signal.reason));
     const id = connection.nextId;
@@ -92,16 +97,15 @@ const request = (connection: Connection, method: string, params?: object, signal
         reject(error);
       },
     });
-    send(connection, { jsonrpc: '2.0', id, method, params });
+    const message: RpcRequest = { jsonrpc: '2.0', id, method, params };
+    send(connection, message);
   });
-};
 
 /**
  * Returns the failure of a request of the method `method` that was aborted for the reason `reason`.
  */
-const abortError = (method: string, reason: unknown): Error => {
-  return new Error(`The request ${method} was aborted`, { cause: reason });
-};
+const abortError = (method: string, reason: unknown): Error =>
+  new Error(`The request ${method} was aborted`, { cause: reason });
 
 /**
  * Answers the line `line` that `connection` received. A response settles the request of this end that it answers,
@@ -111,7 +115,7 @@ const receive = async (connection: Connection, handle: RpcHandler, line: string)
   if (line.trim() === '') return;
   const message = parseCatching(line);
   if (message instanceof Error)
-    return send(connection, new RpcError(RpcErrorCode.PARSE_ERROR, message.message).toResponse(null));
+    return send(connection, new RpcError(RPC_ERROR_CODES.PARSE_ERROR, message.message).toResponse(null));
   if (isResponse(message)) return settle(connection, message);
   const response = await handle(message);
   if (response !== undefined) send(connection, response);
@@ -124,7 +128,7 @@ const parseCatching = (line: string): unknown => {
   try {
     return JSON.parse(line);
   } catch (error) {
-    return error instanceof Error ? error : new Error(String(error));
+    return error instanceof Error ? error : new Error(String(error), { cause: error });
   }
 };
 

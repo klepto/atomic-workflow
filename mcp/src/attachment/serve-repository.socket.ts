@@ -1,10 +1,11 @@
 import { rm } from 'node:fs/promises';
-import { createConnection, createServer, type Server, type Socket } from 'node:net';
+import { createServer, type Server, type Socket } from 'node:net';
+import { errorDetail } from '../entry/error-detail.ts';
 import type { Method, MethodContext } from '../rpc/method.ts';
 import type { RpcConnection } from '../rpc/rpc-connection.ts';
-import { RpcError, RpcErrorCode } from '../rpc/rpc-error.ts';
-import { BIND_SESSION_METHOD, BIND_SESSION_PARAMS } from './bind-session.ts';
-import { HELLO_METHOD, HELLO_PARAMS, type HelloResult, PROTOCOL_VERSION } from './hello.ts';
+import { connectCatching } from './attach.socket.ts';
+import { bindSessionMethod } from './bind-session.ts';
+import { helloMethod } from './hello.ts';
 import type { ServeRepositoryDependencies, ServeRepositoryFunction } from './serve-repository.ts';
 
 /**
@@ -42,6 +43,11 @@ interface Repository {
   readonly dependencies: ServeRepositoryDependencies;
 
   /**
+   * Open connections of clients.
+   */
+  readonly connections: Set<Socket>;
+
+  /**
    * Number of attached session servers.
    */
   sessions: number;
@@ -65,12 +71,26 @@ export const socketServeRepository: ServeRepositoryFunction = async (address, ur
     methods,
     context,
     dependencies,
+    connections: new Set(),
     sessions: 0,
     firstAttachTimer: undefined,
   };
   server.on('connection', (socket) => serve(repository, socket));
   await listenReclaiming(server, address);
-  await dependencies.listening?.();
+  // An error of a listening server, such as `EMFILE` on an accept, leaves it listening, so it keeps serving the
+  // attached session servers. Without a listener, the error would crash the process with all its state.
+  server.on('error', (error) => dependencies.log(`The repository server at ${address} failed: ${errorDetail(error)}`));
+  try {
+    await dependencies.listening?.();
+  } catch (error) {
+    // A repository server that keeps listening after a failed start would serve its session servers with a web
+    // server and a storage that its caller closes, and keep the process alive. Once it stops, the next session server
+    // launches a fresh one.
+    server.close();
+    for (const socket of repository.connections) socket.destroy();
+    await closed;
+    throw error;
+  }
   repository.firstAttachTimer = setTimeout(() => server.close(), FIRST_ATTACH_TIMEOUT);
   await closed;
 };
@@ -81,14 +101,24 @@ export const socketServeRepository: ServeRepositoryFunction = async (address, ur
 const serve = (repository: Repository, socket: Socket): void => {
   const { dispatch, openConnection } = repository.dependencies;
   let session = false;
-  const attachSession = (): void => {
-    if (session) return;
+  const attachSession = (): boolean => {
+    if (session) return true;
+    // A closed listener never listens again, so a session server that attached here would keep a repository server
+    // alive that no new session server reaches, while those launch another one.
+    if (!repository.server.listening) {
+      // The response to `hello` is sent before the next turn of the event loop, so it goes out before the end.
+      setImmediate(() => connection.close());
+      return false;
+    }
     session = true;
     repository.sessions += 1;
     clearTimeout(repository.firstAttachTimer);
+    return true;
   };
+  repository.connections.add(socket);
   // An error of the connection is followed by its close, which counts the session server as gone.
   socket.once('close', () => {
+    repository.connections.delete(socket);
     if (session) repository.sessions -= 1;
     if (session && repository.sessions === 0) repository.server.close();
   });
@@ -104,91 +134,38 @@ const serve = (repository: Repository, socket: Socket): void => {
 };
 
 /**
- * Returns the method `hello` of one connection, which returns `url`, and calls `attachSession` when the client says
- * hello as a session server.
- */
-const helloMethod = (url: string, attachSession: () => void): Method<typeof HELLO_PARAMS, HelloResult> => {
-  return {
-    name: HELLO_METHOD,
-    description: 'Opens the connection. A client calls it first.',
-    agent: false,
-    params: HELLO_PARAMS,
-    handle: async ({ protocol, role }) => {
-      if (protocol !== PROTOCOL_VERSION)
-        throw new RpcError(
-          RpcErrorCode.INVALID_PARAMS,
-          `Protocol ${protocol} is not supported, only ${PROTOCOL_VERSION}`,
-        );
-      if (role === 'session') attachSession();
-      return { url };
-    },
-  };
-};
-
-/**
- * Returns the method `bindSession` of one connection, which binds a session to the connection that
- * `sessionConnection` returns, and gives the session an inbox until the connection closes. The inbox of the session
- * that the connection served before moves to the new session, so a wait for its messages that is under way, such as
- * one from before `/clear`, receives the messages of the new session. Before the client says hello as a session
- * server, `sessionConnection` returns `undefined`, and the method fails.
- */
-const bindSessionMethod = (
-  sessionConnection: () => RpcConnection | undefined,
-): Method<typeof BIND_SESSION_PARAMS, void> => {
-  return {
-    name: BIND_SESSION_METHOD,
-    description: 'Binds a session to the connection, so that the repository server reaches the session over it.',
-    agent: false,
-    params: BIND_SESSION_PARAMS,
-    handle: async ({ sessionId }, { sessionConnections, inboxes }) => {
-      const connection = sessionConnection();
-      if (connection === undefined)
-        throw new RpcError(RpcErrorCode.INVALID_REQUEST, 'Only a session server can bind a session');
-      const previous = sessionConnections.bind(sessionId, connection);
-      if (previous !== undefined) inboxes.move(previous, sessionId);
-      inboxes.open(sessionId, connection.closed);
-    },
-  };
-};
-
-/**
  * Starts `server` listening on `address`. A Unix domain socket that a crashed repository server left behind, and that
  * no process listens on, is removed first.
  * If another repository server listens on `address`, throws.
  */
 const listenReclaiming = async (server: Server, address: string): Promise<void> => {
   const error = await listenCatching(server, address);
-  if (error === undefined) return;
+  if (!(error instanceof Error)) return;
   if (error.code !== 'EADDRINUSE' || process.platform === 'win32' || (await isServed(address))) throw error;
   await rm(address, { force: true });
   const retryError = await listenCatching(server, address);
-  if (retryError !== undefined) throw retryError;
+  if (retryError instanceof Error) throw retryError;
 };
 
 /**
  * Starts `server` listening on `address`, and resolves once it listens. If it does not listen, resolves to the error
  * instead.
  */
-const listenCatching = (server: Server, address: string): Promise<NodeJS.ErrnoException | undefined> => {
-  return new Promise((resolve) => {
+const listenCatching = async (server: Server, address: string): Promise<NodeJS.ErrnoException | undefined> =>
+  new Promise((resolve) => {
     server.once('error', resolve);
     server.listen(address, () => {
       server.off('error', resolve);
       resolve(undefined);
     });
   });
-};
 
 /**
  * Returns whether a process listens on `address`.
  */
-const isServed = (address: string): Promise<boolean> => {
-  return new Promise((resolve) => {
-    const socket = createConnection(address);
-    socket.once('error', () => resolve(false));
-    socket.once('connect', () => {
-      socket.destroy();
-      resolve(true);
-    });
-  });
+const isServed = async (address: string): Promise<boolean> => {
+  const socket = await connectCatching(address);
+  if (socket instanceof Error) return false;
+  socket.destroy();
+  return true;
 };

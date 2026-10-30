@@ -1,98 +1,94 @@
 import { type KeyboardEvent, type RefObject, useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 import type { Skill } from '@/api/types.ts';
-import { bestMatchIndex, insertSkill, isSlashWord, matchSkills } from './skill-commands.ts';
+import { bestMatchIndex, insertSkill, isSlashWord, matchSkills, skillOptionId } from '@/commands/skill-commands.ts';
 
 /**
  * Options of the skill menu of one text box.
  */
-export interface UseSkillMenuOptions {
+interface SkillMenuOptions {
   /**
-   * The text of the box.
+   * Text of the box.
    */
-  text: string;
+  readonly text: string;
 
   /**
    * Replaces the text of the box with `text`.
    */
-  setText: (text: string) => void;
+  readonly setText: (text: string) => void;
 
   /**
-   * The text box.
+   * Ref of the text box.
    */
-  field: RefObject<HTMLTextAreaElement | null>;
+  readonly field: RefObject<HTMLTextAreaElement | null>;
 
   /**
-   * The skills to offer, or `undefined` while they are not known yet.
+   * Skills to offer, or `undefined` while they are not known yet.
    */
-  skills: readonly Skill[] | undefined;
+  readonly skills: readonly Skill[] | undefined;
 
   /**
    * Called each time the menu opens.
    */
-  onOpen: () => void;
+  readonly onOpen: () => void;
 }
 
 /**
- * The menu state of one text box, and the handlers that the box and the menu use.
+ * State of the skill menu of one text box, and the handlers that the box and the menu use.
  */
-export interface SkillMenu {
+interface SkillMenuState {
   /**
    * Whether the menu is open. An open menu may offer no skill, such as when no skill matches the text.
    */
-  open: boolean;
+  readonly open: boolean;
 
   /**
-   * The skills that the menu offers, the main skills first and the helper skills after them, as `matchSkills` orders
+   * Skills that the menu offers, the main skills first and the helper skills after them, as `matchSkills` orders
    * them. Empty while the menu is closed.
    */
-  matches: readonly Skill[];
+  readonly matches: readonly Skill[];
 
   /**
-   * The index of the highlighted skill in `matches`.
+   * Index of the highlighted skill in `matches`.
    */
-  active: number;
+  readonly active: number;
 
   /**
-   * The id of the listbox of the menu.
+   * Id of the listbox of the menu.
    */
-  menuId: string;
+  readonly menuId: string;
 
   /**
    * Handles a key that the user pressed in the box. Returns `true` when the menu used the key, so the box must not
    * handle it too.
    */
-  handleKeyDown: (event: KeyboardEvent<HTMLTextAreaElement>) => boolean;
+  readonly handleKeyDown: (event: KeyboardEvent<HTMLTextAreaElement>) => boolean;
 
   /**
    * Highlights the skill at `index` in `matches`, such as when the pointer moves over it.
    */
-  highlight: (index: number) => void;
+  readonly highlight: (index: number) => void;
 
   /**
    * Sets the text of the box for `skill`, keeps the focus in the box and puts the caret at the end.
    */
-  pick: (skill: Skill) => void;
+  readonly pick: (skill: Skill) => void;
 
   /**
-   * The ARIA attributes of the box. Empty while the menu is closed.
+   * ARIA attributes of the box. Empty while the menu is closed.
    */
-  fieldProps: Record<string, string | boolean | undefined>;
+  readonly fieldProps: Readonly<Record<string, string | boolean | undefined>>;
 }
 
 /**
- * Returns the id of the option of `skill` in the menu whose id is `menuId`.
+ * Returns the state of the skill menu of one text box, from the options `options`. The menu opens while the whole text
+ * is a slash and a word without whitespace, and calls `onOpen` each time it opens. Each time the list of matches
+ * changes, the best match is highlighted, which may be a helper skill below the main skills. ArrowDown and ArrowUp
+ * move the highlight with wrap through both groups, Enter and Tab pick the highlighted skill, and Escape closes the
+ * menu until the text changes. Enter on a text that is the highlighted skill already, or while no skill matches, is
+ * left to the box. A key during the composition of an input method is left alone.
  */
-export const skillOptionId = (menuId: string, skill: Skill): string => `${menuId}-${skill.name}`;
-
-/**
- * Returns the menu state of the skills of one text box. The menu opens while the whole text is a slash and a word
- * without whitespace, and calls `onOpen` each time it opens. Each time the list of matches changes, the best match is
- * highlighted, which may be a helper skill below the main skills. ArrowDown and ArrowUp move the highlight with wrap
- * through both groups, Enter and Tab pick the highlighted skill, and Escape closes the menu until the text changes.
- * Enter on a text that is the highlighted skill already, or while no skill matches, is left to the box. A key during the composition of an input
- * method is left alone.
- */
-export const useSkillMenu = ({ text, setText, field, skills, onOpen }: UseSkillMenuOptions): SkillMenu => {
+export const useSkillMenu = (options: SkillMenuOptions): SkillMenuState => {
+  const { text, setText, field, skills, onOpen } = options;
   const menuId = useId();
   const matched = matchSkills(text, skills ?? []);
   const listKey = matched.map((skill) => skill.name).join(' ');
@@ -138,7 +134,7 @@ export const useSkillMenu = ({ text, setText, field, skills, onOpen }: UseSkillM
   /**
    * Sets the text of the box for `skill`, and asks the next layout for the focus and the caret at the end.
    */
-  const pick = (skill: Skill) => {
+  const pick = (skill: Skill): void => {
     caretToEnd.current = true;
     setText(insertSkill(skill));
     field.current?.focus();
@@ -147,12 +143,12 @@ export const useSkillMenu = ({ text, setText, field, skills, onOpen }: UseSkillM
   /**
    * Returns whether a pick of `skill` changes the text of the box, other than by a space at its end.
    */
-  const changes = (skill: Skill) => insertSkill(skill).trimEnd() !== text;
+  const changes = (skill: Skill): boolean => insertSkill(skill).trimEnd() !== text;
 
   /**
-   * Returns the action of the open menu for the key `key`, or `undefined` when the menu does not use it. Without a
-   * match, the menu only uses Escape. Enter is left to the box when the text is the highlighted skill already, so that
-   * the box sends it.
+   * Returns the action of the open menu for the key `key`. Without a match, the menu only uses Escape. Enter is left to
+   * the box when the text is the highlighted skill already, so that the box sends it. If the menu does not use the key,
+   * returns `undefined` instead.
    */
   const actionOf = (key: string): (() => void) | undefined => {
     const current = matches[highlighted];
