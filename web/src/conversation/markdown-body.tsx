@@ -1,6 +1,7 @@
 import type { ComponentProps } from 'react';
 import Markdown from 'react-markdown';
 import remarkBreaks from 'remark-breaks';
+import { CodeBlock } from '@/conversation/code-block.tsx';
 import { cn } from '@/lib/utils.ts';
 
 /**
@@ -20,7 +21,8 @@ const BodyLink = ({ node: _node, children, href, ...props }: ComponentProps<'a'>
 
 /**
  * Renders `text` as Markdown. Each line break in a paragraph is kept, as a terminal shows it, rather than joined to a
- * space. Raw HTML is not rendered, and the default URL filter drops `javascript:` links. The classes of `className` are added to the box of the body, and win over its own on a conflict.
+ * space. A fenced code block that names its language shows its code in colors. Raw HTML is not rendered, and the
+ * default URL filter drops `javascript:` links. The classes of `className` are added to the box of the body, and win over its own on a conflict.
  */
 export const MarkdownBody = ({ text, className }: { text: string; className?: string }) => (
   <div
@@ -29,7 +31,7 @@ export const MarkdownBody = ({ text, className }: { text: string; className?: st
       className,
     )}
   >
-    <Markdown remarkPlugins={[remarkBreaks]} components={{ a: BodyLink }}>
+    <Markdown remarkPlugins={[remarkBreaks]} components={{ a: BodyLink, code: CodeBlock }}>
       {text}
     </Markdown>
   </div>

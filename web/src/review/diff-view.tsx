@@ -26,6 +26,7 @@ import { Button } from '@/components/ui/button.tsx';
 import { Hint } from '@/components/ui/hint.tsx';
 import { Textarea } from '@/components/ui/textarea.tsx';
 import { MarkdownBody } from '@/conversation/markdown-body.tsx';
+import { tokenStyle } from '@/lib/code-highlight.ts';
 import { cn } from '@/lib/utils.ts';
 import { type FileHighlight, useFileHighlight } from '@/review/highlight.ts';
 import type { DiffLine, FileDiff, FileStatus } from '@/review/patch.ts';
@@ -345,20 +346,6 @@ const numberTint = (line: DiffLine, mark: ReturnType<typeof markOf>): string => 
   if (mark === 'selected') return 'bg-primary/20 text-foreground';
   if (line.kind === 'add') return 'bg-diff-add/20';
   return line.kind === 'delete' ? 'bg-diff-delete/20' : '';
-};
-
-/**
- * Returns the inline style of the token `token`: its color, and whether it is italic, bold or underlined.
- */
-const tokenStyle = (token: ThemedToken): CSSProperties => {
-  // The font style is a bit set: 1 for italic, 2 for bold and 4 for underline.
-  const fontStyle = token.fontStyle ?? 0;
-  return {
-    color: token.color,
-    fontStyle: fontStyle & 1 ? 'italic' : undefined,
-    fontWeight: fontStyle & 2 ? 'bold' : undefined,
-    textDecoration: fontStyle & 4 ? 'underline' : undefined,
-  };
 };
 
 /**

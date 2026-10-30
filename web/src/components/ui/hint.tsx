@@ -54,7 +54,7 @@ export interface HintProps {
  * the hint of the next button at once while another hint shows or just closed.
  */
 export const HintProvider = ({ children }: { children: ReactNode }) => (
-  <TooltipPrimitive.Provider delay={500}>{children}</TooltipPrimitive.Provider>
+  <TooltipPrimitive.Provider delay={250}>{children}</TooltipPrimitive.Provider>
 );
 
 /**

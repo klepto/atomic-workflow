@@ -161,11 +161,10 @@ const Shell = () => {
   const openAgentChat = (sessionId: string) => navigate(routePath(openTaskRef, sessionId));
 
   /**
-   * Opens the chat of the subagent `sessionId` that took a skill from the chat of the main session: beside the open
-   * task for the orchestrator of the task, and with no task open for a new subagent, which works on no task yet. Its
-   * task opens once it gets one.
+   * Opens the chat of the new subagent `sessionId` that took a skill from the chat of the main session, with no task
+   * open, since it works on no task yet. Its task opens once it gets one.
    */
-  const openSkillChat = (sessionId: string) => navigate(routePath(openTaskRef, sessionId));
+  const openSkillChat = (sessionId: string) => navigate(routePath(undefined, sessionId));
 
   /**
    * Reads the sessions again, then opens the chat of the subagent `sessionId` beside the open task, such as the
@@ -223,7 +222,6 @@ const Shell = () => {
               <ConsolePage
                 key={open.key}
                 chat={open}
-                task={openTask}
                 messages={messages}
                 online={online}
                 onOpen={openSkillChat}
