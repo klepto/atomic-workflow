@@ -1,12 +1,13 @@
 import { memo, useMemo, useState } from 'react';
 import { Button } from '@/components/ui/button.tsx';
 import { chunksOf, type DiffChunk } from '@/review/diff-chunks.ts';
+import type { FileHighlight } from '@/review/file-highlight.ts';
 import type { FileReview } from '@/review/file-review.ts';
 import type { FileDiff } from '@/review/patch.ts';
 import { SplitBody } from '@/review/split-body.tsx';
 import { UnifiedBody } from '@/review/unified-body.tsx';
 import type { DiffLayout } from '@/review/use-diff-layout.ts';
-import { type FileHighlight, useFileHighlight } from '@/review/use-file-highlight.ts';
+import { useFileHighlight } from '@/review/use-file-highlight.ts';
 import { useProgressiveLimit } from '@/review/use-progressive-limit.ts';
 import { useStableCallback } from '@/review/use-stable-callback.ts';
 

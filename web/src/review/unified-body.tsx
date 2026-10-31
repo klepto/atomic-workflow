@@ -3,11 +3,11 @@ import { cn } from '@/lib/utils.ts';
 import { endsAt } from '@/review/comment-anchor.ts';
 import { CommentThread } from '@/review/comment-thread.tsx';
 import type { UnifiedPiece } from '@/review/diff-chunks.ts';
+import type { FileHighlight } from '@/review/file-highlight.ts';
 import type { FileReview } from '@/review/file-review.ts';
 import { CodeCell, HunkHeader, LineButton, Rail } from '@/review/line-cells.tsx';
 import { codeTint, markOf, numberTint } from '@/review/line-mark.ts';
 import { numberOn, sideOf } from '@/review/patch.ts';
-import type { FileHighlight } from '@/review/use-file-highlight.ts';
 
 /**
  * Props of `UnifiedBody`.

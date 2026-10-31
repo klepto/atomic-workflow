@@ -137,6 +137,58 @@ A seam keeps a side effect behind an interface, so that a test can replace it.
   new key `atomic-workflow:<name>`.
 - Build configuration, such as `web/vite.config.ts` and `mcp/scripts/`, is outside the seams.
 
+## Tests
+
+Each package runs its unit tests with `npm test`: the test runner of Node.js, `node --test`, runs every file
+`src/**/*.test.ts` of the package, with no build step and no other test library. The command exits with 0 only when
+every test passes. In `web/`, `npm test` loads `web/resolve-alias.ts` with `--import`, which resolves `@/<path>` to
+`web/src/<path>` as the alias of Vite does. `npm run typecheck` and `npx biome ci` check the test files too, and no
+build bundles them.
+
+- Put a test file beside the module that it tests, with the name of the module and the extension `.test.ts`:
+  `patch.test.ts` beside `patch.ts`, `task-store.sqlite.test.ts` beside `task-store.sqlite.ts`.
+- Import `describe` and `it` from `node:test`, and `assert` from `node:assert/strict`. Use no other assertion or mock
+  library.
+- Write one `describe` per exported function, method or store, named for it: `describe('ticketsSave', ...)`. Write
+  one `it` per behavior. Name it as a sentence in the present tense without a final period, which says what happens
+  under which condition: `it('rejects a ticket that depends on a later ticket', ...)`.
+- Test behavior through the public API of the module, its exports and the contracts of the design, never its
+  internals, so that a refactor keeps the test green.
+- Check a value with `assert.deepEqual` or `assert.equal`. Check a failure with `assert.rejects` or `assert.throws`,
+  with the class and the code or the message that the contract names. Write no snapshot tests.
+- Replace a side effect through its seam, with a plain object or function that implements the interface of the seam.
+  Put a fake that more than one test file uses in the test helpers of its package.
+- Take the time from a fake `Clock` in `mcp/`, and from a fixed time passed as a number in `web/`. Where code
+  schedules a timer itself, use `mock.timers` of `node:test`, never a real wait.
+- Keep each whole suite under 10 s on a developer machine, real git included. A test never sleeps, never waits on a
+  real timer, never tests a timeout, and never runs a long concurrency scenario.
+- Build the test data in the test, or with a small builder in the test file, such as `ticket({ status: 'done' })`,
+  and state only the fields that matter to the test.
+- Follow the code rules of this file in test files too, with two exceptions: a test file runs code when it is loaded,
+  like an entry point, and a test file or a test helper may import adapters, such as `sqliteTaskStore`.
+- Leave nothing behind: no file outside a temporary directory that the test removes, and no open handle.
+
+The test helpers of `mcp/` live in `mcp/src/testing/`:
+
+- `testStorage()`: a `Storage` on an in-memory SQLite database.
+- `testClock(start?)`: a `Clock` that moves only with `advance` or `set`.
+- `testMethodContext(overrides?)`: a whole `MethodContext` with fakes and map adapters.
+- `testConnection()`: an `RpcConnection` that records what it sends.
+- `testCall(method, params, context)`: parses the params like `dispatch` does, and runs the method.
+- `testGitRepository(context)`: a temporary git repository, which `context.after` of the test removes.
+
+```ts
+import assert from 'node:assert/strict';
+import { describe, it } from 'node:test';
+import { formatDuration } from '@/time/duration-format.ts';
+
+describe('formatDuration', () => {
+  it('shows the minutes and the seconds under an hour', () => {
+    assert.equal(formatDuration(116_000), '1m 56s');
+  });
+});
+```
+
 ## Biome
 
 - `biome.json` at the root of the repository holds the shared rules, with `"root": true`. `mcp/biome.json` and
@@ -161,7 +213,8 @@ restore it with `git restore plugin/dist` and `git clean -fd plugin/dist` before
 
 - Imports: `web/` imports every module of `web/src/` by the alias `@/`, its siblings too: `@/tasks/run-timer.tsx`.
   `mcp/` imports by relative paths: `../storage/task-store.ts`. Node.js runs the sources of `mcp/` directly and does
-  not resolve the paths of `tsconfig.json`, while Vite resolves the alias of `web/`.
+  not resolve the paths of `tsconfig.json`, while Vite resolves the alias of `web/`, and `web/resolve-alias.ts`
+  resolves it for `npm test`.
 - Seams: `mcp/` passes each adapter through its interface, and `web/` imports the adapter module. A React context per
   side effect would add code and risk to every component, and a test can still replace a module.
 - Diagnostics: `mcp/` writes to the standard error, since the standard output of a session server carries the MCP

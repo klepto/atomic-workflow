@@ -1,92 +1,13 @@
-import type { GrammarState, ThemedToken } from 'shiki/core';
 import { systemClock } from '@/lib/clock.system.ts';
-import { highlighterOf, type LanguageHighlighter, languageOfPath, MAX_HIGHLIGHT_LINES } from '@/lib/code-highlight.ts';
+import { highlighterOf, languageOfPath, MAX_HIGHLIGHT_LINES } from '@/lib/code-highlight.ts';
 import { useHighlight } from '@/lib/use-highlight.ts';
-import type { DiffHunk, DiffLine, FileDiff } from '@/review/patch.ts';
-
-/**
- * Colored pieces of the text of each line of a file, by the line of the diff that holds the text. A line without an
- * entry shows its text without colors.
- */
-export type FileHighlight = ReadonlyMap<DiffLine, readonly ThemedToken[]>;
+import { colorFile, type FileHighlight } from '@/review/file-highlight.ts';
+import type { FileDiff } from '@/review/patch.ts';
 
 /**
  * Colors of each file that was colored once, so that a file that shows again does not color again.
  */
 const highlights = new WeakMap<FileDiff, FileHighlight>();
-
-/**
- * Most lines that one call of the highlighter colors before it lets the page take input again.
- */
-const HIGHLIGHT_CHUNK = 100;
-
-/**
- * Resolves after the tasks that wait, such as the input of the user, ran.
- */
-const nextTask = async (): Promise<void> =>
-  new Promise((resolve) => {
-    systemClock.after(0, resolve);
-  });
-
-/**
- * Colors the lines `lines` of one side of a hunk as one piece of code with `highlighter`, so that a construct that
- * spans lines, such as a block comment, colors each of its lines, and adds the colors of each line to `colors`. It
- * colors `HIGHLIGHT_CHUNK` lines at a time, each chunk read on from where the chunk before it ended, and lets the page
- * take input between two chunks.
- */
-const colorSide = async (
-  highlighter: LanguageHighlighter,
-  lines: readonly DiffLine[],
-  colors: Map<DiffLine, readonly ThemedToken[]>,
-): Promise<void> => {
-  let state: GrammarState | undefined;
-  for (let start = 0; start < lines.length; start += HIGHLIGHT_CHUNK) {
-    if (start > 0) await nextTask();
-    const chunk = lines.slice(start, start + HIGHLIGHT_CHUNK);
-    const colored = highlighter.tokenizeFrom(chunk.map((line) => line.text).join('\n'), state);
-    // A line that holds a line break of its own splits in two, so its colors would land on the lines below it.
-    if (colored.tokens.length !== chunk.length) return;
-    for (const [index, line] of chunk.entries()) {
-      colors.set(line, colored.tokens[index] ?? []);
-    }
-    state = colored.state;
-  }
-};
-
-/**
- * Colors the old and then the new side of the hunk `hunk` with `highlighter`, so that a line both sides share keeps
- * the colors of its new side, and adds the colors of each line to `colors`.
- */
-const colorHunk = async (
-  highlighter: LanguageHighlighter,
-  hunk: DiffHunk,
-  colors: Map<DiffLine, readonly ThemedToken[]>,
-): Promise<void> => {
-  await colorSide(
-    highlighter,
-    hunk.lines.filter((line) => line.kind !== 'add'),
-    colors,
-  );
-  await nextTask();
-  await colorSide(
-    highlighter,
-    hunk.lines.filter((line) => line.kind !== 'delete'),
-    colors,
-  );
-};
-
-/**
- * Returns the colors of the lines of the file `file` with `highlighter`, each hunk colored on its own, and lets the
- * page take input between two hunks.
- */
-const colorFile = async (file: FileDiff, highlighter: LanguageHighlighter): Promise<FileHighlight> => {
-  const colors = new Map<DiffLine, readonly ThemedToken[]>();
-  for (const hunk of file.hunks) {
-    await colorHunk(highlighter, hunk, colors);
-    await nextTask();
-  }
-  return colors;
-};
 
 /**
  * Returns the colors of the lines of the file `file`, or `undefined` when the language of the file gets no colors, or
@@ -97,7 +18,7 @@ const highlightFile = (file: FileDiff): Promise<FileHighlight> | undefined => {
   const loadLanguage = languageOfPath(file.path);
   const lineCount = file.hunks.reduce((count, hunk) => count + hunk.lines.length, 0);
   if (loadLanguage === undefined || lineCount > MAX_HIGHLIGHT_LINES) return undefined;
-  return highlighterOf(loadLanguage).then((highlighter) => colorFile(file, highlighter));
+  return highlighterOf(loadLanguage).then((highlighter) => colorFile(file, highlighter, systemClock));
 };
 
 /**

@@ -4,7 +4,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { immediateTransaction } from './immediate-transaction.sqlite.ts';
 import { sqliteMessageLogStore } from './message-log-store.sqlite.ts';
 import { MIGRATIONS } from './migrations.sqlite.ts';
-import type { OpenStorageFunction } from './open-storage.ts';
+import type { OpenStorageFunction, Storage } from './open-storage.ts';
 import { sqliteSessionStore } from './session-store.sqlite.ts';
 import { sqliteTaskStore } from './task-store.sqlite.ts';
 
@@ -34,17 +34,26 @@ export const sqliteOpenStorage: OpenStorageFunction = async (path) => {
   const database = new DatabaseSync(path, { timeout: BUSY_TIMEOUT, enableForeignKeyConstraints: true });
   try {
     database.exec('PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL;');
-    migrate(database);
-    return {
-      sessions: sqliteSessionStore(database),
-      messageLog: sqliteMessageLogStore(database),
-      tasks: sqliteTaskStore(database),
-      close: () => database.close(),
-    };
+    return sqliteStorage(database);
   } catch (error) {
     database.close();
     throw error;
   }
+};
+
+/**
+ * Returns the `Storage` on the open SQLite database `database`, once it has run the steps of `MIGRATIONS` that it had
+ * not run yet. Closing the storage closes `database`. On a failure, leaves `database` open.
+ * If `database` has run more steps than `MIGRATIONS` holds, or if the steps leave a foreign key broken, throws.
+ */
+export const sqliteStorage = (database: DatabaseSync): Storage => {
+  migrate(database);
+  return {
+    sessions: sqliteSessionStore(database),
+    messageLog: sqliteMessageLogStore(database),
+    tasks: sqliteTaskStore(database),
+    close: () => database.close(),
+  };
 };
 
 /**

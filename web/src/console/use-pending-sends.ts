@@ -2,14 +2,8 @@ import { useEffect, useRef, useState } from 'react';
 import { fetchCall } from '@/api/rpc.fetch.ts';
 import type { Skill } from '@/api/types.ts';
 import type { Chat } from '@/chats/chat-list.ts';
-import { expandCommand, skillOf } from '@/commands/skill-commands.ts';
+import { type PendingRoute, planSend } from '@/console/send-plan.ts';
 import { errorMessage } from '@/lib/error-message.ts';
-
-/**
- * Route of a pending message: `deliver` to the session of the chat with `messageDeliver`, and `subagent` to a new
- * subagent with `subagentStart`, as the first message of the subagent.
- */
-export type PendingRoute = 'deliver' | 'subagent';
 
 /**
  * Message of the user that the log does not show yet: one being delivered, or one whose delivery failed.
@@ -89,12 +83,13 @@ interface SubagentStartResult {
 
 /**
  * Returns the sends of the chat `chat`, which match a text against the skills `skills` of its session, with the calls
- * of the page `options`. A text that runs a skill is sent with the whole name of the skill in place of its command. In
- * the chat of the main session, such a text starts a new subagent inside the session with `subagentStart`, with the
- * text as its first message, and the subagent works on no task until its skill picks one. Once the subagent attached,
- * the sessions are read again and its chat opens, unless the console closed meanwhile. Every other text goes to the
- * session of the chat with `messageDeliver`. Each text shows as pending until its call settles: a text whose call
- * succeeded leaves the pending messages, and a failed one stays with the message of the failure.
+ * of the page `options`, on the route that `planSend` picks. A text that runs a skill is sent with the whole name of
+ * the skill in place of its command. In the chat of the main session, such a text starts a new subagent inside the
+ * session with `subagentStart`, with the text as its first message, and the subagent works on no task until its skill
+ * picks one. Once the subagent attached, the sessions are read again and its chat opens, unless the console closed
+ * meanwhile. Every other text goes to the session of the chat with `messageDeliver`. Each text shows as pending until
+ * its call settles: a text whose call succeeded leaves the pending messages, and a failed one stays with the message
+ * of the failure.
  */
 export const usePendingSends = (
   chat: Chat,
@@ -160,15 +155,10 @@ export const usePendingSends = (
    * pick. Resolves once the text was sent, or its failure shows.
    */
   const send = (sessionId: string, text: string): Promise<void> => {
-    const skill = skillOf(text, skills ?? []);
-    if (skill === undefined) {
-      return track(text, 'deliver', () => fetchCall('messageDeliver', { sessionId, content: text }));
-    }
-    const expanded = expandCommand(text, skill);
-    if (chat.role === 'subagent') {
-      return track(expanded, 'deliver', () => fetchCall('messageDeliver', { sessionId, content: expanded }));
-    }
-    return track(expanded, 'subagent', () => startSubagent(sessionId, expanded));
+    const plan = planSend(text, chat.role, skills ?? []);
+    return plan.route === 'subagent'
+      ? track(plan.text, plan.route, () => startSubagent(sessionId, plan.text))
+      : track(plan.text, plan.route, () => fetchCall('messageDeliver', { sessionId, content: plan.text }));
   };
 
   return { pending, send, discard };

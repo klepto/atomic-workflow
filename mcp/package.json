@@ -9,6 +9,7 @@
   "scripts": {
     "build": "node scripts/build.main.ts",
     "typecheck": "tsc",
+    "test": "node --test \"src/**/*.test.ts\"",
     "format": "biome format --write",
     "lint": "biome lint"
   },

@@ -9,6 +9,7 @@
   "scripts": {
     "build": "vite build",
     "typecheck": "tsc",
+    "test": "node --import ./resolve-alias.ts --test \"src/**/*.test.ts\"",
     "dev": "vite",
     "format": "biome format --write",
     "lint": "biome lint"

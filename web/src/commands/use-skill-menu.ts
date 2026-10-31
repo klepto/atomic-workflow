@@ -1,5 +1,6 @@
 import { type KeyboardEvent, type RefObject, useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 import type { Skill } from '@/api/types.ts';
+import { menuKeyAction } from '@/commands/menu-key-action.ts';
 import { bestMatchIndex, insertSkill, isSlashWord, matchSkills, skillOptionId } from '@/commands/skill-commands.ts';
 
 /**
@@ -141,40 +142,23 @@ export const useSkillMenu = (options: SkillMenuOptions): SkillMenuState => {
   };
 
   /**
-   * Returns whether a pick of `skill` changes the text of the box, other than by a space at its end.
-   */
-  const changes = (skill: Skill): boolean => insertSkill(skill).trimEnd() !== text;
-
-  /**
-   * Returns the action of the open menu for the key `key`. Without a match, the menu only uses Escape. Enter is left to
-   * the box when the text is the highlighted skill already, so that the box sends it. If the menu does not use the key,
-   * returns `undefined` instead.
-   */
-  const actionOf = (key: string): (() => void) | undefined => {
-    const current = matches[highlighted];
-    const actions: Record<string, (() => void) | undefined> =
-      current === undefined
-        ? { Escape: () => setDismissed(true) }
-        : {
-            ArrowDown: () => setActive((highlighted + 1) % matches.length),
-            ArrowUp: () => setActive((highlighted - 1 + matches.length) % matches.length),
-            Enter: changes(current) ? () => pick(current) : undefined,
-            Tab: () => pick(current),
-            Escape: () => setDismissed(true),
-          };
-    return Object.hasOwn(actions, key) ? actions[key] : undefined;
-  };
-
-  /**
-   * Runs the action of the open menu for the key of `event`. Returns `true` when the menu used the key.
+   * Runs the action of the open menu for the key of `event`, as `menuKeyAction` picks it. Returns `true` when the menu
+   * used the key.
    */
   const handleKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>): boolean => {
-    const action = open && !event.nativeEvent.isComposing ? actionOf(event.key) : undefined;
+    const action =
+      open && !event.nativeEvent.isComposing ? menuKeyAction(event.key, text, matches, highlighted) : undefined;
     if (action === undefined) {
       return false;
     }
     event.preventDefault();
-    action();
+    if (action.kind === 'highlight') {
+      setActive(action.index);
+    } else if (action.kind === 'pick') {
+      pick(action.skill);
+    } else {
+      setDismissed(true);
+    }
     return true;
   };
 

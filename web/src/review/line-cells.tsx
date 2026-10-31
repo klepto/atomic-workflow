@@ -3,11 +3,11 @@ import type { ThemedToken } from 'shiki/core';
 import { Hint } from '@/components/ui/hint.tsx';
 import { tokenStyle } from '@/lib/code-highlight.ts';
 import { cn } from '@/lib/utils.ts';
+import type { FileHighlight } from '@/review/file-highlight.ts';
 import type { FileReview } from '@/review/file-review.ts';
 import type { LineMark } from '@/review/line-mark.ts';
 import { LONG_LINE_LENGTH } from '@/review/long-line.ts';
 import { type DiffLine, type DiffSide, signOf } from '@/review/patch.ts';
-import type { FileHighlight } from '@/review/use-file-highlight.ts';
 
 /**
  * Props of `Rail`.
