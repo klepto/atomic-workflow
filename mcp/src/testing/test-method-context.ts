@@ -24,6 +24,7 @@ const NO_WORKTREES_GIVEN: Worktrees = {
   ticketFilePatch: async () => rejectWorktrees(),
   unlandedTickets: async () => rejectWorktrees(),
   mergeTask: async () => rejectWorktrees(),
+  taskLanding: async () => rejectWorktrees(),
   deleteTicket: async () => rejectWorktrees(),
   deleteTask: async () => rejectWorktrees(),
 };

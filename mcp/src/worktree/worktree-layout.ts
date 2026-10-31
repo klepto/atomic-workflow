@@ -20,6 +20,12 @@ const TASK_BRANCH_NAME = 'main';
 const FORK_POINT_PREFIX = 'refs/atomic-workflow/fork-points/';
 
 /**
+ * Start of the name of the references that hold the candidate of a rebased task branch. The name of the branch without
+ * `BRANCH_PREFIX` follows it.
+ */
+const CANDIDATE_PREFIX = 'refs/atomic-workflow/candidates/';
+
+/**
  * Path, relative to the home of the user, of the directory that holds the directory of each repository.
  */
 const WORKTREES_DIRECTORY = join('.atomic-workflow', 'worktrees');
@@ -112,3 +118,9 @@ export const shown = (place: WorktreePlace): WorktreePlace => ({ ...place, path:
  * Returns the name of the reference that holds the fork point of the ticket branch `branch`.
  */
 export const forkPointRefOf = (branch: string): string => `${FORK_POINT_PREFIX}${branch.slice(BRANCH_PREFIX.length)}`;
+
+/**
+ * Returns the start of the names of the references that hold the candidate of the rebased task branch `branch`, which
+ * ends in `/`.
+ */
+export const candidateRefsOf = (branch: string): string => `${CANDIDATE_PREFIX}${branch.slice(BRANCH_PREFIX.length)}/`;

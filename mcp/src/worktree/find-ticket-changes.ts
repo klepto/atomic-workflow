@@ -103,7 +103,7 @@ export const findTicketFilePatch = async (
  * while it exists, else on the base branch `baseBranch`. If neither branch exists, or neither holds such a commit,
  * returns `undefined` instead. If git fails, rejects with the error of `gitFailure`.
  */
-const findTicketCommit = async (
+export const findTicketCommit = async (
   task: WorkName,
   ticket: WorkName,
   baseBranch: string | null,

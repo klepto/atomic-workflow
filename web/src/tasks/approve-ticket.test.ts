@@ -41,7 +41,27 @@ describe('approveTicket', () => {
     });
   });
 
-  it('rejects with the failure of the landing when it is no conflict', async () => {
+  it('hands the approval to the orchestrator of the task when the landing needs checks', async () => {
+    const { call, calls } = fakeCall({
+      taskGet: () => ({ tickets: [ticket(1, 'done')] }),
+      worktreeMerge: () => {
+        throw new RpcCallError('The rebased task branch needs checks', {
+          kind: 'needs-checks',
+          files: [],
+          worktree: 'C:/worktrees/3-task/main',
+          commit: 'a'.repeat(40),
+        });
+      },
+      taskOrchestratorDeliver: () => ({ sessionId: 'orchestrator-1' }),
+    });
+    assert.equal(await approveTicket(3, 1, { call }), 'orchestrator-1');
+    assert.deepEqual(calls.at(-1), {
+      method: 'taskOrchestratorDeliver',
+      params: { taskId: 3, content: '/atomic-workflow:approve 3' },
+    });
+  });
+
+  it('rejects with the failure of the landing when it is no conflict and needs no checks', async () => {
     const { call } = fakeCall({
       taskGet: () => ({ tickets: [ticket(1, 'done')] }),
       worktreeMerge: () => {
@@ -52,6 +72,20 @@ describe('approveTicket', () => {
       name: 'RpcCallError',
       message: 'The base branch is checked out elsewhere',
     });
+  });
+
+  it('rejects with the refusal of failed checks without a handover to the orchestrator', async () => {
+    const { call, calls } = fakeCall({
+      taskGet: () => ({ tickets: [ticket(1, 'done')] }),
+      worktreeMerge: () => {
+        throw new RpcCallError('The check npm test failed', { kind: 'not-allowed' });
+      },
+    });
+    await assert.rejects(approveTicket(3, 1, { call }), { name: 'RpcCallError', message: 'The check npm test failed' });
+    assert.equal(
+      calls.some(({ method }) => method === 'taskOrchestratorDeliver'),
+      false,
+    );
   });
 
   it('rejects with the refusal of the server to set the ticket done', async () => {

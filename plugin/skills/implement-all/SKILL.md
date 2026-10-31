@@ -39,10 +39,14 @@ each ticket that a subagent starts, and can land it.
 4. Print `Wave <n>: tickets <id>-<slug>, <id>-<slug>, ...`, with the waves counted from 1.
 5. Call `worktreeCreate` for each ticket of the wave, one at a time, in the order of their ids, before any subagent
    starts. Before it makes the branch of a ticket, it rebases the task branch onto the base branch, so this
-   conversation resolves each conflict of that rebase, and the subagents find their worktrees made:
+   conversation resolves each conflict of that rebase and runs its checks, and the subagents find their worktrees
+   made:
    - On a failure with the kind `conflict`, resolve it as `## Sync conflict` of `implement` says, then go on with the
      next ticket. If the conflict cannot be resolved, tell the user as it says, and stop the run, since no ticket can
      land while the rebase of the task branch stays stopped.
+   - On a failure with the kind `needs-checks`, run the checks as `## Sync checks` of `implement` says, then go on
+     with the next ticket. A failed check does not leave the ticket out of the wave: it starts from the task branch as
+     it was, and the warning of the failed check is one line of its `warnings`.
    - On any other failure, call `ticketSetStatus` with `blocked` and the message of the failure as `reason`, and leave
      the ticket out of the wave. If the call fails, remember its message.
    - Remember for each ticket what `worktreeCreate` warns of: the uncommitted changes when `uncommittedChanges` is

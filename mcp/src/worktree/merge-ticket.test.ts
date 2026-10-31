@@ -101,4 +101,31 @@ describe('merge', () => {
       testRefusal('not-allowed', /Git refused to move atomic-workflow\/6-cache-layer\/main forward/),
     );
   });
+
+  it('returns the landed commit again with no move once the ticket landed, after its worktree is gone too', async () => {
+    const { checkout, worktrees } = repository();
+    const created = await worktrees.create(testTask(7), testTicket(1), 'main');
+    await testCommit(created.ticket.path, 'landed.txt', 'ticket');
+    const first = await worktrees.merge(testTask(7), testTicket(1), MESSAGE);
+    await testCommit(created.task.path, 'later.txt', 'later ticket');
+    const tip = await testGit(checkout, 'rev-parse', testTaskBranch(7));
+    assert.deepEqual(await worktrees.merge(testTask(7), testTicket(1), MESSAGE), first);
+    await worktrees.deleteTicket(testTask(7), testTicket(1), false);
+    assert.deepEqual(await worktrees.merge(testTask(7), testTicket(1), MESSAGE), first);
+    assert.equal(await testGit(checkout, 'rev-parse', testTaskBranch(7)), tip);
+  });
+
+  it('lands nothing and returns no commit when the commits of the ticket change nothing', async () => {
+    const { checkout, worktrees } = repository();
+    const created = await worktrees.create(testTask(8), testTicket(1), 'main');
+    const start = await testGit(checkout, 'rev-parse', testTaskBranch(8));
+    await testCommit(created.ticket.path, 'README.md', 'changed');
+    await testCommit(created.ticket.path, 'README.md', '# Test\n');
+    assert.deepEqual(await worktrees.merge(testTask(8), testTicket(1), MESSAGE), {
+      taskBranch: testTaskBranch(8),
+      commit: null,
+    });
+    assert.equal(await testGit(checkout, 'rev-parse', testTaskBranch(8)), start);
+    assert.equal(await testGit(created.ticket.path, 'status', '--porcelain'), '');
+  });
 });

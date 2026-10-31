@@ -57,8 +57,16 @@ export const gitFailure = (directory: string, commandLine: readonly string[], ou
  * Returns the last lines that git printed in `output`, on one line. If git printed nothing, returns its exit code
  * instead.
  */
-export const lastLines = (output: GitOutput): string => {
-  const text = `${output.stderr}\n${output.stdout}`;
-  const lines = text.split(/\r?\n/).filter((line) => line.trim() !== '');
-  return lines.slice(-QUOTED_LINE_COUNT).join(' ') || `exit code ${output.exitCode}`;
-};
+export const lastLines = (output: GitOutput): string =>
+  lastLinesOf(`${output.stderr}\n${output.stdout}`) || `exit code ${output.exitCode}`;
+
+/**
+ * Returns the last `QUOTED_LINE_COUNT` lines of `text` that are not blank, on one line, or an empty string when it has
+ * none.
+ */
+export const lastLinesOf = (text: string): string =>
+  text
+    .split(/\r?\n/)
+    .filter((line) => line.trim() !== '')
+    .slice(-QUOTED_LINE_COUNT)
+    .join(' ');

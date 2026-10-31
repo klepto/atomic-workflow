@@ -8,8 +8,8 @@ import { diskFileSystem } from '../worktree/file-system.disk.ts';
 import { processRunGit } from '../worktree/run-git.process.ts';
 import { gitOutput, type RunGitFunction } from '../worktree/run-git.ts';
 import type { StopProcessesFunction } from '../worktree/stop-processes.ts';
-import { WorktreeError, type WorktreeErrorKind } from '../worktree/worktree-error.ts';
-import type { WorkName, Worktrees } from '../worktree/worktrees.ts';
+import { type CandidateDetails, WorktreeError, type WorktreeErrorKind } from '../worktree/worktree-error.ts';
+import type { CreatedWorktrees, WorkName, Worktrees } from '../worktree/worktrees.ts';
 import { testGitRepository } from './test-git-repository.ts';
 
 /**
@@ -46,6 +46,21 @@ export interface TestWorktreesRepository {
    * `Worktrees` of the main checkout, which run real git.
    */
   readonly worktrees: Worktrees;
+}
+
+/**
+ * Ticket of a test whose commit landed on the task branch.
+ */
+export interface TestLandedTicket {
+  /**
+   * Worktrees of the task and of the ticket.
+   */
+  readonly created: CreatedWorktrees;
+
+  /**
+   * Commit of the ticket on the task branch.
+   */
+  readonly landed: string;
 }
 
 /**
@@ -162,3 +177,47 @@ export const testRefusal =
     assert.match(error.message, message);
     return true;
   };
+
+/**
+ * Returns the candidate of the refusal `needs-checks` that `call` rejects with, and fails the test for any other
+ * outcome.
+ */
+export const testCandidate = async (call: Promise<unknown>): Promise<CandidateDetails> => {
+  let refusal: unknown;
+  await assert.rejects(call, (error) => {
+    refusal = error;
+    return true;
+  });
+  assert.ok(refusal instanceof WorktreeError, `The error ${String(refusal)} is no WorktreeError`);
+  assert.equal(refusal.kind, 'needs-checks', refusal.message);
+  assert.ok(refusal.candidate, 'The refusal needs-checks names no candidate');
+  return refusal.candidate;
+};
+
+/**
+ * Returns the worktrees of a new ticket 1 of `testTask(taskId)` in `repository`, once the task branch has a commit of
+ * `task-<taskId>.txt` and the base branch `main` a commit of `base-<taskId>.txt`, so each lacks a commit of the other.
+ */
+export const testDivergedTask = async (
+  { checkout, worktrees }: TestWorktreesRepository,
+  taskId: number,
+): Promise<CreatedWorktrees> => {
+  const created = await worktrees.create(testTask(taskId), testTicket(1), 'main');
+  await testCommit(created.task.path, `task-${taskId}.txt`, 'task');
+  await testCommit(checkout, `base-${taskId}.txt`, 'base');
+  return created;
+};
+
+/**
+ * Returns the worktrees of ticket 1 of `testTask(taskId)` in `repository`, and the commit of the ticket on the task
+ * branch once its commit of `ticket-<taskId>.txt` landed there.
+ */
+export const testLandedTicket = async (
+  { checkout, worktrees }: TestWorktreesRepository,
+  taskId: number,
+): Promise<TestLandedTicket> => {
+  const created = await worktrees.create(testTask(taskId), testTicket(1), 'main');
+  await testCommit(created.ticket.path, `ticket-${taskId}.txt`, 'ticket');
+  await worktrees.merge(testTask(taskId), testTicket(1), 'feat: add the ticket');
+  return { created, landed: await testGit(checkout, 'rev-parse', testTaskBranch(taskId)) };
+};

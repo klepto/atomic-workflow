@@ -88,6 +88,36 @@ export interface CreatedWorktrees {
 }
 
 /**
+ * Result of the checks that a caller ran on the candidate of a rebased task branch.
+ */
+export interface RebaseChecks {
+  /**
+   * Full hash of the candidate that the checks ran on, as the refusal `needs-checks` named it.
+   */
+  readonly commit: string;
+
+  /**
+   * First check that failed, or `null` when every check passed.
+   */
+  readonly failure: CheckFailure | null;
+}
+
+/**
+ * Check that failed on a candidate.
+ */
+export interface CheckFailure {
+  /**
+   * Command of the check.
+   */
+  readonly command: string;
+
+  /**
+   * Output of the command.
+   */
+  readonly output: string;
+}
+
+/**
  * Work of a ticket after it landed on the task branch.
  */
 export interface MergedTicket {
@@ -237,18 +267,23 @@ export interface Worktrees {
    * Returns the worktrees of the task `task` and of its ticket `ticket`, made where they do not exist. The task branch
    * is made from `baseBranch`, or from the branch that the main checkout has checked out when `baseBranch` is `null`.
    * Before a ticket branch is made, the task branch is synced with the local tip of the base branch in the worktree of
-   * the task: it moves forward to the tip, or is rebased onto it when it holds commits that the base branch lacks.
-   * The ticket branch is then made from the tip of the task branch, which becomes its fork point. The sync is skipped,
-   * with a warning, when the base branch does not exist, the worktree of the task has changes that no commit holds, or
-   * another ticket branch of the task has no fork point. A sync that stopped on a conflict, whose conflicting files
-   * are resolved and added, continues on any later call. A branch that exists keeps its commits. Each worktree that
-   * the call makes gets a copy of the ignored files of the main checkout.
+   * the task: it moves forward to the tip when the base branch holds it, and stays when it holds the tip. Any other
+   * task branch is rebased onto the tip as a candidate, in the worktree of the task with a detached `HEAD`, and moves
+   * to the candidate only once a later call reports with `checks` that its checks passed, as the rebase checks
+   * protocol of the design says. The ticket branch is then made from the tip of the task branch, which becomes its
+   * fork point. The sync is skipped, with a warning, when the base branch does not exist, the worktree of the task has
+   * changes that no commit holds, another ticket branch of the task has no fork point, a check failed, or a branch
+   * moved while the checks ran. A sync that stopped on a conflict, whose conflicting files are resolved and added,
+   * continues on any later call into a candidate. A branch that exists keeps its commits. Each worktree that the call
+   * makes gets a copy of the ignored files of the main checkout.
    * If the task branch must be made but the main checkout has no branch checked out, the ticket branch must be made
    * but the worktree of the task has a stopped rebase that is no sync, or git refuses to make a branch or a worktree,
    * rejects with `not-allowed`. If the rebase of the sync stops on a conflict, rejects with `conflict`, makes no
-   * ticket branch, and leaves the rebase stopped in the worktree of the task.
+   * ticket branch, and leaves the rebase stopped in the worktree of the task. If the rebase ends in a candidate, or a
+   * new ticket branch must be made while the candidate of an earlier call waits and both branches stayed, rejects with
+   * `needs-checks` and makes no ticket branch. If `checks` names no candidate, rejects with `invalid-checks`.
    */
-  create(task: WorkName, ticket: WorkName, baseBranch: string | null): Promise<CreatedWorktrees>;
+  create(task: WorkName, ticket: WorkName, baseBranch: string | null, checks?: RebaseChecks): Promise<CreatedWorktrees>;
 
   /**
    * Returns the work of the ticket `ticket` of the task `task` after it landed on the task branch: the commits of the
@@ -257,7 +292,9 @@ export interface Worktrees {
    * `Atomic-Workflow-Ticket`, which name the task and the ticket as `<id>-<slug>`, so the commit stays found after a
    * rebase. A ticket branch without a fork point, made before fork points
    * were recorded, starts at its merge base with the task branch instead. A ticket branch whose rebase stopped on a
-   * conflict, and whose conflicting files are resolved and added, continues the rebase instead.
+   * conflict, and whose conflicting files are resolved and added, continues the rebase instead. A merge that stopped
+   * at any step, such as on a crash, finishes on the next call. A ticket whose commit is on the task branch already
+   * returns that commit, with no move of the task branch, even once its worktree is gone.
    * If the ticket has no worktree, its worktree has changes that no commit holds, the worktree of the task has a
    * stopped rebase, or the task branch cannot move forward, rejects with `not-allowed`. If the rebase stops on a
    * conflict, rejects with `conflict`, and leaves the rebase stopped in the worktree of the ticket.
@@ -300,16 +337,33 @@ export interface Worktrees {
   unlandedTickets(task: WorkName, baseBranch: string | null): Promise<readonly number[]>;
 
   /**
-   * Returns the work of the task `task` after its task branch landed on the base branch `baseBranch`: the task branch
-   * is rebased onto the base branch in the worktree of the task, made where it does not exist, and the base branch
-   * moves forward to it, then every worktree and branch of the task is removed. A task branch whose rebase stopped on
-   * a conflict, and whose conflicting files are resolved and added, continues the rebase instead.
-   * If the task branch or the base branch does not exist, a ticket branch holds commits that the task branch lacks, the
-   * main checkout has a branch of the task checked out, a worktree of the task has changes that no commit holds, or the
-   * base branch cannot move forward, rejects with `not-allowed`. If the rebase stops on a conflict, rejects with
-   * `conflict`, and leaves the rebase stopped in the worktree of the task.
+   * Returns the work of the task `task` after its task branch landed on the base branch `baseBranch`: a task branch
+   * that holds the base branch, or that the base branch holds, lands as it is. Any other task branch is rebased onto
+   * the base branch as a candidate, in the worktree of the task with a detached `HEAD`, made where it does not exist,
+   * and lands only once a later call reports with `checks` that the checks of the candidate passed, as the rebase
+   * checks protocol of the design says. The base branch then moves forward to the task branch, and every worktree and
+   * branch of the task is removed. A task branch whose rebase stopped on a conflict, and whose conflicting files are
+   * resolved and added, continues the rebase into a candidate instead. A merge that stopped at any step finishes when
+   * it is called again with the same arguments, and moves no branch twice: a task branch that the base branch holds
+   * already lands nothing, and a task branch that is gone, whose commits the base branch holds, only has the worktrees,
+   * branches and directory of the task that are left removed. The commit of the result is then the latest commit whose
+   * trailer names the task, or `null` when there is none.
+   * If the base branch does not exist, the task branch does not exist while the base branch holds no commit of the
+   * task, a ticket branch holds commits that neither the task branch nor an earlier tip of it holds, the main checkout
+   * has a branch of the task checked out, a worktree of the task has changes that no commit holds, a check of `checks`
+   * failed, or the base branch cannot move forward, rejects with `not-allowed`. If the rebase stops
+   * on a conflict, rejects with `conflict`, and leaves the rebase stopped in the worktree of the task. If the rebase
+   * ends in a candidate, or a call without `checks` finds the candidate of an earlier call while both branches stayed,
+   * rejects with `needs-checks`. If `checks` names no candidate, rejects with `invalid-checks`.
    */
-  mergeTask(task: WorkName, baseBranch: string): Promise<MergedTask>;
+  mergeTask(task: WorkName, baseBranch: string, checks?: RebaseChecks): Promise<MergedTask>;
+
+  /**
+   * Returns the tip of the landing of the task `task` on the base branch `baseBranch`: the latest commit whose trailer
+   * names the task. If the base branch does not exist or holds no such commit, returns `undefined` instead.
+   * If git fails, rejects with an error that quotes the last lines of git.
+   */
+  taskLanding(task: WorkName, baseBranch: string): Promise<string | undefined>;
 
   /**
    * Returns what the removal of the worktree and the branch of the ticket `ticket` of the task `task` removed. Removing

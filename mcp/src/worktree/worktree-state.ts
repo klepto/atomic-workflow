@@ -1,4 +1,5 @@
 import { dirname } from 'node:path';
+import { hasCandidate } from './candidate.ts';
 import { type CopyFailures, copyIgnoredFiles } from './copy-ignored.ts';
 import { forwardSlashes, samePath } from './paths.ts';
 import { isRebasing, stoppedRebase } from './rebase.ts';
@@ -12,7 +13,8 @@ import type { WorktreesContext } from './worktrees-context.ts';
  * Makes the worktree of `place` in the repository of `context`, with `copy` a copy of the ignored files of the main
  * checkout, unless it exists, and returns the files that could not be copied. If the worktree exists, nothing was
  * copied, or every copy succeeded, returns `undefined` instead. A worktree whose stopped rebase rewrites the branch of
- * `place`, and so detaches it from the branch, counts as a worktree of the branch.
+ * `place`, and so detaches it from the branch, counts as a worktree of the branch, and so does a worktree with a
+ * detached `HEAD` while the branch of `place` has a candidate.
  * If the path of `place` holds a worktree of another branch, the branch of `place` is checked out in another
  * worktree, or git refuses to make the worktree, rejects with `not-allowed`.
  */
@@ -25,7 +27,7 @@ export const ensureWorktree = async (
   const listed = await listWorktrees(checkout, context.runGit);
   const existing = listed.find((worktree) => samePath(worktree.path, place.path, context.platform));
   if (existing !== undefined) {
-    if ((existing.branch ?? (await stoppedRebase(place.path, context))?.branch) === place.branch) return undefined;
+    if ((existing.branch ?? (await detachedBranch(place, context))) === place.branch) return undefined;
     throw new WorktreeError(
       'not-allowed',
       `The worktree ${forwardSlashes(place.path)} has ${existing.branch ?? 'no branch'} checked out in place of ${place.branch}. Check out ${place.branch} there, then try again`,
@@ -108,4 +110,15 @@ export const changes = async (path: string, untracked: boolean, context: Worktre
 export const hasStagedChanges = async (path: string, context: WorktreesContext): Promise<boolean> => {
   const output = await context.runGit(path, ['diff', '--cached', '--quiet']);
   return output.exitCode !== 0;
+};
+
+/**
+ * Returns the branch that the worktree of `place` in the repository of `context`, which has no branch checked out,
+ * works on: the branch that its stopped rebase rewrites, or the branch of `place` while it has a candidate. Else
+ * returns `undefined`.
+ */
+const detachedBranch = async (place: WorktreePlace, context: WorktreesContext): Promise<string | undefined> => {
+  const rebase = await stoppedRebase(place.path, context);
+  if (rebase?.branch !== undefined) return rebase.branch;
+  return (await hasCandidate(place.branch, context)) ? place.branch : undefined;
 };

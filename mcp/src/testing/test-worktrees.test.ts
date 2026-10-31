@@ -7,7 +7,9 @@ import type { RunGitFunction } from '../worktree/run-git.ts';
 import { WorktreeError } from '../worktree/worktree-error.ts';
 import {
   type TestWorktreesRepository,
+  testCandidate,
   testCommit,
+  testDivergedTask,
   testGit,
   testPathExists,
   testRefusal,
@@ -86,6 +88,17 @@ describe('testCommit', () => {
   });
 });
 
+describe('testDivergedTask', () => {
+  it('makes a task whose task branch and base branch each have a commit that the other lacks', async () => {
+    const { checkout } = shared();
+    const created = await testDivergedTask(shared(), 1);
+    assert.equal(created.ticket.branch, testTicketBranch(1, 1));
+    assert.equal(await testGit(checkout, 'show', `${testTaskBranch(1)}:task-1.txt`), 'task');
+    assert.equal(await testGit(checkout, 'show', 'main:base-1.txt'), 'base');
+    assert.equal(await testGit(checkout, 'rev-list', '--count', `main...${testTaskBranch(1)}`), '2');
+  });
+});
+
 describe('testStoppedRebase', () => {
   it('leaves a rebase stopped on a conflict in the file', async () => {
     const { checkout } = shared();
@@ -125,5 +138,26 @@ describe('testRefusal', () => {
     assert.throws(() => accepts(new WorktreeError('not-allowed', 'Conflict in same.txt')), assert.AssertionError);
     assert.throws(() => accepts(new WorktreeError('conflict', 'Conflict in other.txt')), assert.AssertionError);
     assert.throws(() => accepts(new Error('Conflict in same.txt')), assert.AssertionError);
+  });
+});
+
+describe('testCandidate', () => {
+  it('returns the candidate of a refusal needs-checks', async () => {
+    const candidate = { worktree: 'C:/worktrees/main', commit: 'a'.repeat(40) };
+    const refusal = new WorktreeError('needs-checks', 'Run the checks', [], candidate);
+    assert.deepEqual(await testCandidate(Promise.reject(refusal)), candidate);
+  });
+
+  it('fails for another refusal, a call that resolves, or an error that is no WorktreeError', async () => {
+    const calls = [
+      async () => {
+        throw new WorktreeError('conflict', 'Conflict in same.txt');
+      },
+      async () => 'created',
+      async () => {
+        throw new Error('Git failed');
+      },
+    ];
+    for (const call of calls) await assert.rejects(testCandidate(call()), assert.AssertionError);
   });
 });

@@ -21368,13 +21368,19 @@ var WorktreeError = class extends Error {
    */
   files;
   /**
-   * Creates the refusal of the kind `kind` with the description `message` and the conflicting files `files`.
+   * Candidate that waits for its checks, for a `needs-checks`. `undefined` for every other kind.
    */
-  constructor(kind, message, files = []) {
+  candidate;
+  /**
+   * Creates the refusal of the kind `kind` with the description `message`, the conflicting files `files` and the
+   * candidate `candidate`.
+   */
+  constructor(kind, message, files = [], candidate) {
     super(message);
     this.name = "WorktreeError";
     this.kind = kind;
     this.files = files;
+    this.candidate = candidate;
   }
 };
 
@@ -21384,7 +21390,8 @@ var worktreeCall = async (call3) => {
     return await call3();
   } catch (error62) {
     if (!(error62 instanceof WorktreeError)) throw error62;
-    throw new RpcError(RPC_ERROR_CODES.INVALID_REQUEST, error62.message, { kind: error62.kind, files: error62.files });
+    const code = error62.kind === "invalid-checks" ? RPC_ERROR_CODES.INVALID_PARAMS : RPC_ERROR_CODES.INVALID_REQUEST;
+    throw new RpcError(code, error62.message, { kind: error62.kind, files: error62.files, ...error62.candidate });
   }
 };
 
@@ -21902,17 +21909,29 @@ var usageGetMethod = {
   handle: async (_params, { usage }) => usage.latest()
 };
 
+// src/rpc/rebase-checks.ts
+var REBASE_CHECKS = external_exports.object({
+  commit: external_exports.string().regex(/^[0-9a-f]{40}([0-9a-f]{24})?$/, "Must be the full hash of a commit").describe("Full hash of the candidate, the commit of the refusal needs-checks"),
+  failure: external_exports.object({
+    command: external_exports.string().min(1).describe("Command of the check that failed"),
+    output: external_exports.string().describe("Output of the command")
+  }).nullable().describe("First check that failed, with its output, or null when every check passed")
+}).describe(
+  "Result of the checks that ran in the worktree of a refusal needs-checks: each command of ## Verify of each ticket of the task that is needs-review or done. Only after such a refusal"
+);
+
 // src/rpc/method.worktree-create.ts
 var PARAMS46 = external_exports.object({
   taskId: external_exports.number().int().positive().describe("Identifier of the task"),
-  ticketId: external_exports.number().int().positive().describe("Identifier of the ticket within its task")
+  ticketId: external_exports.number().int().positive().describe("Identifier of the ticket within its task"),
+  checks: REBASE_CHECKS.optional()
 });
 var worktreeCreateMethod = {
   name: "worktreeCreate",
-  description: "Starts the work on a ticket of the atomic workflow: makes the worktree of its task and its own worktree where they do not exist, sets it in-progress, and returns the paths and branches of both worktrees with the ticket. Before it makes the branch of the ticket, it rebases the task branch onto the local base branch. On a conflict of that rebase, resolve and add the files in the worktree of the task that the error names, then call it again.",
+  description: "Starts the work on a ticket of the atomic workflow: makes the worktree of its task and its own worktree where they do not exist, sets it in-progress, and returns the paths and branches of both worktrees with the ticket. Before it makes the branch of the ticket, it rebases the task branch onto the local base branch. On a conflict of that rebase, resolve and add the files in the worktree of the task that the error names, then call it again. When the rebase rewrites landed tickets, it fails with the kind needs-checks, the worktree and the commit of the candidate: run the checks there, then call it again with checks.",
   agent: true,
   params: PARAMS46,
-  handle: async ({ taskId, ticketId }, context) => {
+  handle: async ({ taskId, ticketId, checks }, context) => {
     const { task, ticket } = await openTicket(taskId, ticketId, context.tasks);
     if (hasLanded(ticket.status))
       throw new RpcError(RPC_ERROR_CODES.INVALID_REQUEST, `The work of ticket ${ticketId} landed already`);
@@ -21924,15 +21943,15 @@ var worktreeCreateMethod = {
       );
     const claimed = claimTickets(taskId, [ticketId], lastingHolder(context), context);
     try {
-      return await start2(task, ticket, context);
+      return await start2(task, ticket, checks, context);
     } catch (error62) {
       releaseTickets(taskId, claimed, context);
       throw error62;
     }
   }
 };
-var start2 = async (task, ticket, context) => {
-  const worktrees = await worktreeCall(() => context.worktrees.create(task, ticket, task.baseBranch));
+var start2 = async (task, ticket, checks, context) => {
+  const worktrees = await worktreeCall(() => context.worktrees.create(task, ticket, task.baseBranch, checks));
   if (task.baseBranch === null) await context.tasks.setBaseBranch(task.id, worktrees.baseBranch);
   const progress = { status: "in-progress", stage: ticket.stage, blockedReason: null };
   await context.tasks.setTicketProgress(task.id, ticket.id, progress);
@@ -21987,6 +22006,59 @@ var deleteTask = async (task, force, context) => {
 };
 var isThrownAway = (ticket, unlanded) => isWorking(ticket.status) || hasLanded(ticket.status) && unlanded.includes(ticket.id);
 
+// src/worktree/worktree-layout.ts
+import { createHash } from "node:crypto";
+import { basename as basename2, join as join2 } from "node:path";
+
+// src/worktree/paths.ts
+import { posix, win32 } from "node:path";
+var forwardSlashes = (path) => path.replaceAll("\\", "/");
+var comparablePath = (path, platform) => {
+  const absolute = platformPaths(platform).resolve(path);
+  return platform === "win32" ? absolute.toLowerCase() : absolute;
+};
+var samePath = (first, second, platform) => comparablePath(first, platform) === comparablePath(second, platform);
+var isBelow = (directory, path, platform) => relativeInside(comparablePath(directory, platform), comparablePath(path, platform), platform) !== void 0;
+var relativeInside = (directory, path, platform) => {
+  const paths = platformPaths(platform);
+  const inside = paths.relative(directory, path);
+  if (paths.isAbsolute(inside) || inside === ".." || inside.startsWith(`..${paths.sep}`)) return void 0;
+  return inside;
+};
+var platformPaths = (platform) => platform === "win32" ? win32 : posix;
+
+// src/worktree/worktree-layout.ts
+var BRANCH_PREFIX = "atomic-workflow/";
+var TASK_BRANCH_NAME = "main";
+var FORK_POINT_PREFIX = "refs/atomic-workflow/fork-points/";
+var CANDIDATE_PREFIX = "refs/atomic-workflow/candidates/";
+var WORKTREES_DIRECTORY = join2(".atomic-workflow", "worktrees");
+var REPOSITORY_KEY_LENGTH = 8;
+var BRANCH_REF_PREFIX = "refs/heads/";
+var layoutOf = (checkout, home, platform) => {
+  const key = createHash("sha256").update(comparablePath(checkout, platform)).digest("hex");
+  return {
+    checkout,
+    root: join2(home, WORKTREES_DIRECTORY, `${basename2(checkout)}-${key.slice(0, REPOSITORY_KEY_LENGTH)}`)
+  };
+};
+var branchRef = (branch) => `${BRANCH_REF_PREFIX}${branch}`;
+var taskName = (task) => `${task.id}-${task.slug}`;
+var taskDirectory = (layout, task) => join2(layout.root, taskName(task));
+var taskBranchOf = (task) => `${BRANCH_PREFIX}${taskName(task)}/${TASK_BRANCH_NAME}`;
+var taskBranchesRef = (task) => branchRef(`${BRANCH_PREFIX}${taskName(task)}/`);
+var taskPlaceOf = (layout, task) => ({
+  path: join2(taskDirectory(layout, task), TASK_BRANCH_NAME),
+  branch: taskBranchOf(task)
+});
+var ticketPlaceOf = (layout, task, ticket) => ({
+  path: join2(taskDirectory(layout, task), `${ticket.id}-${ticket.slug}`),
+  branch: `${BRANCH_PREFIX}${taskName(task)}/${ticket.id}-${ticket.slug}`
+});
+var shown = (place) => ({ ...place, path: forwardSlashes(place.path) });
+var forkPointRefOf = (branch) => `${FORK_POINT_PREFIX}${branch.slice(BRANCH_PREFIX.length)}`;
+var candidateRefsOf = (branch) => `${CANDIDATE_PREFIX}${branch.slice(BRANCH_PREFIX.length)}/`;
+
 // src/rpc/method.worktree-merge.ts
 var SUMMARY_LINE = /^(feat|fix|chore|refactor|docs|test|perf|build|ci|style|revert)(\([^()\r\n]+\))?!?: \S/;
 var PARAMS48 = external_exports.object({
@@ -21996,19 +22068,23 @@ var PARAMS48 = external_exports.object({
   ),
   message: external_exports.string().trim().regex(SUMMARY_LINE, 'Must start with a summary line such as "feat: ...", "fix(scope): ..." or "chore: ..."').optional().describe(
     'Message of the one commit of the ticket: a summary line of the conventional commits, such as "feat: ..." or "fix: ...", then optionally a blank line and a body. Only with a ticket, and needed with one'
-  )
+  ),
+  checks: REBASE_CHECKS.optional()
 });
+var NOTHING_DELETED = { worktrees: [], branches: [], stoppedProcesses: [], warnings: [] };
 var worktreeMergeMethod = {
   name: "worktreeMerge",
-  description: "With a ticket, squashes the commits of the worktree of a ticket of the atomic workflow into one commit with the message, rebases it onto the task branch, moves the task branch forward to it, and sets the ticket needs-review. Without a ticket, once every ticket of the task is done, rebases the task branch onto its base branch, moves the base branch forward to it, deletes the worktrees and branches of the task, and sets the task done. On a conflict, resolve and add the files in the worktree that the error names, then call it again.",
+  description: "With a ticket, squashes the commits of the worktree of a ticket of the atomic workflow into one commit with the message, rebases it onto the task branch, moves the task branch forward to it, and sets the ticket needs-review. A call with a ticket that stopped finishes when it is called again with the same arguments. Without a ticket, once every ticket of the task is done, rebases the task branch onto its base branch, moves the base branch forward to it, deletes the worktrees and branches of the task, and sets the task done. A call without a ticket that stopped finishes when it is called again with the same arguments, and a call for a task that is done returns its result again. On a conflict, resolve and add the files in the worktree that the error names, then call it again. When the rebase of the task branch rewrites landed tickets, it fails with the kind needs-checks, the worktree and the commit of the candidate: run the checks there, then call it again with checks.",
   agent: true,
   params: PARAMS48,
-  handle: async ({ taskId, ticketId, message }, context) => {
+  handle: async ({ taskId, ticketId, message, checks }, context) => {
     if (ticketId === void 0) {
       if (message !== void 0)
         throw new RpcError(RPC_ERROR_CODES.INVALID_PARAMS, "Only the merge of a ticket takes a message");
-      return mergeTask(taskId, context);
+      return mergeTask(taskId, checks, context);
     }
+    if (checks !== void 0)
+      throw new RpcError(RPC_ERROR_CODES.INVALID_PARAMS, "Only the merge of a task takes checks");
     if (message === void 0)
       throw new RpcError(RPC_ERROR_CODES.INVALID_PARAMS, "The merge of a ticket needs a message");
     return mergeTicket(taskId, ticketId, message, context);
@@ -22016,6 +22092,10 @@ var worktreeMergeMethod = {
 };
 var mergeTicket = async (taskId, ticketId, message, context) => {
   const { task, ticket } = await openTicket(taskId, ticketId, context.tasks);
+  if (ticket.status === "needs-review") {
+    const changes2 = await worktreeCall(() => context.worktrees.ticketChanges(task, ticket, null));
+    if (changes2 !== void 0) return { taskBranch: taskBranchOf(task), commit: changes2.commit, ticket };
+  }
   if (!isWorking(ticket.status))
     throw new RpcError(
       RPC_ERROR_CODES.INVALID_REQUEST,
@@ -22033,12 +22113,13 @@ var mergeTicket = async (taskId, ticketId, message, context) => {
     throw error62;
   }
 };
-var mergeTask = async (taskId, context) => {
+var mergeTask = async (taskId, checks, context) => {
   const { tickets } = await findTask(taskId, context.tasks);
   const merge2 = async () => {
     const task = await findTask(taskId, context.tasks);
+    if (task.status === "done") return landedTask(task, context);
     const baseBranch = checkMergeable(task);
-    const merged = await worktreeCall(() => context.worktrees.mergeTask(task, baseBranch));
+    const merged = await worktreeCall(() => context.worktrees.mergeTask(task, baseBranch, checks));
     await context.tasks.setStatus(taskId, "done");
     return { ...merged, task: { ...task, status: "done" } };
   };
@@ -22049,6 +22130,11 @@ var mergeTask = async (taskId, context) => {
     context
   );
 };
+var landedTask = async (task, context) => {
+  const baseBranch = baseBranchOf(task);
+  const commit = await worktreeCall(() => context.worktrees.taskLanding(task, baseBranch));
+  return { baseBranch, commit: commit ?? null, deleted: NOTHING_DELETED, task };
+};
 var checkMergeable = (task) => {
   checkComplete(task);
   const open3 = task.tickets.filter(({ status }) => status !== "done").map(({ id }) => id);
@@ -22057,6 +22143,9 @@ var checkMergeable = (task) => {
       RPC_ERROR_CODES.INVALID_REQUEST,
       `${plural2(open3.length, "Ticket", "Tickets")} ${open3.join(", ")} of task ${task.id} ${plural2(open3.length, "is", "are")} not done, so the task branch cannot land`
     );
+  return baseBranchOf(task);
+};
+var baseBranchOf = (task) => {
   if (task.baseBranch === null)
     throw new RpcError(
       RPC_ERROR_CODES.INVALID_REQUEST,
@@ -22200,13 +22289,13 @@ var stderrLog = (line) => {
 };
 
 // src/storage/database-path.ts
-import { join as join2 } from "node:path";
-var DATABASE_FILE = join2(".agents", "atomic-workflow", "database", "database.db");
-var databasePath = (mainWorktree) => join2(mainWorktree, DATABASE_FILE);
+import { join as join3 } from "node:path";
+var DATABASE_FILE = join3(".agents", "atomic-workflow", "database", "database.db");
+var databasePath = (mainWorktree) => join3(mainWorktree, DATABASE_FILE);
 
 // src/storage/open-storage.sqlite.ts
 import { mkdir, writeFile } from "node:fs/promises";
-import { dirname, join as join3 } from "node:path";
+import { dirname, join as join4 } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 
 // src/storage/immediate-transaction.sqlite.ts
@@ -22677,21 +22766,24 @@ var GITIGNORE = "*\n";
 var sqliteOpenStorage = async (path) => {
   const directory = dirname(path);
   await mkdir(directory, { recursive: true });
-  await writeFile(join3(directory, ".gitignore"), GITIGNORE);
+  await writeFile(join4(directory, ".gitignore"), GITIGNORE);
   const database = new DatabaseSync(path, { timeout: BUSY_TIMEOUT, enableForeignKeyConstraints: true });
   try {
     database.exec("PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL;");
-    migrate(database);
-    return {
-      sessions: sqliteSessionStore(database),
-      messageLog: sqliteMessageLogStore(database),
-      tasks: sqliteTaskStore(database),
-      close: () => database.close()
-    };
+    return sqliteStorage(database);
   } catch (error62) {
     database.close();
     throw error62;
   }
+};
+var sqliteStorage = (database) => {
+  migrate(database);
+  return {
+    sessions: sqliteSessionStore(database),
+    messageLog: sqliteMessageLogStore(database),
+    tasks: sqliteTaskStore(database),
+    close: () => database.close()
+  };
 };
 var migrate = (database) => {
   database.exec("PRAGMA foreign_keys = OFF");
@@ -22813,9 +22905,9 @@ var readUsageLimits = async (path) => {
 };
 
 // src/usage/usage-reader.ts
-import { join as join4 } from "node:path";
+import { join as join5 } from "node:path";
 var CONFIG_FILE = ".claude.json";
-var claudeConfigPath = (configDirectory, home) => join4(configDirectory || home, CONFIG_FILE);
+var claudeConfigPath = (configDirectory, home) => join5(configDirectory || home, CONFIG_FILE);
 
 // src/usage/usage-refresh.claude.ts
 import { spawn as spawn2 } from "node:child_process";
@@ -22985,7 +23077,7 @@ var close2 = async (server) => {
 
 // src/web/static-files.directory.ts
 import { readFile as readFile2, stat } from "node:fs/promises";
-import { extname, join as join5 } from "node:path";
+import { extname, join as join6 } from "node:path";
 var CONTENT_TYPES = {
   ".html": "text/html; charset=utf-8",
   ".js": "text/javascript; charset=utf-8",
@@ -23045,7 +23137,7 @@ var namesOf = (path) => {
   return names;
 };
 var readStaticFile = async (directory, names) => {
-  const target = join5(directory, ...names);
+  const target = join6(directory, ...names);
   if (!await isFile(target)) return void 0;
   const contentType = CONTENT_TYPES[extname(target).toLowerCase()] ?? DOWNLOAD_TYPE;
   return { content: await readFile2(target), contentType, cacheControl: cacheControlOf(names) };
@@ -23067,24 +23159,7 @@ var isFile = async (target) => {
 // src/worktree/copy-ignored.disk.ts
 import { constants } from "node:fs";
 import { copyFile, lstat, mkdir as mkdir2, readdir, readlink, stat as stat2, symlink } from "node:fs/promises";
-import { dirname as dirname2, join as join6, resolve } from "node:path";
-
-// src/worktree/paths.ts
-import { posix, win32 } from "node:path";
-var forwardSlashes = (path) => path.replaceAll("\\", "/");
-var comparablePath = (path, platform) => {
-  const absolute = platformPaths(platform).resolve(path);
-  return platform === "win32" ? absolute.toLowerCase() : absolute;
-};
-var samePath = (first, second, platform) => comparablePath(first, platform) === comparablePath(second, platform);
-var isBelow = (directory, path, platform) => relativeInside(comparablePath(directory, platform), comparablePath(path, platform), platform) !== void 0;
-var relativeInside = (directory, path, platform) => {
-  const paths = platformPaths(platform);
-  const inside = paths.relative(directory, path);
-  if (paths.isAbsolute(inside) || inside === ".." || inside.startsWith(`..${paths.sep}`)) return void 0;
-  return inside;
-};
-var platformPaths = (platform) => platform === "win32" ? win32 : posix;
+import { dirname as dirname2, join as join7, resolve } from "node:path";
 
 // src/worktree/copy-ignored.ts
 var NAMED_FAILURE_COUNT = 10;
@@ -23166,7 +23241,7 @@ var createLimit = (size) => {
 };
 var copyEntry = async (run2, path) => {
   if (isStorage(path)) return;
-  if (!await makeDirectory(run2, path, dirname2(join6(run2.destination, path)))) return;
+  if (!await makeDirectory(run2, path, dirname2(join7(run2.destination, path)))) return;
   await copyPath(run2, path);
 };
 var isStorage = (path) => path === STORAGE_PATH || path.startsWith(`${STORAGE_PATH}/`);
@@ -23189,8 +23264,8 @@ var attempt = async (run2, path, operation, ignoredCodes = []) => {
 };
 var copyPath = async (run2, path) => {
   if (isStorage(path)) return;
-  const source = join6(run2.checkout, path);
-  const target = join6(run2.destination, path);
+  const source = join7(run2.checkout, path);
+  const target = join7(run2.destination, path);
   const stats = await attempt(run2, path, () => lstat(source));
   if (stats === void 0) return;
   if (stats.isSymbolicLink()) await copyLink(run2, path, source, target);
@@ -23228,44 +23303,9 @@ var gitOutput = async (directory, commandLine, runGit) => {
   throw gitFailure(directory, commandLine, output2);
 };
 var gitFailure = (directory, commandLine, output2) => new Error(`Git ${commandLine.join(" ")} failed in ${forwardSlashes(directory)}: ${lastLines(output2)}`);
-var lastLines = (output2) => {
-  const text2 = `${output2.stderr}
-${output2.stdout}`;
-  const lines = text2.split(/\r?\n/).filter((line) => line.trim() !== "");
-  return lines.slice(-QUOTED_LINE_COUNT).join(" ") || `exit code ${output2.exitCode}`;
-};
-
-// src/worktree/worktree-layout.ts
-import { createHash } from "node:crypto";
-import { basename as basename2, join as join7 } from "node:path";
-var BRANCH_PREFIX = "atomic-workflow/";
-var TASK_BRANCH_NAME = "main";
-var FORK_POINT_PREFIX = "refs/atomic-workflow/fork-points/";
-var WORKTREES_DIRECTORY = join7(".atomic-workflow", "worktrees");
-var REPOSITORY_KEY_LENGTH = 8;
-var BRANCH_REF_PREFIX = "refs/heads/";
-var layoutOf = (checkout, home, platform) => {
-  const key = createHash("sha256").update(comparablePath(checkout, platform)).digest("hex");
-  return {
-    checkout,
-    root: join7(home, WORKTREES_DIRECTORY, `${basename2(checkout)}-${key.slice(0, REPOSITORY_KEY_LENGTH)}`)
-  };
-};
-var branchRef = (branch) => `${BRANCH_REF_PREFIX}${branch}`;
-var taskName = (task) => `${task.id}-${task.slug}`;
-var taskDirectory = (layout, task) => join7(layout.root, taskName(task));
-var taskBranchOf = (task) => `${BRANCH_PREFIX}${taskName(task)}/${TASK_BRANCH_NAME}`;
-var taskBranchesRef = (task) => branchRef(`${BRANCH_PREFIX}${taskName(task)}/`);
-var taskPlaceOf = (layout, task) => ({
-  path: join7(taskDirectory(layout, task), TASK_BRANCH_NAME),
-  branch: taskBranchOf(task)
-});
-var ticketPlaceOf = (layout, task, ticket) => ({
-  path: join7(taskDirectory(layout, task), `${ticket.id}-${ticket.slug}`),
-  branch: `${BRANCH_PREFIX}${taskName(task)}/${ticket.id}-${ticket.slug}`
-});
-var shown = (place) => ({ ...place, path: forwardSlashes(place.path) });
-var forkPointRefOf = (branch) => `${FORK_POINT_PREFIX}${branch.slice(BRANCH_PREFIX.length)}`;
+var lastLines = (output2) => lastLinesOf(`${output2.stderr}
+${output2.stdout}`) || `exit code ${output2.exitCode}`;
+var lastLinesOf = (text2) => text2.split(/\r?\n/).filter((line) => line.trim() !== "").slice(-QUOTED_LINE_COUNT).join(" ");
 
 // src/worktree/worktree-list.ts
 import { resolve as resolve2 } from "node:path";
@@ -23336,20 +23376,39 @@ var forwardBranch = async (branch, oldCommit, newCommit, context) => {
 };
 var checkBranchExists = async (branch, context) => {
   if (await branchExists(branch, context)) return;
-  throw new WorktreeError("not-allowed", `The branch ${branch} does not exist, so the task branch cannot land`);
+  throw missingBranch(branch);
 };
+var missingBranch = (branch) => new WorktreeError("not-allowed", `The branch ${branch} does not exist, so the task branch cannot land`);
 var checkLanded = async (branches, target, context) => {
   const lacking = [];
   for (const branch of branches) {
     const landed = await isAncestor(context.layout.checkout, branchRef(branch), branchRef(target), context);
     if (!landed) lacking.push(branch);
   }
-  if (lacking.length === 0) return;
-  throw new WorktreeError(
-    "not-allowed",
-    `The branches ${lacking.join(", ")} hold commits that ${target} lacks, so their work would be lost. Merge them first, or delete them with force`
-  );
+  if (lacking.length > 0) throw notLanded(lacking, target);
 };
+var checkEverLanded = async (branches, target, context) => {
+  const { checkout } = context.layout;
+  const reflog = await context.runGit(checkout, ["reflog", "show", "--format=%H", branchRef(target)]);
+  const tips = reflog.exitCode === 0 ? reflog.stdout.trim() : "";
+  const commandLine = ["rev-list", "--max-count=1", "--stdin"];
+  const lacking = [];
+  for (const branch of branches) {
+    const input2 = `${branchRef(branch)}
+--not
+${branchRef(target)}
+${tips}
+`;
+    const output2 = await context.runGit(checkout, commandLine, input2);
+    if (output2.exitCode !== 0) throw gitFailure(checkout, commandLine, output2);
+    if (output2.stdout.trim() !== "") lacking.push(branch);
+  }
+  if (lacking.length > 0) throw notLanded(lacking, target);
+};
+var notLanded = (lacking, target) => new WorktreeError(
+  "not-allowed",
+  `The branches ${lacking.join(", ")} hold commits that ${target} lacks, so their work would be lost. Merge them first, or delete them with force`
+);
 var checkTaskLanded = async (branches, taskBranch, baseBranch, context) => {
   if (!branches.includes(taskBranch)) return;
   if (baseBranch !== null && await branchExists(baseBranch, context)) {
@@ -23419,6 +23478,152 @@ var rebaseDirectory = async (path, context) => {
   return void 0;
 };
 
+// src/worktree/candidate.ts
+var COMMIT_PART = "commit";
+var TASK_PART = "task";
+var BASE_PART = "base";
+var hasCandidate = async (branch, context) => {
+  const commandLine = ["for-each-ref", "--count=1", "--format=%(refname)", candidateRefsOf(branch)];
+  const output2 = await context.runGit(context.layout.checkout, commandLine);
+  return output2.exitCode === 0 && output2.stdout.trim() !== "";
+};
+var startCandidate = async (place, baseBranch, baseTip, retry, context) => {
+  const refs = candidateRefsOf(place.branch);
+  const taskTip = await gitOutput(place.path, ["rev-parse", "HEAD"], context.runGit);
+  const input2 = `update ${refs}${TASK_PART} ${taskTip}
+update ${refs}${BASE_PART} ${baseTip}
+`;
+  await updateRefs(input2, context);
+  await gitOutput(place.path, ["switch", "--quiet", "--detach"], context.runGit);
+  await startRebase(place, baseBranch, [baseTip], retry, context);
+  return recordCandidate(place, baseBranch, retry, context);
+};
+var isCandidateRebase = async (rebase, place, context) => rebase.branch === void 0 && await readCandidate(place, context) !== void 0;
+var continueCandidate = async (place, baseBranch, rebase, retry, context) => {
+  if (!await isCandidateRebase(rebase, place, context)) {
+    throw new WorktreeError(
+      "not-allowed",
+      `The worktree ${forwardSlashes(place.path)} of the task branch has a stopped rebase that is no sync of ${place.branch} with ${baseBranch}. Finish or abort it there, then try again`
+    );
+  }
+  await continueRebase(place, baseBranch, retry, context);
+  return recordCandidate(place, baseBranch, retry, context);
+};
+var waitingCandidate = async (place, baseBranch, context) => {
+  const candidate = await endedCandidate(place, context);
+  if (candidate === void 0) return void 0;
+  const taskTip = await tipOf(place.branch, context);
+  if (await isCurrent(candidate, taskTip, baseBranch, context)) return candidate.commit;
+  await endCandidate(place, context);
+  return void 0;
+};
+var applyChecks = async (place, baseBranch, checks, context) => {
+  const candidate = await endedCandidate(place, context);
+  const taskTip = await tipOf(place.branch, context);
+  if (candidate === void 0) {
+    if (taskTip === checks.commit) return "passed";
+    throw noCandidate(place, checks.commit);
+  }
+  if (candidate.commit === taskTip) {
+    await endCandidate(place, context);
+    return "passed";
+  }
+  if (candidate.commit !== checks.commit || !await isCurrent(candidate, taskTip, baseBranch, context)) {
+    await endCandidate(place, context);
+    return "moved";
+  }
+  if (checks.failure !== null) {
+    await endCandidate(place, context);
+    return checks.failure;
+  }
+  await moveToCandidate(place, candidate, context);
+  return "passed";
+};
+var removeCandidate = async (branch, context) => {
+  const refs = candidateRefsOf(branch);
+  const input2 = [COMMIT_PART, TASK_PART, BASE_PART].map((part) => `delete ${refs}${part}
+`).join("");
+  return context.runGit(context.layout.checkout, ["update-ref", "--stdin"], input2);
+};
+var needsChecks = (place, baseBranch, commit, retry) => new WorktreeError(
+  "needs-checks",
+  `The rebase of ${place.branch} onto ${baseBranch} made the candidate ${commit}, which ${place.branch} moves to only once its checks pass. Run the checks in ${forwardSlashes(place.path)}, then ${retry} with checks that name the candidate`,
+  [],
+  { worktree: forwardSlashes(place.path), commit }
+);
+var noCandidate = (place, commit) => new WorktreeError(
+  "invalid-checks",
+  `The commit ${commit} is no candidate of ${place.branch}, so the call takes no checks. Call it without checks`
+);
+var failedCheck = (failure2, commit, outcome) => {
+  const output2 = lastLinesOf(failure2.output) || "no output";
+  return `The check ${failure2.command} failed on the candidate ${commit}, so ${outcome}: ${output2}`;
+};
+var readCandidate = async (place, context) => {
+  const commandLine = ["for-each-ref", "--format=%(refname:lstrip=-1) %(objectname)", candidateRefsOf(place.branch)];
+  const stdout = await gitOutput(context.layout.checkout, commandLine, context.runGit);
+  const tips = /* @__PURE__ */ new Map();
+  for (const line of stdout.split("\n")) {
+    const [part, commit] = line.split(" ");
+    if (part !== void 0 && commit !== void 0) tips.set(part, commit);
+  }
+  const taskTip = tips.get(TASK_PART);
+  const baseTip = tips.get(BASE_PART);
+  if (taskTip === void 0 || baseTip === void 0) return void 0;
+  return { commit: tips.get(COMMIT_PART), taskTip, baseTip };
+};
+var endedCandidate = async (place, context) => {
+  const candidate = await readCandidate(place, context);
+  if (candidate === void 0) return void 0;
+  if (candidate.commit !== void 0) return { ...candidate, commit: candidate.commit };
+  await endCandidate(place, context);
+  return void 0;
+};
+var isCurrent = async (candidate, taskTip, baseBranch, context) => taskTip === candidate.taskTip && await tipOf(baseBranch, context) === candidate.baseTip;
+var moveToCandidate = async (place, candidate, context) => {
+  const commandLine = ["update-ref", branchRef(place.branch), candidate.commit, candidate.taskTip];
+  const output2 = await context.runGit(context.layout.checkout, commandLine);
+  if (output2.exitCode !== 0) {
+    throw new WorktreeError(
+      "not-allowed",
+      `Git refused to move ${place.branch} to the candidate ${candidate.commit}: ${lastLines(output2)}. Try again`
+    );
+  }
+  await endCandidate(place, context);
+};
+var endCandidate = async (place, context) => {
+  const listed = (await listWorktrees(context.layout.checkout, context.runGit)).find(
+    (worktree) => samePath(worktree.path, place.path, context.platform)
+  );
+  if (listed !== void 0 && listed.branch === void 0 && !await isRebasing(place.path, context)) {
+    const output3 = await context.runGit(place.path, ["switch", "--quiet", place.branch]);
+    if (output3.exitCode !== 0) {
+      throw new WorktreeError(
+        "not-allowed",
+        `Git refused to check out ${place.branch} again in ${forwardSlashes(place.path)}, where the candidate of its rebase was checked out: ${lastLines(output3)}. Commit or discard the changes there, then try again`
+      );
+    }
+  }
+  const output2 = await removeCandidate(place.branch, context);
+  if (output2.exitCode !== 0) throw gitFailure(context.layout.checkout, ["update-ref", "--stdin"], output2);
+};
+var recordCandidate = async (place, baseBranch, retry, context) => {
+  const commit = await gitOutput(place.path, ["rev-parse", "HEAD"], context.runGit);
+  await updateRefs(`update ${candidateRefsOf(place.branch)}${COMMIT_PART} ${commit}
+`, context);
+  throw needsChecks(place, baseBranch, commit, retry);
+};
+var updateRefs = async (input2, context) => {
+  const commandLine = ["update-ref", "--stdin"];
+  const output2 = await context.runGit(context.layout.checkout, commandLine, input2);
+  if (output2.exitCode !== 0) throw gitFailure(context.layout.checkout, commandLine, output2);
+};
+var tipOf = async (branch, context) => {
+  const commandLine = ["rev-parse", "--verify", "--quiet", `${branchRef(branch)}^{commit}`];
+  const output2 = await context.runGit(context.layout.checkout, commandLine);
+  return output2.exitCode === 0 ? output2.stdout.trim() : void 0;
+};
+
 // src/worktree/worktree-state.ts
 import { dirname as dirname3 } from "node:path";
 var ensureWorktree = async (place, copy, context) => {
@@ -23426,7 +23631,7 @@ var ensureWorktree = async (place, copy, context) => {
   const listed = await listWorktrees(checkout, context.runGit);
   const existing = listed.find((worktree) => samePath(worktree.path, place.path, context.platform));
   if (existing !== void 0) {
-    if ((existing.branch ?? (await stoppedRebase(place.path, context))?.branch) === place.branch) return void 0;
+    if ((existing.branch ?? await detachedBranch(place, context)) === place.branch) return void 0;
     throw new WorktreeError(
       "not-allowed",
       `The worktree ${forwardSlashes(place.path)} has ${existing.branch ?? "no branch"} checked out in place of ${place.branch}. Check out ${place.branch} there, then try again`
@@ -23480,20 +23685,27 @@ var changes = async (path, untracked, context) => {
   const stdout = await gitOutput(path, ["status", "--porcelain", option], context.runGit);
   return stdout.split("\n").filter((line) => line.trim() !== "");
 };
-var hasStagedChanges = async (path, context) => {
-  const output2 = await context.runGit(path, ["diff", "--cached", "--quiet"]);
-  return output2.exitCode !== 0;
+var detachedBranch = async (place, context) => {
+  const rebase = await stoppedRebase(place.path, context);
+  if (rebase?.branch !== void 0) return rebase.branch;
+  return await hasCandidate(place.branch, context) ? place.branch : void 0;
 };
 
 // src/worktree/sync-task-branch.ts
 var SYNCED = { synced: true, warnings: [] };
 var NOT_SYNCED = { synced: false, warnings: [] };
-var syncTaskBranch = async (task, baseBranch, start3, context) => {
+var syncTaskBranch = async (task, baseBranch, start3, checks, context) => {
   const { checkout } = context.layout;
   const place = taskPlaceOf(context.layout, task);
   const rebase = await stoppedRebase(place.path, context);
-  if (rebase !== void 0) return resumeSync(place, baseBranch, rebase, start3, context);
+  if (rebase !== void 0) {
+    if (checks !== void 0) throw noCandidate(place, checks.commit);
+    return resumeSync(place, baseBranch, rebase, start3, context);
+  }
+  if (checks !== void 0) return checkedSync(place, baseBranch, checks, context);
+  const waiting = await waitingCandidate(place, baseBranch, context);
   if (!start3) return NOT_SYNCED;
+  if (waiting !== void 0) throw needsChecks(place, baseBranch, waiting, CREATE_AGAIN);
   if (!await branchExists(baseBranch, context)) {
     return skippedSync(`The base branch ${baseBranch} does not exist`, baseBranch);
   }
@@ -23503,8 +23715,7 @@ var syncTaskBranch = async (task, baseBranch, start3, context) => {
   const cause = await syncBlocker(task, place, context);
   if (cause !== void 0) return skippedSync(cause, baseBranch);
   if (!await isAncestor(checkout, taskRef, baseRef, context)) {
-    await rebaseOntoBase(place, baseBranch, CREATE_AGAIN, context);
-    return SYNCED;
+    return rebaseIntoCandidate(place, baseBranch, CREATE_AGAIN, context);
   }
   const taskTip = await commitOf(checkout, taskRef, context);
   await forwardBranch(place.branch, taskTip, await commitOf(checkout, baseRef, context), context);
@@ -23516,33 +23727,40 @@ var rebaseOntoBase = async (place, baseBranch, retry, context) => {
   const taskRef = branchRef(place.branch);
   if (await isAncestor(checkout, baseRef, taskRef, context)) return;
   if (await isAncestor(checkout, taskRef, baseRef, context)) return;
+  await rebaseIntoCandidate(place, baseBranch, retry, context);
+};
+var rebaseIntoCandidate = async (place, baseBranch, retry, context) => {
+  const { checkout } = context.layout;
   await gitOutput(checkout, ["worktree", "prune"], context.runGit);
   await ensureWorktree(place, false, context);
-  const baseTip = await commitOf(checkout, baseRef, context);
-  await startRebase(place, baseBranch, [baseTip], retry, context);
+  const baseTip = await commitOf(checkout, branchRef(baseBranch), context);
+  return startCandidate(place, baseBranch, baseTip, retry, context);
+};
+var checkedSync = async (place, baseBranch, checks, context) => {
+  const outcome = await applyChecks(place, baseBranch, checks, context);
+  if (outcome === "passed") return SYNCED;
+  if (outcome === "moved") {
+    return skippedSync("The task branch or the base branch moved while the checks ran", baseBranch);
+  }
+  const warning = failedCheck(outcome, checks.commit, `the task branch was not synced with ${baseBranch}`);
+  return { synced: false, warnings: [warning] };
 };
 var skippedSync = (cause, baseBranch) => ({
   synced: false,
   warnings: [`${cause}, so the task branch was not synced with ${baseBranch}`]
 });
 var resumeSync = async (place, baseBranch, rebase, start3, context) => {
-  const sync = rebase.branch === place.branch && await isAncestor(context.layout.checkout, rebase.onto, branchRef(baseBranch), context);
-  if (!sync && !start3) return NOT_SYNCED;
-  if (!sync) {
-    throw new WorktreeError(
-      "not-allowed",
-      `The worktree ${forwardSlashes(place.path)} of the task branch has a stopped rebase that is no sync of ${place.branch} with ${baseBranch}. Finish or abort it there, then try again`
-    );
+  if (!start3) {
+    if (!await isCandidateRebase(rebase, place, context)) return NOT_SYNCED;
+    const files = await conflictFiles(place.path, context);
+    if (files.length > 0) {
+      return skippedSync(
+        `The sync in ${forwardSlashes(place.path)} stopped on a conflict in ${files.join(", ")}`,
+        baseBranch
+      );
+    }
   }
-  const files = await conflictFiles(place.path, context);
-  if (!start3 && files.length > 0) {
-    return skippedSync(
-      `The sync in ${forwardSlashes(place.path)} stopped on a conflict in ${files.join(", ")}`,
-      baseBranch
-    );
-  }
-  await continueRebase(place, baseBranch, CREATE_AGAIN, context);
-  return SYNCED;
+  return continueCandidate(place, baseBranch, rebase, CREATE_AGAIN, context);
 };
 var syncBlocker = async (task, place, context) => {
   if ((await changes(place.path, true, context)).length > 0) {
@@ -23559,7 +23777,7 @@ var syncBlocker = async (task, place, context) => {
 };
 
 // src/worktree/create-ticket-worktree.ts
-var createTicketWorktree = async (task, ticket, baseBranch, context) => {
+var createTicketWorktree = async (task, ticket, baseBranch, checks, context) => {
   const { checkout } = context.layout;
   const taskPlace = taskPlaceOf(context.layout, task);
   const ticketPlace = ticketPlaceOf(context.layout, task, ticket);
@@ -23570,7 +23788,7 @@ var createTicketWorktree = async (task, ticket, baseBranch, context) => {
   await gitOutput(checkout, ["worktree", "prune"], context.runGit);
   const taskFailures = await ensureWorktree(taskPlace, true, context);
   const ticketBranchCreated = !await branchExists(ticketPlace.branch, context);
-  const sync = await syncTaskBranch(task, base, ticketBranchCreated, context);
+  const sync = await syncTaskBranch(task, base, ticketBranchCreated, checks, context);
   if (ticketBranchCreated) await makeTicketBranch(ticketPlace.branch, taskPlace.branch, context);
   const ticketFailures = await ensureWorktree(ticketPlace, true, context);
   return {
@@ -23697,6 +23915,10 @@ var removeBranch = async (branch, warnings, context) => {
   if (forkPoint.exitCode !== 0) {
     warnings.push(`The fork point of the branch ${branch} could not be deleted: ${lastLines(forkPoint)}`);
   }
+  const candidate = await removeCandidate(branch, context);
+  if (candidate.exitCode !== 0) {
+    warnings.push(`The candidate of the branch ${branch} could not be deleted: ${lastLines(candidate)}`);
+  }
   return true;
 };
 var removeWorktree = async (task, path, warnings, context) => {
@@ -23813,48 +24035,6 @@ var splitPatch = (patch) => {
   return starts.map((start3, index) => patch.slice(start3, starts[index + 1] ?? patch.length));
 };
 
-// src/worktree/merge-ticket.ts
-var TASK_TRAILER = "Atomic-Workflow-Task";
-var TICKET_TRAILER = "Atomic-Workflow-Ticket";
-var mergeTicket2 = async (task, ticket, message, context) => {
-  const taskPlace = taskPlaceOf(context.layout, task);
-  const place = ticketPlaceOf(context.layout, task, ticket);
-  await checkListed(place, context);
-  await checkNotRebasing(taskPlace, context);
-  const rebase = await stoppedRebase(place.path, context);
-  if (rebase === void 0) {
-    await squashOnto(place, taskPlace.branch, `${message.trimEnd()}
-
-${trailersOf(task, ticket)}`, context);
-  } else {
-    await continueRebase(place, taskPlace.branch, MERGE_AGAIN, context);
-    await setForkPoint(place.path, place.branch, rebase.onto, context);
-  }
-  const commit = await land(taskPlace.branch, place, context);
-  await setForkPoint(place.path, place.branch, await commitOf(place.path, "HEAD", context), context);
-  return { taskBranch: taskPlace.branch, commit };
-};
-var trailersOf = (task, ticket) => `${TASK_TRAILER}: ${task.id}-${task.slug}
-${TICKET_TRAILER}: ${ticket.id}-${ticket.slug}`;
-var squashOnto = async (place, taskBranch, message, context) => {
-  await checkClean(place.path, context);
-  const taskTip = await commitOf(place.path, branchRef(taskBranch), context);
-  const head = await commitOf(place.path, "HEAD", context);
-  const base = await forkPointOrMergeBase(place, taskTip, head, context);
-  if (head === base) return;
-  await gitOutput(place.path, ["reset", "--quiet", "--soft", base], context.runGit);
-  if (!await hasStagedChanges(place.path, context)) return;
-  await gitOutput(place.path, [...NO_HOOKS, "commit", "--quiet", "--no-verify", "-m", message], context.runGit);
-  if (base === taskTip) return;
-  await startRebase(place, taskBranch, ["--onto", taskTip, base], MERGE_AGAIN, context);
-  await setForkPoint(place.path, place.branch, taskTip, context);
-};
-var forkPointOrMergeBase = async (place, taskTip, head, context) => {
-  const forkPoint = await forkPointOf(place.path, place.branch, context);
-  if (forkPoint !== void 0 && await isAncestor(place.path, forkPoint, head, context)) return forkPoint;
-  return gitOutput(place.path, ["merge-base", taskTip, head], context.runGit);
-};
-
 // src/worktree/find-ticket-changes.ts
 var SHOW_PATCH = [
   "-c",
@@ -23957,6 +24137,83 @@ var gitStdout = async (commandLine, input2, context) => {
   return output2.stdout;
 };
 
+// src/worktree/merge-ticket.ts
+var TASK_TRAILER = "Atomic-Workflow-Task";
+var TICKET_TRAILER = "Atomic-Workflow-Ticket";
+var mergeTicket2 = async (task, ticket, message, context) => {
+  const taskPlace = taskPlaceOf(context.layout, task);
+  const place = ticketPlaceOf(context.layout, task, ticket);
+  const landed = await findTicketCommit(task, ticket, null, context);
+  if (landed !== void 0) {
+    await finishLanded(place, landed, context);
+    return { taskBranch: taskPlace.branch, commit: landed };
+  }
+  await checkListed(place, context);
+  await checkNotRebasing(taskPlace, context);
+  const rebase = await stoppedRebase(place.path, context);
+  if (rebase === void 0) {
+    await squashOnto(place, taskPlace.branch, `${message.trimEnd()}
+
+${trailersOf(task, ticket)}`, context);
+  } else {
+    await continueRebase(place, taskPlace.branch, MERGE_AGAIN, context);
+    await setForkPoint(place.path, place.branch, rebase.onto, context);
+  }
+  const commit = await land(taskPlace.branch, place, context);
+  await setForkPoint(place.path, place.branch, await commitOf(place.path, "HEAD", context), context);
+  return { taskBranch: taskPlace.branch, commit };
+};
+var trailersOf = (task, ticket) => `${TASK_TRAILER}: ${task.id}-${task.slug}
+${TICKET_TRAILER}: ${ticket.id}-${ticket.slug}`;
+var squashOnto = async (place, taskBranch, message, context) => {
+  await checkClean(place.path, context);
+  const taskTip = await commitOf(place.path, branchRef(taskBranch), context);
+  const head = await commitOf(place.path, "HEAD", context);
+  const base = await startOfTicket(place, taskTip, head, context);
+  if (head === base) return;
+  const tree = await commitOf(place.path, "HEAD^{tree}", context);
+  const squashed = tree === await commitOf(place.path, `${base}^{tree}`, context) ? base : await commitTree(place.path, tree, base, message, context);
+  await gitOutput(place.path, ["reset", "--quiet", "--soft", squashed], context.runGit);
+  if (squashed === base || base === taskTip) return;
+  await startRebase(place, taskBranch, ["--onto", taskTip, base], MERGE_AGAIN, context);
+  await setForkPoint(place.path, place.branch, taskTip, context);
+};
+var commitTree = async (path, tree, parent, message, context) => {
+  const commandLine = [...NO_HOOKS, "commit-tree", tree, "-p", parent, "-F", "-"];
+  const output2 = await context.runGit(path, commandLine, cleanMessage(message));
+  if (output2.exitCode !== 0) throw gitFailure(path, commandLine, output2);
+  return output2.stdout.trim();
+};
+var cleanMessage = (message) => `${message.split("\n").map((line) => line.trimEnd()).join("\n").replace(/\n{3,}/g, "\n\n").trim()}
+`;
+var finishLanded = async (place, landed, context) => {
+  if (!await context.fileSystem.exists(place.path)) return;
+  const head = await context.runGit(place.path, ["rev-parse", "--verify", "--quiet", "HEAD"]);
+  if (head.exitCode === 0 && head.stdout.trim() === landed)
+    await setForkPoint(place.path, place.branch, landed, context);
+};
+var startOfTicket = async (place, taskTip, head, context) => {
+  const mergeBase = await gitOutput(place.path, ["merge-base", taskTip, head], context.runGit);
+  const forkPoint = await forkPointOf(place.path, place.branch, context);
+  if (forkPoint === void 0 || !await isAncestor(place.path, forkPoint, head, context)) return mergeBase;
+  return await isAncestor(place.path, forkPoint, mergeBase, context) ? mergeBase : forkPoint;
+};
+
+// src/worktree/find-task-landing.ts
+var findTaskLanding = async (task, branch, context) => {
+  if (!await branchExists(branch, context)) return void 0;
+  const search = [
+    "log",
+    "-1",
+    "--format=%H",
+    // The pattern matches a whole line, so task 1 does not match the trailer of task 11.
+    `--grep=^${TASK_TRAILER}: ${task.id}-${task.slug}$`,
+    branchRef(branch)
+  ];
+  const commit = await gitOutput(context.layout.checkout, search, context.runGit);
+  return commit === "" ? void 0 : commit;
+};
+
 // src/worktree/find-unlanded-tickets.ts
 var TICKET_NAME = /^(\d+)-/;
 var findUnlandedTickets = async (task, baseBranch, context) => {
@@ -23981,25 +24238,33 @@ var findUnlandedTickets = async (task, baseBranch, context) => {
 };
 
 // src/worktree/merge-task.ts
-var mergeTask2 = async (task, baseBranch, context) => {
+var mergeTask2 = async (task, baseBranch, checks, context) => {
   const place = taskPlaceOf(context.layout, task);
-  for (const branch of [place.branch, baseBranch]) await checkBranchExists(branch, context);
+  await checkBranchExists(baseBranch, context);
+  if (!await branchExists(place.branch, context)) {
+    const landing = await findTaskLanding(task, baseBranch, context);
+    if (landing === void 0) throw missingBranch(place.branch);
+    return finishRemoval(task, baseBranch, landing, context);
+  }
   const branches = await taskBranches(task, context);
-  await checkLanded(
+  await checkEverLanded(
     branches.filter((branch) => branch !== place.branch),
     place.branch,
     context
   );
   const worktrees = await taskWorktrees(task, branches, context);
-  const rebasing = worktrees.some(
-    (worktree) => samePath(worktree.path, place.path, context.platform) && worktree.branch === void 0
-  ) && await isRebasing(place.path, context);
+  const isTaskWorktree = (path) => samePath(path, place.path, context.platform);
+  const detached = worktrees.some((worktree) => isTaskWorktree(worktree.path) && worktree.branch === void 0);
+  const rebase = detached ? await stoppedRebase(place.path, context) : void 0;
   for (const worktree of worktrees) {
-    if (!rebasing || !samePath(worktree.path, place.path, context.platform)) await checkClean(worktree.path, context);
+    if (rebase === void 0 || !isTaskWorktree(worktree.path)) await checkClean(worktree.path, context);
   }
-  if (rebasing) await continueRebase(place, baseBranch, MERGE_AGAIN, context);
-  else await rebaseOntoBase(place, baseBranch, MERGE_AGAIN, context);
-  const commit = await land(baseBranch, place, context);
+  if (rebase !== void 0) {
+    if (checks !== void 0) throw noCandidate(place, checks.commit);
+    await continueCandidate(place, baseBranch, rebase, MERGE_AGAIN, context);
+  }
+  await settleCandidate(place, baseBranch, checks, context);
+  const commit = await land(baseBranch, place, context) ?? await findTaskLanding(task, place.branch, context) ?? null;
   const deleted = await removeWorktrees(
     task,
     await taskWorktrees(task, branches, context),
@@ -24009,18 +24274,44 @@ var mergeTask2 = async (task, baseBranch, context) => {
   );
   return { baseBranch, commit, deleted };
 };
+var settleCandidate = async (place, baseBranch, checks, context) => {
+  if (checks === void 0) {
+    const waiting = await waitingCandidate(place, baseBranch, context);
+    if (waiting !== void 0) throw needsChecks(place, baseBranch, waiting, MERGE_AGAIN);
+    await rebaseOntoBase(place, baseBranch, MERGE_AGAIN, context);
+    return;
+  }
+  const outcome = await applyChecks(place, baseBranch, checks, context);
+  if (outcome === "moved") await rebaseOntoBase(place, baseBranch, MERGE_AGAIN, context);
+  else if (outcome !== "passed") {
+    const message = failedCheck(outcome, checks.commit, `neither ${place.branch} nor ${baseBranch} moved`);
+    throw new WorktreeError("not-allowed", message);
+  }
+};
+var finishRemoval = async (task, baseBranch, landing, context) => {
+  const branches = await taskBranches(task, context);
+  const deleted = await removeWorktrees(
+    task,
+    await taskWorktrees(task, branches, context),
+    branches,
+    [taskDirectory(context.layout, task)],
+    context
+  );
+  return { baseBranch, commit: landing, deleted };
+};
 
 // src/worktree/create-worktrees.ts
 var createWorktrees = ({ checkout, home, platform }, dependencies) => {
   const context = { ...dependencies, layout: layoutOf(checkout, home, platform), platform };
   const queue = createQueue();
   return {
-    create: (task, ticket, baseBranch) => queue(() => createTicketWorktree(task, ticket, baseBranch, context)),
+    create: (task, ticket, baseBranch, checks) => queue(() => createTicketWorktree(task, ticket, baseBranch, checks, context)),
     merge: (task, ticket, message) => queue(() => mergeTicket2(task, ticket, message, context)),
     ticketChanges: (task, ticket, baseBranch) => queue(() => findTicketChanges(task, ticket, baseBranch, context)),
     ticketFilePatch: (task, ticket, baseBranch, commit, path) => queue(() => findTicketFilePatch(task, ticket, baseBranch, commit, path, context)),
     unlandedTickets: (task, baseBranch) => queue(() => findUnlandedTickets(task, baseBranch, context)),
-    mergeTask: (task, baseBranch) => queue(() => mergeTask2(task, baseBranch, context)),
+    mergeTask: (task, baseBranch, checks) => queue(() => mergeTask2(task, baseBranch, checks, context)),
+    taskLanding: (task, baseBranch) => queue(() => findTaskLanding(task, baseBranch, context)),
     deleteTicket: (task, ticket, force) => queue(() => deleteTicketWorktree(task, ticket, force, context)),
     deleteTask: (task, baseBranch, force) => queue(() => deleteTaskWorktrees(task, baseBranch, force, context))
   };

@@ -1,18 +1,20 @@
 import { branchExists, commitOf, forkPointOf, forwardBranch, isAncestor, taskBranches } from './branches.ts';
-import { forwardSlashes } from './paths.ts';
 import {
-  CREATE_AGAIN,
-  conflictFiles,
-  continueRebase,
-  type StoppedRebase,
-  startRebase,
-  stoppedRebase,
-} from './rebase.ts';
+  applyChecks,
+  continueCandidate,
+  failedCheck,
+  isCandidateRebase,
+  needsChecks,
+  noCandidate,
+  startCandidate,
+  waitingCandidate,
+} from './candidate.ts';
+import { forwardSlashes } from './paths.ts';
+import { CREATE_AGAIN, conflictFiles, type StoppedRebase, stoppedRebase } from './rebase.ts';
 import { gitOutput } from './run-git.ts';
-import { WorktreeError } from './worktree-error.ts';
 import { branchRef, taskPlaceOf } from './worktree-layout.ts';
 import { changes, ensureWorktree } from './worktree-state.ts';
-import type { WorkName, WorktreePlace } from './worktrees.ts';
+import type { RebaseChecks, WorkName, WorktreePlace } from './worktrees.ts';
 import type { WorktreesContext } from './worktrees-context.ts';
 
 /**
@@ -42,26 +44,35 @@ const NOT_SYNCED: TaskBranchSync = { synced: false, warnings: [] };
 
 /**
  * Syncs the task branch of the task `task` in the repository of `context` with the base branch `baseBranch`, in the
- * worktree of the task, and returns whether it moved, with a warning for each cause that kept it where it is. A sync
- * that stopped continues as `resumeSync` says. Else, only with `start`, a new sync starts: a task branch that holds the
- * tip of the base branch stays as it is, one that the base branch holds moves forward to it, and any other is rebased
- * onto it. A new sync is skipped, with a warning, when the base branch does not exist, the worktree of the task has
- * changes that no commit holds, or a ticket branch of the task has no fork point, since the rebase would break its
- * squash.
+ * worktree of the task, and returns whether it moved, with a warning for each cause that kept it where it is. With
+ * `checks`, the candidate of an earlier call moves or is dropped, as `applyChecks` of `candidate.ts` says, with a
+ * warning when it is dropped. A sync that stopped continues as `resumeSync` says. A candidate that waits for its checks
+ * stays. Else, only with `start`, a new sync starts: a task branch that holds the tip of the base branch stays as it
+ * is, one that the base branch holds moves forward to it, and any other is rebased onto it as a candidate. A new sync
+ * is skipped, with a warning, when the base branch does not exist, the worktree of the task has changes that no commit
+ * holds, or a ticket branch of the task has no fork point, since the rebase would break its squash.
  * If the rebase stops, rejects as `checkRebaseEnded` of `rebase.ts` does, and leaves it stopped in the worktree of the
- * task.
+ * task. If it ends in a candidate, or with `start` a candidate waits, rejects with `needs-checks`. If `checks` names no
+ * candidate, rejects with `invalid-checks`.
  */
 export const syncTaskBranch = async (
   task: WorkName,
   baseBranch: string,
   start: boolean,
+  checks: RebaseChecks | undefined,
   context: WorktreesContext,
 ): Promise<TaskBranchSync> => {
   const { checkout } = context.layout;
   const place = taskPlaceOf(context.layout, task);
   const rebase = await stoppedRebase(place.path, context);
-  if (rebase !== undefined) return resumeSync(place, baseBranch, rebase, start, context);
+  if (rebase !== undefined) {
+    if (checks !== undefined) throw noCandidate(place, checks.commit);
+    return resumeSync(place, baseBranch, rebase, start, context);
+  }
+  if (checks !== undefined) return checkedSync(place, baseBranch, checks, context);
+  const waiting = await waitingCandidate(place, baseBranch, context);
   if (!start) return NOT_SYNCED;
+  if (waiting !== undefined) throw needsChecks(place, baseBranch, waiting, CREATE_AGAIN);
   if (!(await branchExists(baseBranch, context))) {
     return skippedSync(`The base branch ${baseBranch} does not exist`, baseBranch);
   }
@@ -71,8 +82,7 @@ export const syncTaskBranch = async (
   const cause = await syncBlocker(task, place, context);
   if (cause !== undefined) return skippedSync(cause, baseBranch);
   if (!(await isAncestor(checkout, taskRef, baseRef, context))) {
-    await rebaseOntoBase(place, baseBranch, CREATE_AGAIN, context);
-    return SYNCED;
+    return rebaseIntoCandidate(place, baseBranch, CREATE_AGAIN, context);
   }
   const taskTip = await commitOf(checkout, taskRef, context);
   await forwardBranch(place.branch, taskTip, await commitOf(checkout, baseRef, context), context);
@@ -80,11 +90,10 @@ export const syncTaskBranch = async (
 };
 
 /**
- * Rebases the task branch of `place` onto the tip of the base branch `baseBranch` in the worktree of `place` in the
- * repository of `context`, made without a copy of the ignored files where it does not exist. A task branch that holds
- * the tip of the base branch, or that the base branch holds, stays as it is.
- * If the worktree cannot be made, rejects as `ensureWorktree` does. If the rebase stops, rejects as
- * `checkRebaseEnded` of `rebase.ts` does, with `retry`.
+ * Rebases the task branch of `place` onto the tip of the base branch `baseBranch` as a candidate, in the worktree of
+ * `place` in the repository of `context`, made without a copy of the ignored files where it does not exist. A task
+ * branch that holds the tip of the base branch, or that the base branch holds, stays as it is, and the call resolves.
+ * Rejects as `rebaseIntoCandidate` does.
  */
 export const rebaseOntoBase = async (
   place: WorktreePlace,
@@ -97,10 +106,48 @@ export const rebaseOntoBase = async (
   const taskRef = branchRef(place.branch);
   if (await isAncestor(checkout, baseRef, taskRef, context)) return;
   if (await isAncestor(checkout, taskRef, baseRef, context)) return;
+  await rebaseIntoCandidate(place, baseBranch, retry, context);
+};
+
+/**
+ * Rebases the task branch of `place`, which lacks a commit of the base branch `baseBranch` and holds one that it
+ * lacks, onto the tip of the base branch as a candidate, in the worktree of `place` in the repository of `context`,
+ * made without a copy of the ignored files where it does not exist.
+ * If the worktree cannot be made, rejects as `ensureWorktree` does. Else rejects as `startCandidate` of
+ * `candidate.ts` does, with `retry`.
+ */
+const rebaseIntoCandidate = async (
+  place: WorktreePlace,
+  baseBranch: string,
+  retry: string,
+  context: WorktreesContext,
+): Promise<never> => {
+  const { checkout } = context.layout;
   await gitOutput(checkout, ['worktree', 'prune'], context.runGit);
   await ensureWorktree(place, false, context);
-  const baseTip = await commitOf(checkout, baseRef, context);
-  await startRebase(place, baseBranch, [baseTip], retry, context);
+  const baseTip = await commitOf(checkout, branchRef(baseBranch), context);
+  return startCandidate(place, baseBranch, baseTip, retry, context);
+};
+
+/**
+ * Returns the sync of the task branch of `place` with the base branch `baseBranch` in the repository of `context` once
+ * the checks `checks` of its candidate are applied: a sync when they passed, else a warning that says why the task
+ * branch stayed.
+ * Rejects as `applyChecks` of `candidate.ts` does.
+ */
+const checkedSync = async (
+  place: WorktreePlace,
+  baseBranch: string,
+  checks: RebaseChecks,
+  context: WorktreesContext,
+): Promise<TaskBranchSync> => {
+  const outcome = await applyChecks(place, baseBranch, checks, context);
+  if (outcome === 'passed') return SYNCED;
+  if (outcome === 'moved') {
+    return skippedSync('The task branch or the base branch moved while the checks ran', baseBranch);
+  }
+  const warning = failedCheck(outcome, checks.commit, `the task branch was not synced with ${baseBranch}`);
+  return { synced: false, warnings: [warning] };
 };
 
 /**
@@ -113,12 +160,10 @@ const skippedSync = (cause: string, baseBranch: string): TaskBranchSync => ({
 
 /**
  * Continues the stopped rebase `rebase` in the worktree of the task branch of `place` in the repository of `context`,
- * a sync with the base branch `baseBranch`, once every conflicting file is resolved and added, and returns the sync
- * that it ends. Without `start`, a rebase that is no sync stays as it is, and so does a sync whose files still
- * conflict, with a warning.
- * With `start`, if `rebase` does not rebase the task branch onto a commit of the base branch, rejects with
- * `not-allowed`, and if a file still conflicts or the rebase stops again, rejects as `checkRebaseEnded` of `rebase.ts`
- * does.
+ * a sync with the base branch `baseBranch`, into a candidate once every conflicting file is resolved and added.
+ * Without `start`, a rebase that is no sync stays as it is, and so does a sync whose files still conflict, with a
+ * warning.
+ * Rejects as `continueCandidate` of `candidate.ts` does.
  */
 const resumeSync = async (
   place: WorktreePlace,
@@ -127,25 +172,17 @@ const resumeSync = async (
   start: boolean,
   context: WorktreesContext,
 ): Promise<TaskBranchSync> => {
-  const sync =
-    rebase.branch === place.branch &&
-    (await isAncestor(context.layout.checkout, rebase.onto, branchRef(baseBranch), context));
-  if (!sync && !start) return NOT_SYNCED;
-  if (!sync) {
-    throw new WorktreeError(
-      'not-allowed',
-      `The worktree ${forwardSlashes(place.path)} of the task branch has a stopped rebase that is no sync of ${place.branch} with ${baseBranch}. Finish or abort it there, then try again`,
-    );
+  if (!start) {
+    if (!(await isCandidateRebase(rebase, place, context))) return NOT_SYNCED;
+    const files = await conflictFiles(place.path, context);
+    if (files.length > 0) {
+      return skippedSync(
+        `The sync in ${forwardSlashes(place.path)} stopped on a conflict in ${files.join(', ')}`,
+        baseBranch,
+      );
+    }
   }
-  const files = await conflictFiles(place.path, context);
-  if (!start && files.length > 0) {
-    return skippedSync(
-      `The sync in ${forwardSlashes(place.path)} stopped on a conflict in ${files.join(', ')}`,
-      baseBranch,
-    );
-  }
-  await continueRebase(place, baseBranch, CREATE_AGAIN, context);
-  return SYNCED;
+  return continueCandidate(place, baseBranch, rebase, CREATE_AGAIN, context);
 };
 
 /**

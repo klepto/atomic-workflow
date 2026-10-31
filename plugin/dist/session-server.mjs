@@ -37922,13 +37922,19 @@ var WorktreeError = class extends Error {
    */
   files;
   /**
-   * Creates the refusal of the kind `kind` with the description `message` and the conflicting files `files`.
+   * Candidate that waits for its checks, for a `needs-checks`. `undefined` for every other kind.
    */
-  constructor(kind, message, files = []) {
+  candidate;
+  /**
+   * Creates the refusal of the kind `kind` with the description `message`, the conflicting files `files` and the
+   * candidate `candidate`.
+   */
+  constructor(kind, message, files = [], candidate) {
     super(message);
     this.name = "WorktreeError";
     this.kind = kind;
     this.files = files;
+    this.candidate = candidate;
   }
 };
 
@@ -37938,7 +37944,8 @@ var worktreeCall = async (call2) => {
     return await call2();
   } catch (error62) {
     if (!(error62 instanceof WorktreeError)) throw error62;
-    throw new RpcError(RPC_ERROR_CODES.INVALID_REQUEST, error62.message, { kind: error62.kind, files: error62.files });
+    const code = error62.kind === "invalid-checks" ? RPC_ERROR_CODES.INVALID_PARAMS : RPC_ERROR_CODES.INVALID_REQUEST;
+    throw new RpcError(code, error62.message, { kind: error62.kind, files: error62.files, ...error62.candidate });
   }
 };
 
@@ -38456,17 +38463,29 @@ var usageGetMethod = {
   handle: async (_params, { usage }) => usage.latest()
 };
 
+// src/rpc/rebase-checks.ts
+var REBASE_CHECKS = external_exports.object({
+  commit: external_exports.string().regex(/^[0-9a-f]{40}([0-9a-f]{24})?$/, "Must be the full hash of a commit").describe("Full hash of the candidate, the commit of the refusal needs-checks"),
+  failure: external_exports.object({
+    command: external_exports.string().min(1).describe("Command of the check that failed"),
+    output: external_exports.string().describe("Output of the command")
+  }).nullable().describe("First check that failed, with its output, or null when every check passed")
+}).describe(
+  "Result of the checks that ran in the worktree of a refusal needs-checks: each command of ## Verify of each ticket of the task that is needs-review or done. Only after such a refusal"
+);
+
 // src/rpc/method.worktree-create.ts
 var PARAMS46 = external_exports.object({
   taskId: external_exports.number().int().positive().describe("Identifier of the task"),
-  ticketId: external_exports.number().int().positive().describe("Identifier of the ticket within its task")
+  ticketId: external_exports.number().int().positive().describe("Identifier of the ticket within its task"),
+  checks: REBASE_CHECKS.optional()
 });
 var worktreeCreateMethod = {
   name: "worktreeCreate",
-  description: "Starts the work on a ticket of the atomic workflow: makes the worktree of its task and its own worktree where they do not exist, sets it in-progress, and returns the paths and branches of both worktrees with the ticket. Before it makes the branch of the ticket, it rebases the task branch onto the local base branch. On a conflict of that rebase, resolve and add the files in the worktree of the task that the error names, then call it again.",
+  description: "Starts the work on a ticket of the atomic workflow: makes the worktree of its task and its own worktree where they do not exist, sets it in-progress, and returns the paths and branches of both worktrees with the ticket. Before it makes the branch of the ticket, it rebases the task branch onto the local base branch. On a conflict of that rebase, resolve and add the files in the worktree of the task that the error names, then call it again. When the rebase rewrites landed tickets, it fails with the kind needs-checks, the worktree and the commit of the candidate: run the checks there, then call it again with checks.",
   agent: true,
   params: PARAMS46,
-  handle: async ({ taskId, ticketId }, context) => {
+  handle: async ({ taskId, ticketId, checks }, context) => {
     const { task, ticket } = await openTicket(taskId, ticketId, context.tasks);
     if (hasLanded(ticket.status))
       throw new RpcError(RPC_ERROR_CODES.INVALID_REQUEST, `The work of ticket ${ticketId} landed already`);
@@ -38478,15 +38497,15 @@ var worktreeCreateMethod = {
       );
     const claimed = claimTickets(taskId, [ticketId], lastingHolder(context), context);
     try {
-      return await start(task, ticket, context);
+      return await start(task, ticket, checks, context);
     } catch (error62) {
       releaseTickets(taskId, claimed, context);
       throw error62;
     }
   }
 };
-var start = async (task, ticket, context) => {
-  const worktrees = await worktreeCall(() => context.worktrees.create(task, ticket, task.baseBranch));
+var start = async (task, ticket, checks, context) => {
+  const worktrees = await worktreeCall(() => context.worktrees.create(task, ticket, task.baseBranch, checks));
   if (task.baseBranch === null) await context.tasks.setBaseBranch(task.id, worktrees.baseBranch);
   const progress = { status: "in-progress", stage: ticket.stage, blockedReason: null };
   await context.tasks.setTicketProgress(task.id, ticket.id, progress);
@@ -38541,6 +38560,14 @@ var deleteTask = async (task, force, context) => {
 };
 var isThrownAway = (ticket, unlanded) => isWorking(ticket.status) || hasLanded(ticket.status) && unlanded.includes(ticket.id);
 
+// src/worktree/worktree-layout.ts
+import { basename as basename2, join as join3 } from "node:path";
+var BRANCH_PREFIX = "atomic-workflow/";
+var TASK_BRANCH_NAME = "main";
+var WORKTREES_DIRECTORY = join3(".atomic-workflow", "worktrees");
+var taskName = (task) => `${task.id}-${task.slug}`;
+var taskBranchOf = (task) => `${BRANCH_PREFIX}${taskName(task)}/${TASK_BRANCH_NAME}`;
+
 // src/rpc/method.worktree-merge.ts
 var SUMMARY_LINE = /^(feat|fix|chore|refactor|docs|test|perf|build|ci|style|revert)(\([^()\r\n]+\))?!?: \S/;
 var PARAMS48 = external_exports.object({
@@ -38550,19 +38577,23 @@ var PARAMS48 = external_exports.object({
   ),
   message: external_exports.string().trim().regex(SUMMARY_LINE, 'Must start with a summary line such as "feat: ...", "fix(scope): ..." or "chore: ..."').optional().describe(
     'Message of the one commit of the ticket: a summary line of the conventional commits, such as "feat: ..." or "fix: ...", then optionally a blank line and a body. Only with a ticket, and needed with one'
-  )
+  ),
+  checks: REBASE_CHECKS.optional()
 });
+var NOTHING_DELETED = { worktrees: [], branches: [], stoppedProcesses: [], warnings: [] };
 var worktreeMergeMethod = {
   name: "worktreeMerge",
-  description: "With a ticket, squashes the commits of the worktree of a ticket of the atomic workflow into one commit with the message, rebases it onto the task branch, moves the task branch forward to it, and sets the ticket needs-review. Without a ticket, once every ticket of the task is done, rebases the task branch onto its base branch, moves the base branch forward to it, deletes the worktrees and branches of the task, and sets the task done. On a conflict, resolve and add the files in the worktree that the error names, then call it again.",
+  description: "With a ticket, squashes the commits of the worktree of a ticket of the atomic workflow into one commit with the message, rebases it onto the task branch, moves the task branch forward to it, and sets the ticket needs-review. A call with a ticket that stopped finishes when it is called again with the same arguments. Without a ticket, once every ticket of the task is done, rebases the task branch onto its base branch, moves the base branch forward to it, deletes the worktrees and branches of the task, and sets the task done. A call without a ticket that stopped finishes when it is called again with the same arguments, and a call for a task that is done returns its result again. On a conflict, resolve and add the files in the worktree that the error names, then call it again. When the rebase of the task branch rewrites landed tickets, it fails with the kind needs-checks, the worktree and the commit of the candidate: run the checks there, then call it again with checks.",
   agent: true,
   params: PARAMS48,
-  handle: async ({ taskId, ticketId, message }, context) => {
+  handle: async ({ taskId, ticketId, message, checks }, context) => {
     if (ticketId === void 0) {
       if (message !== void 0)
         throw new RpcError(RPC_ERROR_CODES.INVALID_PARAMS, "Only the merge of a ticket takes a message");
-      return mergeTask(taskId, context);
+      return mergeTask(taskId, checks, context);
     }
+    if (checks !== void 0)
+      throw new RpcError(RPC_ERROR_CODES.INVALID_PARAMS, "Only the merge of a task takes checks");
     if (message === void 0)
       throw new RpcError(RPC_ERROR_CODES.INVALID_PARAMS, "The merge of a ticket needs a message");
     return mergeTicket(taskId, ticketId, message, context);
@@ -38570,6 +38601,10 @@ var worktreeMergeMethod = {
 };
 var mergeTicket = async (taskId, ticketId, message, context) => {
   const { task, ticket } = await openTicket(taskId, ticketId, context.tasks);
+  if (ticket.status === "needs-review") {
+    const changes = await worktreeCall(() => context.worktrees.ticketChanges(task, ticket, null));
+    if (changes !== void 0) return { taskBranch: taskBranchOf(task), commit: changes.commit, ticket };
+  }
   if (!isWorking(ticket.status))
     throw new RpcError(
       RPC_ERROR_CODES.INVALID_REQUEST,
@@ -38587,12 +38622,13 @@ var mergeTicket = async (taskId, ticketId, message, context) => {
     throw error62;
   }
 };
-var mergeTask = async (taskId, context) => {
+var mergeTask = async (taskId, checks, context) => {
   const { tickets } = await findTask(taskId, context.tasks);
   const merge2 = async () => {
     const task = await findTask(taskId, context.tasks);
+    if (task.status === "done") return landedTask(task, context);
     const baseBranch = checkMergeable(task);
-    const merged = await worktreeCall(() => context.worktrees.mergeTask(task, baseBranch));
+    const merged = await worktreeCall(() => context.worktrees.mergeTask(task, baseBranch, checks));
     await context.tasks.setStatus(taskId, "done");
     return { ...merged, task: { ...task, status: "done" } };
   };
@@ -38603,6 +38639,11 @@ var mergeTask = async (taskId, context) => {
     context
   );
 };
+var landedTask = async (task, context) => {
+  const baseBranch = baseBranchOf(task);
+  const commit = await worktreeCall(() => context.worktrees.taskLanding(task, baseBranch));
+  return { baseBranch, commit: commit ?? null, deleted: NOTHING_DELETED, task };
+};
 var checkMergeable = (task) => {
   checkComplete(task);
   const open4 = task.tickets.filter(({ status }) => status !== "done").map(({ id }) => id);
@@ -38611,6 +38652,9 @@ var checkMergeable = (task) => {
       RPC_ERROR_CODES.INVALID_REQUEST,
       `${plural2(open4.length, "Ticket", "Tickets")} ${open4.join(", ")} of task ${task.id} ${plural2(open4.length, "is", "are")} not done, so the task branch cannot land`
     );
+  return baseBranchOf(task);
+};
+var baseBranchOf = (task) => {
   if (task.baseBranch === null)
     throw new RpcError(
       RPC_ERROR_CODES.INVALID_REQUEST,
@@ -38856,7 +38900,7 @@ var stderrLog = (line) => {
 };
 
 // src/transcript/find-transcript.claude.ts
-import { basename as basename2, join as join3 } from "node:path";
+import { basename as basename3, join as join4 } from "node:path";
 
 // src/transcript/claude-action.ts
 var ACTION_ENTRY = external_exports.object({
@@ -38966,7 +39010,7 @@ var HANDBACK_ENTRY = external_exports.object({
   })
 });
 var INTERRUPT_MARK = "[Request interrupted by user";
-var LOCAL_COMMAND_MARKS = ["<command-", "<local-command-"];
+var LOCAL_COMMAND_MARKS = ["<command-", "<local-command-", "<bash-"];
 var parseActivity = (line, value, sidechain) => {
   const entry = ENTRY.safeParse(value);
   if (!entry.success) return void 0;
@@ -39186,11 +39230,11 @@ var claudeCreateTranscriptFinder = (dependencies) => {
   };
 };
 var findTranscript = async (environment, parentProcessId, finder) => {
-  const configuration = environment.CLAUDE_CONFIG_DIR ?? join3(finder.dependencies.homeDirectory, ".claude");
-  const sessionFile = join3(configuration, "sessions", `${parentProcessId}.json`);
+  const configuration = environment.CLAUDE_CONFIG_DIR ?? join4(finder.dependencies.homeDirectory, ".claude");
+  const sessionFile = join4(configuration, "sessions", `${parentProcessId}.json`);
   const sessionId = await readSessionId(sessionFile, finder) ?? environment.CLAUDE_CODE_SESSION_ID;
   if (sessionId === void 0) return void 0;
-  const projects = join3(configuration, "projects");
+  const projects = join4(configuration, "projects");
   const name = `${sessionId}.jsonl`;
   const path = await findTranscriptFile(projects, name, finder) ?? expectedTranscriptFile(projects, name, environment);
   if (path === void 0) return void 0;
@@ -39209,23 +39253,23 @@ var hasOtherSession = async (path, sessionId, finder) => {
 };
 var findTranscriptFile = async (projects, name, finder) => {
   const { files } = finder.dependencies;
-  const candidates = (await files.listDirectories(projects)).map((directory) => join3(projects, directory, name));
+  const candidates = (await files.listDirectories(projects)).map((directory) => join4(projects, directory, name));
   const found = await Promise.all(candidates.map((candidate) => files.exists(candidate)));
   return candidates.find((_, index) => found[index]);
 };
 var expectedTranscriptFile = (projects, name, environment) => {
   const directory = environment.CLAUDE_PROJECT_DIR;
-  return directory === void 0 ? void 0 : join3(projects, directory.replace(/[^a-zA-Z0-9]/g, "-"), name);
+  return directory === void 0 ? void 0 : join4(projects, directory.replace(/[^a-zA-Z0-9]/g, "-"), name);
 };
 var findSubagentTranscript = async (parent, sessionId, signal, oneShot, finder) => {
   if (parent.agent !== "claude") return void 0;
   const { clock, sleep: sleep3 } = finder.dependencies;
-  const directory = join3(parent.path.replace(/\.jsonl$/, ""), "subagents");
+  const directory = join4(parent.path.replace(/\.jsonl$/, ""), "subagents");
   const deadline = clock.now() + (oneShot ? ONE_SHOT_SEARCH_TIMEOUT : SUBAGENT_SEARCH_TIMEOUT);
   for (; ; ) {
     const path = await findSubagentFile(directory, sessionId, finder);
     if (path !== void 0) {
-      const backgroundTaskId = basename2(path, ".jsonl").slice(AGENT_FILE_PREFIX.length);
+      const backgroundTaskId = basename3(path, ".jsonl").slice(AGENT_FILE_PREFIX.length);
       const meta3 = path.replace(/\.jsonl$/, ".meta.json");
       const waitForEnd = (signal2) => pollUntil(async () => isStopped(meta3, oneShot, finder), signal2, finder);
       return claudeTranscript(sessionId, path, true, backgroundTaskId, waitForEnd, finder);
@@ -39236,7 +39280,7 @@ var findSubagentTranscript = async (parent, sessionId, signal, oneShot, finder) 
 };
 var findSubagentFile = async (directory, sessionId, finder) => {
   const { files } = finder.dependencies;
-  const candidates = (await files.listNames(directory)).filter((name) => name.startsWith(AGENT_FILE_PREFIX) && name.endsWith(".jsonl")).map((name) => join3(directory, name));
+  const candidates = (await files.listNames(directory)).filter((name) => name.startsWith(AGENT_FILE_PREFIX) && name.endsWith(".jsonl")).map((name) => join4(directory, name));
   const starts = await Promise.all(candidates.map((candidate) => files.readStart(candidate, PROMPT_BYTES)));
   return candidates.find((_, index) => starts[index]?.includes(sessionId));
 };

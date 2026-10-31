@@ -1,4 +1,4 @@
-import { gitOutput, lastLines } from './run-git.ts';
+import { gitFailure, gitOutput, lastLines } from './run-git.ts';
 import { WorktreeError } from './worktree-error.ts';
 import { branchRef, forkPointRefOf, taskBranchesRef } from './worktree-layout.ts';
 import { listWorktrees } from './worktree-list.ts';
@@ -133,8 +133,14 @@ export const forwardBranch = async (
  */
 export const checkBranchExists = async (branch: string, context: WorktreesContext): Promise<void> => {
   if (await branchExists(branch, context)) return;
-  throw new WorktreeError('not-allowed', `The branch ${branch} does not exist, so the task branch cannot land`);
+  throw missingBranch(branch);
 };
+
+/**
+ * Returns the refusal `not-allowed` for the branch `branch`, which does not exist, so the task branch cannot land.
+ */
+export const missingBranch = (branch: string): WorktreeError =>
+  new WorktreeError('not-allowed', `The branch ${branch} does not exist, so the task branch cannot land`);
 
 /**
  * Rejects with `not-allowed` when a branch of `branches` holds commits that the branch `target` lacks in the
@@ -150,12 +156,43 @@ export const checkLanded = async (
     const landed = await isAncestor(context.layout.checkout, branchRef(branch), branchRef(target), context);
     if (!landed) lacking.push(branch);
   }
-  if (lacking.length === 0) return;
-  throw new WorktreeError(
+  if (lacking.length > 0) throw notLanded(lacking, target);
+};
+
+/**
+ * Rejects with `not-allowed` when a branch of `branches` holds commits that neither the branch `target` nor an earlier
+ * tip of it in its reflog holds, in the repository of `context`. A branch whose commits landed on `target` before a
+ * rebase rewrote them, such as a ticket branch once the task branch moved to its candidate, counts as landed.
+ * If git fails, rejects with the error of `gitFailure`.
+ */
+export const checkEverLanded = async (
+  branches: readonly string[],
+  target: string,
+  context: WorktreesContext,
+): Promise<void> => {
+  const { checkout } = context.layout;
+  // A branch without a reflog, such as with core.logAllRefUpdates off, has only its tip to compare with.
+  const reflog = await context.runGit(checkout, ['reflog', 'show', '--format=%H', branchRef(target)]);
+  const tips = reflog.exitCode === 0 ? reflog.stdout.trim() : '';
+  const commandLine = ['rev-list', '--max-count=1', '--stdin'];
+  const lacking: string[] = [];
+  for (const branch of branches) {
+    const input = `${branchRef(branch)}\n--not\n${branchRef(target)}\n${tips}\n`;
+    const output = await context.runGit(checkout, commandLine, input);
+    if (output.exitCode !== 0) throw gitFailure(checkout, commandLine, output);
+    if (output.stdout.trim() !== '') lacking.push(branch);
+  }
+  if (lacking.length > 0) throw notLanded(lacking, target);
+};
+
+/**
+ * Returns the refusal `not-allowed` for the branches `lacking`, which hold commits that the branch `target` lacks.
+ */
+const notLanded = (lacking: readonly string[], target: string): WorktreeError =>
+  new WorktreeError(
     'not-allowed',
     `The branches ${lacking.join(', ')} hold commits that ${target} lacks, so their work would be lost. Merge them first, or delete them with force`,
   );
-};
 
 /**
  * Rejects with `not-allowed` when the task branch `taskBranch`, one of `branches`, holds commits that the base branch

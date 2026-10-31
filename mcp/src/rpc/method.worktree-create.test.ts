@@ -4,8 +4,8 @@ import type { NewTicket, Task, TaskStatus, TicketProgress } from '../storage/tas
 import { testCall } from '../testing/test-call.ts';
 import { testConnection } from '../testing/test-connection.ts';
 import { testMethodContext } from '../testing/test-method-context.ts';
-import { WorktreeError } from '../worktree/worktree-error.ts';
-import type { CreatedWorktrees, Worktrees } from '../worktree/worktrees.ts';
+import { type CandidateDetails, WorktreeError } from '../worktree/worktree-error.ts';
+import type { CreatedWorktrees, RebaseChecks, Worktrees } from '../worktree/worktrees.ts';
 import type { MethodContext } from './method.ts';
 import { worktreeCreateMethod } from './method.worktree-create.ts';
 import { RPC_ERROR_CODES, RpcError } from './rpc-error.ts';
@@ -42,6 +42,24 @@ const CREATED: CreatedWorktrees = {
  * Refusal of git that the fake worktrees of a test throw.
  */
 const CONFLICT = new WorktreeError('conflict', 'The sync of the task branch stopped on a conflict', ['src/cache.ts']);
+
+/**
+ * Candidate of a rebased task branch that the fake worktrees of a test name in a refusal `needs-checks`.
+ */
+const CANDIDATE: CandidateDetails = {
+  worktree: 'C:/worktrees/1-cache-layer-redis/main',
+  commit: '0123456789abcdef0123456789abcdef01234567',
+};
+
+/**
+ * Refusal `needs-checks` that the fake worktrees of a test throw.
+ */
+const NEEDS_CHECKS = new WorktreeError('needs-checks', 'Run the checks of the candidate', [], CANDIDATE);
+
+/**
+ * Checks that passed on `CANDIDATE`.
+ */
+const PASSED: RebaseChecks = { commit: CANDIDATE.commit, failure: null };
 
 /**
  * Returns the ticket of `spec` to store as the ticket with the position `index` in its task.
@@ -110,12 +128,12 @@ const creatingWorktrees = (calls: unknown[][], created: CreatedWorktrees = CREAT
 });
 
 /**
- * Returns fake worktrees whose `create` rejects with `CONFLICT`.
+ * Returns fake worktrees whose `create` rejects with `refusal`, `CONFLICT` by default.
  */
-const refusingWorktrees = (): Worktrees => ({
+const refusingWorktrees = (refusal: WorktreeError = CONFLICT): Worktrees => ({
   ...NO_WORKTREES,
   create: async () => {
-    throw CONFLICT;
+    throw refusal;
   },
 });
 
@@ -346,5 +364,65 @@ describe('worktreeCreate', () => {
     context.ticketClaims.claim(task.id, 1, caller);
     await assert.rejects(testCall(worktreeCreateMethod, { taskId: task.id, ticketId: 1 }, context), RpcError);
     assert.equal(context.ticketClaims.isHeldByOther(task.id, 1, testConnection()), true);
+  });
+
+  it('passes the checks of a candidate to the worktrees', async () => {
+    const calls: unknown[] = [];
+    const worktrees: Worktrees = {
+      ...NO_WORKTREES,
+      create: async (_task, _ticket, _baseBranch, checks) => {
+        calls.push(checks);
+        return CREATED;
+      },
+    };
+    const context = testMethodContext({ caller: testConnection(), worktrees });
+    const task = await storedTask(context);
+    const failed = { commit: CANDIDATE.commit, failure: { command: 'npm test', output: 'not ok 1' } };
+    await testCall(worktreeCreateMethod, { taskId: task.id, ticketId: 1 }, context);
+    await testCall(worktreeCreateMethod, { taskId: task.id, ticketId: 1, checks: PASSED }, context);
+    await testCall(worktreeCreateMethod, { taskId: task.id, ticketId: 1, checks: failed }, context);
+    assert.deepEqual(calls, [undefined, PASSED, failed]);
+  });
+
+  it('rejects a refusal needs-checks with an invalid request that holds the worktree and the commit of the candidate', async () => {
+    const context = testMethodContext({ caller: testConnection(), worktrees: refusingWorktrees(NEEDS_CHECKS) });
+    const task = await storedTask(context);
+    await assert.rejects(testCall(worktreeCreateMethod, { taskId: task.id, ticketId: 1 }, context), (error) => {
+      assert.ok(error instanceof RpcError);
+      assert.deepEqual(
+        { code: error.code, message: error.message, data: error.data },
+        {
+          code: RPC_ERROR_CODES.INVALID_REQUEST,
+          message: NEEDS_CHECKS.message,
+          data: { kind: 'needs-checks', files: [], ...CANDIDATE },
+        },
+      );
+      return true;
+    });
+  });
+
+  it('rejects checks that name no candidate with invalid parameters', async () => {
+    const refusal = new WorktreeError('invalid-checks', 'The commit is no candidate of the task branch');
+    const context = testMethodContext({ caller: testConnection(), worktrees: refusingWorktrees(refusal) });
+    const task = await storedTask(context);
+    await assert.rejects(
+      testCall(worktreeCreateMethod, { taskId: task.id, ticketId: 1, checks: PASSED }, context),
+      rpcError(RPC_ERROR_CODES.INVALID_PARAMS, /is no candidate/),
+    );
+  });
+
+  it('rejects checks whose commit is no full hash with invalid parameters', async () => {
+    const calls: unknown[][] = [];
+    const context = testMethodContext({ caller: testConnection(), worktrees: creatingWorktrees(calls) });
+    const task = await storedTask(context);
+    await assert.rejects(
+      testCall(
+        worktreeCreateMethod,
+        { taskId: task.id, ticketId: 1, checks: { commit: 'abc1234', failure: null } },
+        context,
+      ),
+      rpcError(RPC_ERROR_CODES.INVALID_PARAMS, /Must be the full hash of a commit/),
+    );
+    assert.deepEqual(calls, []);
   });
 });

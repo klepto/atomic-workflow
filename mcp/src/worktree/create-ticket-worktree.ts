@@ -6,20 +6,21 @@ import { syncTaskBranch } from './sync-task-branch.ts';
 import { WorktreeError } from './worktree-error.ts';
 import { branchRef, shown, taskPlaceOf, ticketPlaceOf } from './worktree-layout.ts';
 import { changes, ensureWorktree } from './worktree-state.ts';
-import type { CreatedWorktrees, WorkName } from './worktrees.ts';
+import type { CreatedWorktrees, RebaseChecks, WorkName } from './worktrees.ts';
 import type { WorktreesContext } from './worktrees-context.ts';
 
 /**
  * Returns the worktrees of the task `task` and of its ticket `ticket` in the repository of `context`, made where they
  * do not exist, as `Worktrees.create` says. The task branch is made from `baseBranch`, or from the branch that the main
  * checkout has checked out when `baseBranch` is `null`. Before it makes the ticket branch, it syncs the task branch
- * with the base branch as `syncTaskBranch` says.
+ * with the base branch as `syncTaskBranch` says, with the checks `checks` of the candidate of an earlier call.
  * Rejects as `Worktrees.create` says.
  */
 export const createTicketWorktree = async (
   task: WorkName,
   ticket: WorkName,
   baseBranch: string | null,
+  checks: RebaseChecks | undefined,
   context: WorktreesContext,
 ): Promise<CreatedWorktrees> => {
   const { checkout } = context.layout;
@@ -32,7 +33,7 @@ export const createTicketWorktree = async (
   await gitOutput(checkout, ['worktree', 'prune'], context.runGit);
   const taskFailures = await ensureWorktree(taskPlace, true, context);
   const ticketBranchCreated = !(await branchExists(ticketPlace.branch, context));
-  const sync = await syncTaskBranch(task, base, ticketBranchCreated, context);
+  const sync = await syncTaskBranch(task, base, ticketBranchCreated, checks, context);
   if (ticketBranchCreated) await makeTicketBranch(ticketPlace.branch, taskPlace.branch, context);
   const ticketFailures = await ensureWorktree(ticketPlace, true, context);
   return {

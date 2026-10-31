@@ -52,8 +52,29 @@ fixes it, with the problem that the review found. Once the follow-up ticket land
 3. On a conflict, the base branch changed since the task branch was made. Resolve the files that it names in the
    worktree that its message names, so that the changes of the base branch and the work of the task both stay. Run
    `git -C "<worktree>" add` on them, then call `worktreeMerge` again with the task id alone.
-4. On any other refusal, such as changes of the main checkout that the move of the base branch would overwrite, print
+4. On a failure with the kind `needs-checks`, the rebase rewrote the commits of the tickets, and the base branch has
+   not moved. Follow `## Checks of the task branch`.
+5. On any other refusal, such as changes of the main checkout that the move of the base branch would overwrite, print
    its message, and stop. A new `/atomic-workflow:approve` of the task lands it once the cause is gone.
+
+## Checks of the task branch
+
+The data of the failure `needs-checks` names the `worktree` that holds the rebased task branch, and the `commit` of
+it:
+
+1. Run the checks in that `worktree`, as `## Checks of a candidate` of `../../references/implementation.md` says,
+   relative to the base directory of this skill.
+2. Call `worktreeMerge` again with the task id and `checks`: the `commit` of the failure, and `failure` as `null` when
+   every check passed, or as the first command that failed with its output. Report a failure too, since only that call
+   drops the candidate.
+3. If the call succeeds, every check passed: the base branch moved to the candidate, and the task landed. Go on to
+   `## Finish`.
+4. If you reported a failure, the call fails with the kind `not-allowed`, and neither branch moves. Print its message.
+   Then print `To fix the failed check, run /atomic-workflow:plan-tickets <task id>, and ask for a follow-up ticket of
+   the ticket whose ## Verify holds the failed command. Once it lands and its review passes, approve it with
+   /atomic-workflow:approve <task id>.` Then stop.
+5. On any other failure, go on as steps 3 to 5 of `## Land the task` say. A failure `needs-checks` again means that
+   the base branch moved during the checks, and the rebase made a new candidate: run its checks from step 1.
 
 ## Finish
 

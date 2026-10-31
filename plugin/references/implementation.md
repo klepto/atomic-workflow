@@ -21,9 +21,45 @@ the task branch onto the tip of the base branch in the worktree of the task. So 
 changes of the base branch and the tickets that landed. The commit of the task branch that the ticket starts from is
 its fork point. When the ticket lands, `worktreeMerge` squashes the commits since the fork point into one commit, and
 rebases it onto the tip of the task branch, so a sync after the ticket started does not bring the commits of other
-tickets into it. A sync that stops on a conflict fails with the files, as `## Sync conflict` of `implement` says. The
-sync is skipped, with a line in `warnings`, when the base branch does not exist, the worktree of the task has
-uncommitted changes, or a ticket branch made before fork points were recorded still exists.
+tickets into it. A sync that stops on a conflict fails with the files, as `## Sync conflict` of `implement` says. A
+sync that rewrites the commits of landed tickets moves no branch until its checks pass, as `## Checks of a candidate`
+says. The sync is skipped, with a line in `warnings`, when the base branch does not exist, the worktree of the task
+has uncommitted changes, or a ticket branch made before fork points were recorded still exists.
+
+## Checks of a candidate
+
+Two rebases rewrite the commits of landed tickets: the sync of `worktreeCreate`, and the rebase of the task branch
+onto the base branch when `worktreeMerge` lands a task. They rewrite them only when the task branch and the base branch
+each have commits that the other lacks. Such a rebase, and a stopped rebase that continues once its conflicts are
+resolved, ends in a candidate: the rebased commit of the task branch, which no branch points to yet. The method then
+fails with the kind `needs-checks`, and its data holds:
+
+- `worktree`: the path of a worktree whose files are the tree of the candidate.
+- `commit`: the full hash of the candidate.
+
+The server moves a branch to the candidate only once a call reports the checks of that commit. A task branch that the
+base branch holds, or that holds the base branch, needs no checks, and no call fails with `needs-checks` for it.
+
+Run the checks:
+
+1. Call `taskGet` with the task id. The checks are the commands in the code blocks of `## Verify` in the description
+   of each ticket whose status is `needs-review` or `done`, in the order of the ids of the tickets. Run a command that
+   an earlier ticket named already only once. A line of `## Verify` outside a code block is no check.
+2. Run each command with the `worktree` of the failure as its working directory: `cd "<worktree>" && <command>`. Never
+   run a check in the main checkout or in the worktree of a ticket. Stop at the first command that fails.
+3. Stop each process that a command left running, as `## Processes` says. Undo each change that the checks made to
+   the files of the `worktree`: `git -C "<worktree>" restore .`, then `git -C "<worktree>" clean -fd`. The worktree
+   was clean before the checks, and a change left there makes the server skip the next sync.
+4. Call the method again with the same arguments, plus `checks`:
+   - `commit`: the `commit` of the failure.
+   - `failure`: `null` when every command passed. Else `{ "command": <command>, "output": <output> }` for the first
+     command that failed, with its output, or the last 100 lines of it when it is longer.
+5. If that call fails with `needs-checks` again, a branch moved during the checks, and the rebase made a new
+   candidate. Run the checks again for its `commit`, from step 1.
+
+Report only the checks that you ran, for the `commit` that you ran them on. Never move a branch yourself, such as with
+`git rebase`, `git reset`, `git merge` or `git update-ref` on the task branch or the base branch: the server moves it
+once the call with `checks` passes.
 
 ## Work in the worktree of the ticket
 

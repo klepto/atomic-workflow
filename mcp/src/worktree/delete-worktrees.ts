@@ -1,4 +1,5 @@
 import { branchExists, checkLanded, checkTaskLanded, taskBranches } from './branches.ts';
+import { removeCandidate } from './candidate.ts';
 import { errorMessage } from './error-details.ts';
 import { forwardSlashes, isBelow, samePath } from './paths.ts';
 import { lastLines } from './run-git.ts';
@@ -182,8 +183,8 @@ const shortened = (commandLine: string): string =>
   commandLine.length <= SHOWN_COMMAND_LINE_LENGTH ? commandLine : `${commandLine.slice(0, SHOWN_COMMAND_LINE_LENGTH)}…`;
 
 /**
- * Deletes the branch `branch` of the repository of `context` with its fork point, and returns whether the branch is
- * gone. A failure adds a warning to `warnings`.
+ * Deletes the branch `branch` of the repository of `context` with its fork point and its candidate, and returns
+ * whether the branch is gone. A failure adds a warning to `warnings`.
  */
 const removeBranch = async (branch: string, warnings: string[], context: WorktreesContext): Promise<boolean> => {
   const { checkout } = context.layout;
@@ -195,6 +196,10 @@ const removeBranch = async (branch: string, warnings: string[], context: Worktre
   const forkPoint = await context.runGit(checkout, ['update-ref', '-d', forkPointRefOf(branch)]);
   if (forkPoint.exitCode !== 0) {
     warnings.push(`The fork point of the branch ${branch} could not be deleted: ${lastLines(forkPoint)}`);
+  }
+  const candidate = await removeCandidate(branch, context);
+  if (candidate.exitCode !== 0) {
+    warnings.push(`The candidate of the branch ${branch} could not be deleted: ${lastLines(candidate)}`);
   }
   return true;
 };

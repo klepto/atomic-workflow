@@ -32,10 +32,11 @@ the caller. It needs a ticket.
    those tickets, and stop. A follow-up ticket depends on the ticket that it fixes, which needs review, so it passes.
    With `--no-land`, a ticket in a mode other than `unattended` stops here too, as `## No land` says.
 5. Call `worktreeCreate`. If it fails because another session works on the ticket, tell the user, and stop. If it
-   fails with the kind `conflict`, follow `## Sync conflict`. If `taskBranchSynced` is true, say that the task branch
-   now starts from the tip of `baseBranch`. If `uncommittedChanges` is true, warn the user that the changes of the
-   main checkout that no commit holds are not on the task branch. If `copyFailures` is not null, name the files that
-   were not copied. Name each line of `warnings`.
+   fails with the kind `conflict`, follow `## Sync conflict`. If it fails with the kind `needs-checks`, follow
+   `## Sync checks`. If `taskBranchSynced` is true, say that the task branch now starts from the tip of `baseBranch`.
+   If `uncommittedChanges` is true, warn the user that the changes of the main checkout that no commit holds are not
+   on the task branch. If `copyFailures` is not null, name the files that were not copied. Name each line of
+   `warnings`.
 
 Start the first reply with the line of the picked ticket, if this call picked one. Then print the web URL, then the
 path and the branch of the worktree of the ticket.
@@ -52,10 +53,24 @@ ticket:
    changes of the base branch and the work of the tickets that landed on the task branch stay.
 2. Run `git -C "<worktree of the task>" add` on them.
 3. Call `worktreeCreate` again. It continues the rebase, then makes the branch of the ticket. If it stops on a
-   conflict again, with a later commit of the task branch, repeat from step 1.
+   conflict again, with a later commit of the task branch, repeat from step 1. If it fails with the kind
+   `needs-checks`, follow `## Sync checks`.
 
 If a conflict cannot be resolved without changing the intent of a ticket or of the changes of the base branch, tell
 the user the files and the worktree of the task, and stop.
+
+## Sync checks
+
+When the sync rewrites the commits of landed tickets, `worktreeCreate` fails with the kind `needs-checks`, and moves
+no branch. Its data names the `worktree` that holds the rebased task branch, and the `commit` of it:
+
+1. Run the checks in that `worktree`, as `## Checks of a candidate` of `implementation.md` says.
+2. Call `worktreeCreate` again with the task id, the ticket id and `checks`: the `commit` of the failure, and
+   `failure` as `null` when every check passed, or as the first command that failed with its output.
+3. Go on with its result as step 5 of `## Start` says. A failed check does not stop the ticket: the ticket starts
+   from the task branch as it was, and `warnings` names the failed command, so it reaches the report like each other
+   warning. A `checks.commit` that is stale, since a branch moved during the checks, ends the same way, with a warning
+   that the sync was skipped.
 
 ## Next ready ticket
 
