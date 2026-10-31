@@ -21,6 +21,10 @@ import { stderrLog } from './session/log.stderr.ts';
 import { databasePath } from './storage/database-path.ts';
 import { sqliteOpenStorage } from './storage/open-storage.sqlite.ts';
 import type { Storage } from './storage/open-storage.ts';
+import { pollStartUsageReader } from './usage/usage-reader.poll.ts';
+import { claudeConfigPath } from './usage/usage-reader.ts';
+import { claudeRefreshUsage } from './usage/usage-refresh.claude.ts';
+import { createUsageRefresher } from './usage/usage-refresher.ts';
 import { httpStartWebServer } from './web/start-web-server.http.ts';
 import { directoryCreateStaticFiles } from './web/static-files.directory.ts';
 import { diskCopyIgnored } from './worktree/copy-ignored.disk.ts';
@@ -80,6 +84,10 @@ const serve = async (address: string, mainWorktree: string, storage: Storage): P
     },
     changes,
   );
+  const usage = await pollStartUsageReader(claudeConfigPath(process.env.CLAUDE_CONFIG_DIR, homedir()), changes);
+  const usageRefresher = createUsageRefresher({ refresh: claudeRefreshUsage, log: stderrLog });
+  // The cache may be hours old when the server starts, so the meter would show no 5-hour window until a turn ends.
+  usageRefresher.request();
   const awaitCommand = entryPointPath('await-command');
   const context: MethodContext = {
     sessions: published.sessions,
@@ -99,6 +107,8 @@ const serve = async (address: string, mainWorktree: string, storage: Storage): P
       },
     ),
     ticketClaims: mapCreateTicketClaims(),
+    usage,
+    usageRefresher,
     mainWorktree,
     caller: undefined,
     awaitCommandLine: (sessionId) => shellAwaitCommandLine(awaitCommand, sessionId),
@@ -121,6 +131,7 @@ const serve = async (address: string, mainWorktree: string, storage: Storage): P
       },
     });
   } finally {
+    usage.stop();
     await webServer.close();
   }
 };

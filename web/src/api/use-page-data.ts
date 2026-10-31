@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { setOnline } from '@/api/connection.ts';
 import { fetchCall } from '@/api/rpc.fetch.ts';
 import { serialReads } from '@/api/serial-reads.ts';
-import type { ListedSession, Repository, TaskSummary } from '@/api/types.ts';
+import type { ListedSession, Repository, TaskSummary, UsageLimits } from '@/api/types.ts';
 import { useEventStream } from '@/api/use-event-stream.ts';
 
 /**
@@ -24,6 +24,12 @@ interface PageData {
    * Tasks in the order of their ids, as the latest `taskList` answered them, or `undefined` until it answered once.
    */
   readonly tasks: readonly TaskSummary[] | undefined;
+
+  /**
+   * Usage limits of the Claude subscription, as the latest `usageGet` answered them, or `undefined` until it answered
+   * once, and while it fails.
+   */
+  readonly usage: UsageLimits | undefined;
 
   /**
    * Counter that grows by one with each change of the message log, and after each reconnect of the stream, so that a
@@ -65,16 +71,17 @@ const keepLastData = (): undefined => undefined;
 
 /**
  * Reads the data of the page and keeps it current by the one stream of the page at `/events`, which also feeds the
- * state of the connection. At load it reads the repository, the sessions and the tasks. On `sessions` it reads the
- * sessions again, on `tasks` the tasks, and on `messages` it reads the sessions again, since each holds the time of its
- * latest message, and adds one to `messages`. When the stream opens again after a drop, it reads everything again and
- * adds one to `messages`, since events may have been lost meanwhile. Reads of one resource never overlap. Returns the
- * data of the page.
+ * state of the connection. At load it reads the repository, the sessions, the tasks and the usage limits. On `sessions`
+ * it reads the sessions again, on `tasks` the tasks, on `usage` the usage limits, and on `messages` it reads the
+ * sessions again, since each holds the time of its latest message, and adds one to `messages`. When the stream opens
+ * again after a drop, it reads everything again and adds one to `messages`, since events may have been lost meanwhile.
+ * Reads of one resource never overlap. Returns the data of the page.
  */
 export const usePageData = (): PageData => {
   const [repository, setRepository] = useState<Repository>();
   const [sessions, setSessions] = useState<readonly ListedSession[]>();
   const [tasks, setTasks] = useState<readonly TaskSummary[]>();
+  const [usage, setUsage] = useState<UsageLimits>();
   const [messages, setMessages] = useState(0);
   const [readers] = useState(() => ({
     repository: serialReads(() => fetchCall<Repository>('repositoryGet').then(setRepository, keepLastData)),
@@ -84,12 +91,15 @@ export const usePageData = (): PageData => {
     tasks: serialReads(() =>
       fetchCall<TaskListResult>('taskList').then((result) => setTasks(result.tasks), keepLastData),
     ),
+    // A failed read forgets the usage limits, so that the meter shows them as unknown, not as values that may be stale.
+    usage: serialReads(() => fetchCall<UsageLimits>('usageGet').then(setUsage, () => setUsage(undefined))),
   }));
 
   const readAll = useCallback(() => {
     void readers.repository();
     void readers.sessions();
     void readers.tasks();
+    void readers.usage();
   }, [readers]);
 
   useEffect(() => {
@@ -103,6 +113,9 @@ export const usePageData = (): PageData => {
           break;
         case 'tasks':
           void readers.tasks();
+          break;
+        case 'usage':
+          void readers.usage();
           break;
         case 'messages':
           // The sessions hold the time of the latest message of each, which orders the chats.
@@ -118,5 +131,5 @@ export const usePageData = (): PageData => {
     onOnline: setOnline,
   });
 
-  return { repository, sessions, tasks, messages, readSessions: readers.sessions };
+  return { repository, sessions, tasks, usage, messages, readSessions: readers.sessions };
 };

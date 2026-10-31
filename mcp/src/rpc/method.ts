@@ -8,6 +8,8 @@ import type { Clock } from '../clock/clock.ts';
 import type { MessageLogStore } from '../storage/message-log-store.ts';
 import type { SessionStore } from '../storage/session-store.ts';
 import type { TaskStore } from '../storage/task-store.ts';
+import type { UsageReader } from '../usage/usage-reader.ts';
+import type { UsageRefresher } from '../usage/usage-refresher.ts';
 import type { Worktrees } from '../worktree/worktrees.ts';
 import type { CreateSessionIdFunction } from './create-session-id.ts';
 import { designSaveMethod } from './method.design-save.ts';
@@ -50,6 +52,7 @@ import { ticketNextMethod } from './method.ticket-next.ts';
 import { ticketRequestChangesMethod } from './method.ticket-request-changes.ts';
 import { ticketSetStatusMethod } from './method.ticket-set-status.ts';
 import { ticketsSaveMethod } from './method.tickets-save.ts';
+import { usageGetMethod } from './method.usage-get.ts';
 import { worktreeCreateMethod } from './method.worktree-create.ts';
 import { worktreeDeleteMethod } from './method.worktree-delete.ts';
 import { worktreeMergeMethod } from './method.worktree-merge.ts';
@@ -104,6 +107,16 @@ export interface MethodContext {
    * Claims of the tickets in progress, each held by the connection of the client that works on it.
    */
   readonly ticketClaims: TicketClaims;
+
+  /**
+   * Reader of the usage limits of the account, from the cache of Claude Code.
+   */
+  readonly usage: UsageReader;
+
+  /**
+   * Refresher of the usage limits of the account, which makes Claude Code fetch them again into its cache.
+   */
+  readonly usageRefresher: UsageRefresher;
 
   /**
    * Absolute path of the main worktree of the repository, the same for every worktree that the repository server
@@ -177,6 +190,7 @@ export interface Method<Params extends z.ZodObject = z.ZodObject, Result = unkno
 export const METHODS: readonly Method[] = [
   echoMethod,
   repositoryGetMethod,
+  usageGetMethod,
   sessionRegisterMethod,
   sessionTaskSetMethod,
   sessionTicketSetMethod,

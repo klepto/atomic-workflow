@@ -409,11 +409,49 @@ export interface Repository {
 }
 
 /**
+ * One window of a usage limit of the Claude subscription, in the result of `usageGet`, as `UsageWindow` of the usage
+ * reader in `mcp/src/usage/` declares it.
+ */
+export interface UsageWindow {
+  /**
+   * Used percentage of the window, from 0 to 100, as the source gives it, not rounded.
+   */
+  readonly usedPercent: number;
+
+  /**
+   * Time when the window resets, in ms since the epoch.
+   */
+  readonly resetsAt: number;
+}
+
+/**
+ * Usage limits of the Claude subscription, the result of `usageGet`, as `UsageLimits` of the usage reader in
+ * `mcp/src/usage/` declares it. Claude Code caches them in its global config file, so reading them spends no tokens.
+ */
+export interface UsageLimits {
+  /**
+   * 5-hour window, or `null` when the source has none.
+   */
+  readonly fiveHour: UsageWindow | null;
+
+  /**
+   * Weekly window, or `null` when the source has none.
+   */
+  readonly sevenDay: UsageWindow | null;
+
+  /**
+   * Time when Claude Code fetched the values, in ms since the epoch, or `null` when the source has none.
+   */
+  readonly fetchedAt: number | null;
+}
+
+/**
  * Name of an event of the stream at `/events`: the resource that changed, `ChangedResource` of
  * `mcp/src/changes/change-feed.ts`. `sessions` is the set of attached sessions with the status of each, `messages` the
- * message log, and `tasks` the tasks with their goals, design and tickets.
+ * message log, `tasks` the tasks with their goals, design and tickets, and `usage` the usage limits of the Claude
+ * subscription.
  */
-export type ChangeEvent = 'sessions' | 'messages' | 'tasks';
+export type ChangeEvent = 'sessions' | 'messages' | 'tasks' | 'usage';
 
 /**
  * Skill that a session can run, in the result of `skillList`, as `TranscriptSkill` of

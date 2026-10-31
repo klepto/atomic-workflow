@@ -2,7 +2,6 @@ import { useConnection } from '@/api/use-connection.ts';
 import { usePageData } from '@/api/use-page-data.ts';
 import { Alert, AlertDescription } from '@/components/ui/alert.tsx';
 import { HintProvider } from '@/components/ui/hint.tsx';
-import { ScrollArea } from '@/components/ui/scroll-area.tsx';
 import { NoChat } from '@/console/console-notices.tsx';
 import { ConsolePage } from '@/console/console-page.tsx';
 import { PageHeader, taskTabIdOf } from '@/layout/page-header.tsx';
@@ -28,18 +27,19 @@ const ConnectionBanner = () => (
 );
 
 /**
- * Frame of the app: the header, the banner while the stream is down, and below them the sidebar beside the main
- * column, with the panel of the open task at the right. The URL holds the open chat and the open task, so a refresh,
- * back and forward keep them, and each view that opens navigates. The main column stays empty until the sessions and
- * the tasks are known. Then it shows the open chat, or the line that no agent has run in the repository while there is
- * no chat. The app fills the window, and the window never scrolls: the sidebar, the tabs of the header, the main column
- * and the task panel each scroll inside themselves. While a task is open, the sidebar lists the chats of the task. The
- * task of the open chat opens once its subagent gets it. On a narrow screen the sidebar is a row above the main column,
- * and the task panel covers both.
+ * Frame of the app: the header, the banner while the stream is down, and below them the sidebar beside the main column,
+ * with the panel of the open task at the right. The URL holds the open chat and the open task, so a refresh, back and
+ * forward keep them, and each view that opens navigates. The main column stays empty until the sessions and the tasks
+ * are known. Then it shows the open chat, or the line that no agent has run in the repository while there is no chat.
+ * The bottom of the sidebar shows the usage limits of the Claude subscription. The app fills the window, and the window
+ * never scrolls: the chats of the sidebar, the tabs of the header, the main column and the task panel each scroll
+ * inside themselves, so the sidebar reaches the bottom of the window and its usage limits stay in view.
+ * While a task is open, the sidebar lists the chats of the task. The task of the open chat opens once its subagent gets
+ * it. On a narrow screen the sidebar is a row above the main column, and the task panel covers both.
  */
 const Shell = () => {
   const { online } = useConnection();
-  const { repository, sessions, tasks, messages, readSessions } = usePageData();
+  const { repository, sessions, tasks, usage, messages, readSessions } = usePageData();
   const { openTask, chats, open, ticket } = useView(sessions, tasks);
   useFirstTaskOfOpenChat(open, sessions, tasks);
   const openTaskRef = openTask && taskRefOf(openTask);
@@ -86,16 +86,17 @@ const Shell = () => {
       />
       {!online && <ConnectionBanner />}
       <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden md:flex-row">
-        <ScrollArea className="shrink-0 border-b bg-sidebar text-sidebar-foreground md:w-60 md:border-r md:border-b-0">
+        <div className="flex shrink-0 flex-col border-b bg-sidebar text-sidebar-foreground md:w-60 md:border-r md:border-b-0">
           <Sidebar
             sessions={sessions ?? []}
             chats={chats ?? []}
             open={open}
             task={openTask}
+            usage={usage}
             onOpen={openAgentChat}
             readSessions={readSessions}
           />
-        </ScrollArea>
+        </div>
         <main className="flex min-h-0 min-w-0 flex-1 flex-col">
           {openTask !== undefined && ticket !== undefined ? (
             <TicketPage

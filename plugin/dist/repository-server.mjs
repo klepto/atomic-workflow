@@ -5199,7 +5199,7 @@ function isRecursive(inst, stack, resolve3) {
     return PROVEN;
   stack.add(inst);
   let result = NONE;
-  const check2 = (child) => {
+  const check3 = (child) => {
     if (result !== PROVEN && child?._zod) {
       const answer = isRecursive(child, stack, resolve3);
       if (answer > result)
@@ -5228,32 +5228,32 @@ function isRecursive(inst, stack, resolve3) {
     case "object": {
       const raw = rawShape(def);
       merge2(raw ? shape(raw, true) : ASSUMED);
-      check2(def.catchall);
+      check3(def.catchall);
       break;
     }
     case "array":
-      check2(def.element);
+      check3(def.element);
       break;
     case "tuple":
       for (const el of def.items)
-        check2(el);
-      check2(def.rest);
+        check3(el);
+      check3(def.rest);
       break;
     case "record":
     case "map":
-      check2(def.keyType);
-      check2(def.valueType);
+      check3(def.keyType);
+      check3(def.valueType);
       break;
     case "set":
-      check2(def.valueType);
+      check3(def.valueType);
       break;
     case "union":
       for (const el of def.options)
-        check2(el);
+        check3(el);
       break;
     case "intersection":
-      check2(def.left);
-      check2(def.right);
+      check3(def.left);
+      check3(def.right);
       break;
     case "optional":
     case "nullable":
@@ -5264,15 +5264,15 @@ function isRecursive(inst, stack, resolve3) {
     case "nonoptional":
     case "promise":
     case "success":
-      check2(def.innerType);
+      check3(def.innerType);
       break;
     case "pipe":
-      check2(def.in);
-      check2(def.out);
+      check3(def.in);
+      check3(def.out);
       break;
     case "function":
-      check2(def.input);
-      check2(def.output);
+      check3(def.input);
+      check3(def.output);
       break;
     // `$ZodLazy` caches its inner on the def, so a resolved edge is followed exactly
     case "lazy": {
@@ -5313,10 +5313,10 @@ function isRecursive(inst, stack, resolve3) {
         if (!value || typeof value !== "object")
           continue;
         if (value._zod)
-          check2(value);
+          check3(value);
         else if (Array.isArray(value))
           for (const el of value)
-            check2(el);
+            check3(el);
       }
     }
   }
@@ -13262,8 +13262,8 @@ function generateChecks(doc, ctx, schema, accessor) {
   if (!schemaChecks || schemaChecks.length === 0)
     return accessor;
   let currentAccessor = accessor;
-  for (const check2 of schemaChecks) {
-    const def = check2._zod.def;
+  for (const check3 of schemaChecks) {
+    const def = check3._zod.def;
     if (def.when && !WHEN_DEFAULTED_CHECKS.has(def.check)) {
       throw new ZodCompileUnsupportedError(`check with a custom "when" condition`);
     }
@@ -13311,7 +13311,7 @@ function generateChecks(doc, ctx, schema, accessor) {
         currentAccessor = generateStringFormatCheck(doc, ctx, def, currentAccessor);
         break;
       case "custom":
-        currentAccessor = generateCustomRefineCheck(doc, ctx, check2, currentAccessor);
+        currentAccessor = generateCustomRefineCheck(doc, ctx, check3, currentAccessor);
         break;
       case "bigint_format":
         generateBigIntFormatCheck(doc, def, currentAccessor);
@@ -13327,7 +13327,7 @@ function generateChecks(doc, ctx, schema, accessor) {
         break;
       case "overwrite": {
         const newAccessor = newVar(ctx);
-        generateOverwriteCheck(doc, ctx, check2, currentAccessor, newAccessor);
+        generateOverwriteCheck(doc, ctx, check3, currentAccessor, newAccessor);
         currentAccessor = newAccessor;
         break;
       }
@@ -13450,8 +13450,8 @@ function generatePropertyCheck(doc, ctx, def, accessor) {
   const propAccessor = `${accessor}[${JSON.stringify(def.property)}]`;
   generateCheck(doc, ctx, def.schema, propAccessor);
 }
-function generateOverwriteCheck(doc, ctx, check2, currentAccessor, newAccessor) {
-  const tx = check2._zod.def.tx;
+function generateOverwriteCheck(doc, ctx, check3, currentAccessor, newAccessor) {
+  const tx = check3._zod.def.tx;
   if (!tx) {
     throw new ZodCompileUnsupportedError("overwrite check without a transform function");
   }
@@ -13467,8 +13467,8 @@ function throwAsync() {
 function pushIssue(issue2) {
   this.issues.push(issue2);
 }
-function generateCustomRefineCheck(doc, ctx, check2, accessor) {
-  const def = check2._zod.def;
+function generateCustomRefineCheck(doc, ctx, check3, accessor) {
+  const def = check3._zod.def;
   if (def.fn) {
     if (isAsyncFunction(def.fn)) {
       throw new ZodCompileAsyncError("z.compile: async .refine() predicates are not supported");
@@ -13481,11 +13481,11 @@ function generateCustomRefineCheck(doc, ctx, check2, accessor) {
     doc.write(`if (!${resVar}) return INVALID;`);
     return accessor;
   }
-  if (check2._zod.check) {
-    if (isAsyncFunction(check2._zod.check)) {
+  if (check3._zod.check) {
+    if (isAsyncFunction(check3._zod.check)) {
       throw new ZodCompileAsyncError("z.compile: async .superRefine() / check functions are not supported");
     }
-    const checkFn = check2._zod.check;
+    const checkFn = check3._zod.check;
     const helperFn = (value) => {
       const fakePayload = { value, issues: [], addIssue: pushIssue };
       const result = checkFn(fakePayload);
@@ -14107,8 +14107,8 @@ function generateNullableCheck(doc, ctx, schema, accessor, buildsValue = true) {
   return outputVar;
 }
 function generateSizeGate(doc, schema, size) {
-  for (const [max, check2] of sizeCaps(schema._zod.def.checks)) {
-    doc.write(`if (${size} > ${numericOperand(max, check2._zod.def.check)}) return INVALID;`);
+  for (const [max, check3] of sizeCaps(schema._zod.def.checks)) {
+    doc.write(`if (${size} > ${numericOperand(max, check3._zod.def.check)}) return INVALID;`);
   }
 }
 function generateArrayCheck(doc, ctx, schema, accessor, buildsValue = true) {
@@ -17408,8 +17408,8 @@ var ZodType = /* @__PURE__ */ $constructor("ZodType", (inst, def) => {
     reg.add(this, meta3);
     return this;
   },
-  refine(check2, params) {
-    return this.check(refine(check2, params));
+  refine(check3, params) {
+    return this.check(refine(check3, params));
   },
   superRefine(refinement, params) {
     return this.check(superRefine(refinement, params));
@@ -19627,7 +19627,7 @@ function visit(schema, fnOrHandlers) {
     return h ? h(node2, rewritten) : node2;
   };
   const cache = /* @__PURE__ */ new Map();
-  function run(s) {
+  function run2(s) {
     const cached2 = cache.get(s);
     if (cached2 === RESOLVING) {
       return new $ZodLazy({
@@ -19653,21 +19653,21 @@ function visit(schema, fnOrHandlers) {
         let changed = false;
         const newShape = {};
         for (const k of keys) {
-          const mapped = run(oldShape[k]);
+          const mapped = run2(oldShape[k]);
           if (mapped !== oldShape[k])
             changed = true;
           newShape[k] = mapped;
         }
         let newCatchall = def.catchall;
         if (def.catchall) {
-          newCatchall = run(def.catchall);
+          newCatchall = run2(def.catchall);
           if (newCatchall !== def.catchall)
             changed = true;
         }
         return changed ? clone(s, { ...def, shape: newShape, catchall: newCatchall }) : s;
       }
       case "array": {
-        const mapped = run(def.element);
+        const mapped = run2(def.element);
         return mapped === def.element ? s : clone(s, { ...def, element: mapped });
       }
       case "tuple": {
@@ -19675,14 +19675,14 @@ function visit(schema, fnOrHandlers) {
         let changed = false;
         const newItems = [];
         for (const item of oldItems) {
-          const mapped = run(item);
+          const mapped = run2(item);
           if (mapped !== item)
             changed = true;
           newItems.push(mapped);
         }
         let newRest = def.rest;
         if (def.rest) {
-          newRest = run(def.rest);
+          newRest = run2(def.rest);
           if (newRest !== def.rest)
             changed = true;
         }
@@ -19690,12 +19690,12 @@ function visit(schema, fnOrHandlers) {
       }
       case "record":
       case "map": {
-        const newKey = run(def.keyType);
-        const newVal = run(def.valueType);
+        const newKey = run2(def.keyType);
+        const newVal = run2(def.valueType);
         return newKey === def.keyType && newVal === def.valueType ? s : clone(s, { ...def, keyType: newKey, valueType: newVal });
       }
       case "set": {
-        const newVal = run(def.valueType);
+        const newVal = run2(def.valueType);
         return newVal === def.valueType ? s : clone(s, { ...def, valueType: newVal });
       }
       case "union": {
@@ -19703,7 +19703,7 @@ function visit(schema, fnOrHandlers) {
         let changed = false;
         const newOptions = [];
         for (const opt of oldOptions) {
-          const mapped = run(opt);
+          const mapped = run2(opt);
           if (mapped !== opt)
             changed = true;
           newOptions.push(mapped);
@@ -19711,8 +19711,8 @@ function visit(schema, fnOrHandlers) {
         return changed ? clone(s, { ...def, options: newOptions }) : s;
       }
       case "intersection": {
-        const newLeft = run(def.left);
-        const newRight = run(def.right);
+        const newLeft = run2(def.left);
+        const newRight = run2(def.right);
         return newLeft === def.left && newRight === def.right ? s : clone(s, { ...def, left: newLeft, right: newRight });
       }
       case "optional":
@@ -19724,23 +19724,23 @@ function visit(schema, fnOrHandlers) {
       case "nonoptional":
       case "promise":
       case "success": {
-        const newInner = run(def.innerType);
+        const newInner = run2(def.innerType);
         return newInner === def.innerType ? s : clone(s, { ...def, innerType: newInner });
       }
       case "pipe": {
-        const newIn = run(def.in);
-        const newOut = run(def.out);
+        const newIn = run2(def.in);
+        const newOut = run2(def.out);
         return newIn === def.in && newOut === def.out ? s : clone(s, { ...def, in: newIn, out: newOut });
       }
       case "function": {
-        const newInput = run(def.input);
-        const newOutput = run(def.output);
+        const newInput = run2(def.input);
+        const newOutput = run2(def.output);
         return newInput === def.input && newOutput === def.output ? s : clone(s, { ...def, input: newInput, output: newOutput });
       }
       case "lazy": {
         const original = def.getter;
         const { _cachedInner, ...rest } = def;
-        return clone(s, { ...rest, getter: () => run(original()) });
+        return clone(s, { ...rest, getter: () => run2(original()) });
       }
       // A leaf by choice: `parts` are regex fragments, not data positions.
       case "template_literal":
@@ -19771,7 +19771,7 @@ function visit(schema, fnOrHandlers) {
       }
     }
   }
-  return run(schema);
+  return run2(schema);
 }
 
 // node_modules/zod/v4/classic/deep-partial.js
@@ -20332,10 +20332,10 @@ var REQUEST = external_exports.object({
   params: external_exports.unknown().optional()
 });
 var zodDispatch = async (methods, context, message) => {
-  const request2 = REQUEST.safeParse(message);
-  if (!request2.success)
+  const request3 = REQUEST.safeParse(message);
+  if (!request3.success)
     return new RpcError(RPC_ERROR_CODES.INVALID_REQUEST, "Invalid request").toResponse(idOf(message));
-  const { id, method, params } = request2.data;
+  const { id, method, params } = request3.data;
   const outcome = await call(methods, context, method, params);
   if (id === void 0) return void 0;
   return "error" in outcome ? { jsonrpc: "2.0", id, error: outcome.error } : { jsonrpc: "2.0", id, result: outcome.result };
@@ -20677,8 +20677,12 @@ var sessionActivityReportMethod = {
   description: "Reports whether the agent of a session is idle, works, or waits for the user.",
   agent: false,
   params: PARAMS13,
-  handle: async ({ sessionId, status, at }, { activity, clock }) => {
-    activity.report(sessionId, status, at ?? clock.now());
+  handle: async ({ sessionId, status, at }, { activity, sessions, usageRefresher, clock }) => {
+    const before = activity.get(sessionId)?.status;
+    const changed = activity.report(sessionId, status, at ?? clock.now());
+    if (!changed || status !== "idle" || before === "idle") return;
+    const session = await sessions.get(sessionId);
+    if (session?.role === "subagent") usageRefresher.request();
   }
 };
 
@@ -21793,8 +21797,18 @@ var ticketsSaveMethod = {
   handle: async ({ taskId, tickets }, context) => saveTickets(taskId, tickets, context)
 };
 
+// src/rpc/method.usage-get.ts
+var PARAMS44 = external_exports.object({});
+var usageGetMethod = {
+  name: "usageGet",
+  description: "Returns the latest 5-hour and weekly usage limits of the account, as Claude Code caches them: the used percentage and the reset time of each window, and the time of the fetch.",
+  agent: false,
+  params: PARAMS44,
+  handle: async (_params, { usage }) => usage.latest()
+};
+
 // src/rpc/method.worktree-create.ts
-var PARAMS44 = external_exports.object({
+var PARAMS45 = external_exports.object({
   taskId: external_exports.number().int().positive().describe("Identifier of the task"),
   ticketId: external_exports.number().int().positive().describe("Identifier of the ticket within its task")
 });
@@ -21802,7 +21816,7 @@ var worktreeCreateMethod = {
   name: "worktreeCreate",
   description: "Starts the work on a ticket of the atomic workflow: makes the worktree of its task and its own worktree where they do not exist, sets it in-progress, and returns the paths and branches of both worktrees with the ticket. Before it makes the branch of the ticket, it rebases the task branch onto the local base branch. On a conflict of that rebase, resolve and add the files in the worktree of the task that the error names, then call it again.",
   agent: true,
-  params: PARAMS44,
+  params: PARAMS45,
   handle: async ({ taskId, ticketId }, context) => {
     const { task, ticket } = await openTicket(taskId, ticketId, context.tasks);
     if (hasLanded(ticket.status))
@@ -21831,7 +21845,7 @@ var start2 = async (task, ticket, context) => {
 };
 
 // src/rpc/method.worktree-delete.ts
-var PARAMS45 = external_exports.object({
+var PARAMS46 = external_exports.object({
   taskId: external_exports.number().int().positive().describe("Identifier of the task"),
   ticketId: external_exports.number().int().positive().optional().describe("Identifier of the ticket whose worktree and branch to delete. Without it, deletes those of the task"),
   force: external_exports.boolean().default(false).describe("Whether to delete branches whose commits have not landed, and worktrees with uncommitted changes")
@@ -21841,7 +21855,7 @@ var worktreeDeleteMethod = {
   name: "worktreeDelete",
   description: "Deletes the worktree and the branch of a ticket of the atomic workflow, or without a ticket, every worktree and branch of the task. Refuses to lose work that has not landed unless forced.",
   agent: true,
-  params: PARAMS45,
+  params: PARAMS46,
   handle: async ({ taskId, ticketId, force }, context) => {
     const task = await findTask(taskId, context.tasks);
     if (ticketId === void 0) return deleteTask(task, force, context);
@@ -21880,7 +21894,7 @@ var isThrownAway = (ticket, unlanded) => isWorking(ticket.status) || hasLanded(t
 
 // src/rpc/method.worktree-merge.ts
 var SUMMARY_LINE = /^(feat|fix|chore|refactor|docs|test|perf|build|ci|style|revert)(\([^()\r\n]+\))?!?: \S/;
-var PARAMS46 = external_exports.object({
+var PARAMS47 = external_exports.object({
   taskId: external_exports.number().int().positive().describe("Identifier of the task"),
   ticketId: external_exports.number().int().positive().optional().describe(
     "Identifier of the ticket to land on the task branch. Without it, lands the task branch on the base branch once every ticket of the task is done"
@@ -21893,7 +21907,7 @@ var worktreeMergeMethod = {
   name: "worktreeMerge",
   description: "With a ticket, squashes the commits of the worktree of a ticket of the atomic workflow into one commit with the message, rebases it onto the task branch, moves the task branch forward to it, and sets the ticket needs-review. Without a ticket, once every ticket of the task is done, rebases the task branch onto its base branch, moves the base branch forward to it, deletes the worktrees and branches of the task, and sets the task done. On a conflict, resolve and add the files in the worktree that the error names, then call it again.",
   agent: true,
-  params: PARAMS46,
+  params: PARAMS47,
   handle: async ({ taskId, ticketId, message }, context) => {
     if (ticketId === void 0) {
       if (message !== void 0)
@@ -21960,6 +21974,7 @@ var checkMergeable = (task) => {
 var METHODS = [
   echoMethod,
   repositoryGetMethod,
+  usageGetMethod,
   sessionRegisterMethod,
   sessionTaskSetMethod,
   sessionTicketSetMethod,
@@ -22021,7 +22036,7 @@ var ndjsonOpenRpcConnection = (stream, handle) => {
   };
 };
 var rejectPending = (connection) => {
-  for (const request2 of connection.pending.values()) request2.reject(new Error("The connection closed"));
+  for (const request3 of connection.pending.values()) request3.reject(new Error("The connection closed"));
 };
 var request = async (connection, method, params, signal) => new Promise((resolve3, reject) => {
   if (!connection.stream.writable) return reject(new Error("The connection is closed"));
@@ -22069,10 +22084,10 @@ var isResponse = (message) => {
   return "result" in message || "error" in message;
 };
 var settle2 = (connection, response) => {
-  const request2 = response.id === null ? void 0 : connection.pending.get(response.id);
-  if (request2 === void 0) return;
-  if ("error" in response) request2.reject(RpcError.of(response.error));
-  else request2.resolve(response.result);
+  const request3 = response.id === null ? void 0 : connection.pending.get(response.id);
+  if (request3 === void 0) return;
+  if ("error" in response) request3.reject(RpcError.of(response.error));
+  else request3.resolve(response.result);
 };
 var send = (connection, message) => {
   if (connection.stream.writable) connection.stream.write(`${JSON.stringify(message)}
@@ -22604,6 +22619,178 @@ var userVersion = (database) => {
   return Number(row?.user_version ?? 0);
 };
 
+// src/usage/usage-reader.poll.ts
+import { readFile } from "node:fs/promises";
+
+// src/transcript/is-not-found.ts
+var isNotFound = (error62) => error62 instanceof Error && "code" in error62 && error62.code === "ENOENT";
+
+// src/transcript/claude-entry.ts
+var ENTRY = external_exports.object({
+  type: external_exports.string(),
+  uuid: external_exports.string(),
+  timestamp: external_exports.iso.datetime(),
+  isMeta: external_exports.boolean().optional(),
+  queueTranscriptOnly: external_exports.boolean().optional().catch(void 0),
+  isSidechain: external_exports.boolean().optional(),
+  isCompactSummary: external_exports.boolean().optional(),
+  message: external_exports.object({
+    content: external_exports.union([external_exports.string(), external_exports.array(external_exports.object({ type: external_exports.string(), text: external_exports.string().optional() }))]),
+    stop_reason: external_exports.string().nullish().catch(void 0)
+  })
+});
+var parseJson = (text2) => {
+  try {
+    return JSON.parse(text2);
+  } catch {
+    return void 0;
+  }
+};
+
+// src/usage/usage-limits.ts
+var NO_USAGE_LIMITS = { fiveHour: null, sevenDay: null, fetchedAt: null };
+var WINDOW = external_exports.object({
+  utilization: external_exports.number().finite(),
+  resets_at: external_exports.iso.datetime({ offset: true })
+});
+var CACHE = external_exports.object({
+  fetchedAtMs: external_exports.number().finite().nullable().catch(null),
+  utilization: external_exports.object({
+    five_hour: WINDOW.nullable().catch(null),
+    seven_day: WINDOW.nullable().catch(null)
+  }).nullable().catch(null)
+});
+var CONFIG = external_exports.object({ cachedUsageUtilization: CACHE });
+var parseUsageLimits = (text2) => {
+  const config2 = CONFIG.safeParse(parseJson(text2));
+  if (!config2.success) return NO_USAGE_LIMITS;
+  const { fetchedAtMs, utilization } = config2.data.cachedUsageUtilization;
+  return {
+    fiveHour: windowOf(utilization?.five_hour ?? null),
+    sevenDay: windowOf(utilization?.seven_day ?? null),
+    fetchedAt: fetchedAtMs
+  };
+};
+var windowOf = (window) => window === null ? null : { usedPercent: Math.min(100, Math.max(0, window.utilization)), resetsAt: Date.parse(window.resets_at) };
+var sameUsageLimits = (a, b) => a.fetchedAt === b.fetchedAt && sameWindow(a.fiveHour, b.fiveHour) && sameWindow(a.sevenDay, b.sevenDay);
+var sameWindow = (a, b) => a === null || b === null ? a === b : a.usedPercent === b.usedPercent && a.resetsAt === b.resetsAt;
+
+// src/usage/usage-reader.poll.ts
+var POLL_INTERVAL = 1e4;
+var pollStartUsageReader = async (path, changes2) => {
+  const held = await readUsageLimits(path) ?? NO_USAGE_LIMITS;
+  const reader = { path, changes: changes2, held, timer: void 0, stopped: false };
+  schedule(reader);
+  return {
+    latest: () => reader.held,
+    stop: () => stop2(reader)
+  };
+};
+var schedule = (reader) => {
+  reader.timer = setTimeout(() => void check2(reader), POLL_INTERVAL);
+  reader.timer.unref();
+};
+var check2 = async (reader) => {
+  reader.timer = void 0;
+  const read = await readUsageLimits(reader.path);
+  if (reader.stopped) return;
+  if (read !== void 0 && !sameUsageLimits(read, reader.held)) {
+    reader.held = read;
+    reader.changes.publish("usage");
+  }
+  schedule(reader);
+};
+var stop2 = (reader) => {
+  reader.stopped = true;
+  clearTimeout(reader.timer);
+};
+var readUsageLimits = async (path) => {
+  try {
+    return parseUsageLimits(await readFile(path, "utf8"));
+  } catch (error62) {
+    if (isNotFound(error62)) return NO_USAGE_LIMITS;
+    return void 0;
+  }
+};
+
+// src/usage/usage-reader.ts
+import { join as join4 } from "node:path";
+var CONFIG_FILE = ".claude.json";
+var claudeConfigPath = (configDirectory, home) => join4(configDirectory || home, CONFIG_FILE);
+
+// src/usage/usage-refresh.claude.ts
+import { spawn as spawn2 } from "node:child_process";
+import { tmpdir } from "node:os";
+var ARGUMENTS = [
+  "--print",
+  "/usage",
+  "--output-format",
+  "json",
+  "--model",
+  "haiku",
+  "--max-turns",
+  "1",
+  "--no-session-persistence",
+  "--strict-mcp-config",
+  "--settings",
+  JSON.stringify({ disableAllHooks: true })
+];
+var TIMEOUT = 6e4;
+var RESULT = external_exports.object({
+  is_error: external_exports.boolean(),
+  num_turns: external_exports.number()
+});
+var claudeRefreshUsage = async () => {
+  const output2 = await runClaude();
+  const result = RESULT.safeParse(parseJson(output2));
+  if (!result.success) throw new Error("The command claude --print /usage printed no result");
+  if (result.data.is_error) throw new Error("The command claude --print /usage failed");
+  if (result.data.num_turns > 0) throw new Error("The command claude --print /usage took a turn of a model");
+};
+var runClaude = async () => new Promise((resolve3, reject) => {
+  const child = spawn2("claude", ARGUMENTS, {
+    cwd: tmpdir(),
+    stdio: ["ignore", "pipe", "ignore"],
+    windowsHide: true,
+    timeout: TIMEOUT
+  });
+  let output2 = "";
+  child.stdout.on("data", (chunk) => {
+    output2 += chunk.toString();
+  });
+  child.once("error", reject);
+  child.once("close", (code, signal) => {
+    if (code === 0) resolve3(output2);
+    else reject(new Error(`The command claude --print /usage ended with ${signal ?? `the exit code ${code}`}`));
+  });
+});
+
+// src/usage/usage-refresher.ts
+var createUsageRefresher = (dependencies) => {
+  const refresher = { dependencies, running: false, pending: false };
+  return { request: () => request2(refresher) };
+};
+var request2 = (refresher) => {
+  if (refresher.running) {
+    refresher.pending = true;
+    return;
+  }
+  refresher.running = true;
+  void run(refresher);
+};
+var run = async (refresher) => {
+  const { refresh, log } = refresher.dependencies;
+  do {
+    refresher.pending = false;
+    try {
+      await refresh();
+    } catch (error62) {
+      log(`Could not refresh the usage limits: ${errorMessage(error62)}`);
+    }
+  } while (refresher.pending);
+  refresher.running = false;
+};
+
 // src/web/start-web-server.http.ts
 import { createServer as createServer2 } from "node:http";
 import { text } from "node:stream/consumers";
@@ -22613,33 +22800,33 @@ var RPC_TYPE = "application/json";
 var EVENTS_PATH = "/events";
 var NOT_BUILT = "The web app is not built. Run npm run build in web/.";
 var httpStartWebServer = async (dependencies) => {
-  const server = createServer2((request2, response) => void serve2(dependencies, request2, response));
+  const server = createServer2((request3, response) => void serve2(dependencies, request3, response));
   await listen(server);
   const { port } = server.address();
   return { url: `http://${HOST}:${port}/`, close: () => close2(server) };
 };
-var serve2 = async (routes, request2, response) => {
+var serve2 = async (routes, request3, response) => {
   try {
-    await route(routes, request2, response);
+    await route(routes, request3, response);
   } catch (error62) {
     if (response.headersSent) return void response.destroy();
     respond(response, 500, "text/plain", errorMessage(error62));
   }
 };
-var route = async (routes, request2, response) => {
-  const { pathname } = new URL(request2.url ?? "/", `http://${HOST}`);
-  if (request2.headers.host !== `${HOST}:${request2.socket.localPort}`)
+var route = async (routes, request3, response) => {
+  const { pathname } = new URL(request3.url ?? "/", `http://${HOST}`);
+  if (request3.headers.host !== `${HOST}:${request3.socket.localPort}`)
     return void respond(response, 421, "text/plain", "Unknown host");
-  if (pathname === RPC_PATH) return routeRpc(routes.handle, request2, response);
-  if (request2.method !== "GET") return void respond(response, 405, "text/plain", "Only GET is allowed");
+  if (pathname === RPC_PATH) return routeRpc(routes.handle, request3, response);
+  if (request3.method !== "GET") return void respond(response, 405, "text/plain", "Only GET is allowed");
   if (pathname === EVENTS_PATH) return streamEvents(routes.changes, response);
-  respondStatic(response, await routes.staticFiles.find(sentPath(request2.url ?? "/")));
+  respondStatic(response, await routes.staticFiles.find(sentPath(request3.url ?? "/")));
 };
-var routeRpc = async (handle, request2, response) => {
-  if (request2.method !== "POST") return void respond(response, 405, "text/plain", "Only POST is allowed");
-  if (request2.headers["content-type"]?.split(";")[0]?.trim() !== RPC_TYPE)
+var routeRpc = async (handle, request3, response) => {
+  if (request3.method !== "POST") return void respond(response, 405, "text/plain", "Only POST is allowed");
+  if (request3.headers["content-type"]?.split(";")[0]?.trim() !== RPC_TYPE)
     return void respond(response, 415, "text/plain", `Only ${RPC_TYPE} is allowed`);
-  const answer = await call2(handle, await text(request2));
+  const answer = await call2(handle, await text(request3));
   if (answer === void 0) return void respond(response, 204);
   respond(response, 200, "application/json", JSON.stringify(answer));
 };
@@ -22698,8 +22885,8 @@ var close2 = async (server) => {
 };
 
 // src/web/static-files.directory.ts
-import { readFile, stat } from "node:fs/promises";
-import { extname, join as join4 } from "node:path";
+import { readFile as readFile2, stat } from "node:fs/promises";
+import { extname, join as join5 } from "node:path";
 var CONTENT_TYPES = {
   ".html": "text/html; charset=utf-8",
   ".js": "text/javascript; charset=utf-8",
@@ -22759,10 +22946,10 @@ var namesOf = (path) => {
   return names;
 };
 var readStaticFile = async (directory, names) => {
-  const target = join4(directory, ...names);
+  const target = join5(directory, ...names);
   if (!await isFile(target)) return void 0;
   const contentType = CONTENT_TYPES[extname(target).toLowerCase()] ?? DOWNLOAD_TYPE;
-  return { content: await readFile(target), contentType, cacheControl: cacheControlOf(names) };
+  return { content: await readFile2(target), contentType, cacheControl: cacheControlOf(names) };
 };
 var cacheControlOf = (names) => {
   if (names.length === 1 && names[0] === INDEX_NAME) return "no-cache";
@@ -22781,7 +22968,7 @@ var isFile = async (target) => {
 // src/worktree/copy-ignored.disk.ts
 import { constants } from "node:fs";
 import { copyFile, lstat, mkdir as mkdir2, readdir, readlink, stat as stat2, symlink } from "node:fs/promises";
-import { dirname as dirname2, join as join5, resolve } from "node:path";
+import { dirname as dirname2, join as join6, resolve } from "node:path";
 
 // src/worktree/paths.ts
 import { posix, win32 } from "node:path";
@@ -22854,14 +23041,14 @@ var STORAGE_PATH = ".agents/atomic-workflow";
 var OPERATION_LIMIT = 16;
 var COPY_FLAGS = constants.COPYFILE_FICLONE | constants.COPYFILE_EXCL;
 var diskCopyIgnored = async (checkout, destination, paths) => {
-  const run = {
+  const run2 = {
     checkout: resolve(checkout),
     destination: resolve(destination),
     limit: createLimit(OPERATION_LIMIT),
     failures: []
   };
-  await Promise.all(paths.map((path) => copyEntry(run, path)));
-  return copyFailuresOf(run.failures);
+  await Promise.all(paths.map((path) => copyEntry(run2, path)));
+  return copyFailuresOf(run2.failures);
 };
 var createLimit = (size) => {
   let running = 0;
@@ -22878,57 +23065,57 @@ var createLimit = (size) => {
     }
   };
 };
-var copyEntry = async (run, path) => {
+var copyEntry = async (run2, path) => {
   if (isStorage(path)) return;
-  if (!await makeDirectory(run, path, dirname2(join5(run.destination, path)))) return;
-  await copyPath(run, path);
+  if (!await makeDirectory(run2, path, dirname2(join6(run2.destination, path)))) return;
+  await copyPath(run2, path);
 };
 var isStorage = (path) => path === STORAGE_PATH || path.startsWith(`${STORAGE_PATH}/`);
-var makeDirectory = async (run, path, directory) => {
-  const made = await attempt(run, path, async () => {
+var makeDirectory = async (run2, path, directory) => {
+  const made = await attempt(run2, path, async () => {
     await mkdir2(directory, { recursive: true });
     return true;
   });
   return made === true;
 };
-var attempt = async (run, path, operation, ignoredCodes = []) => {
+var attempt = async (run2, path, operation, ignoredCodes = []) => {
   try {
-    return await run.limit(operation);
+    return await run2.limit(operation);
   } catch (error62) {
     const code = errorCode2(error62);
     const failure2 = typeof code === "string" ? code : "UNKNOWN";
-    if (!ignoredCodes.includes(failure2)) run.failures.push({ path, code: failure2 });
+    if (!ignoredCodes.includes(failure2)) run2.failures.push({ path, code: failure2 });
     return void 0;
   }
 };
-var copyPath = async (run, path) => {
+var copyPath = async (run2, path) => {
   if (isStorage(path)) return;
-  const source = join5(run.checkout, path);
-  const target = join5(run.destination, path);
-  const stats = await attempt(run, path, () => lstat(source));
+  const source = join6(run2.checkout, path);
+  const target = join6(run2.destination, path);
+  const stats = await attempt(run2, path, () => lstat(source));
   if (stats === void 0) return;
-  if (stats.isSymbolicLink()) await copyLink(run, path, source, target);
-  else if (stats.isDirectory()) await copyDirectory(run, path, source, target);
-  else if (stats.isFile()) await attempt(run, path, () => copyFile(source, target, COPY_FLAGS), ["EEXIST"]);
+  if (stats.isSymbolicLink()) await copyLink(run2, path, source, target);
+  else if (stats.isDirectory()) await copyDirectory(run2, path, source, target);
+  else if (stats.isFile()) await attempt(run2, path, () => copyFile(source, target, COPY_FLAGS), ["EEXIST"]);
 };
-var copyDirectory = async (run, path, source, target) => {
-  if (!await makeDirectory(run, path, target)) return;
-  const names = await attempt(run, path, () => readdir(source));
+var copyDirectory = async (run2, path, source, target) => {
+  if (!await makeDirectory(run2, path, target)) return;
+  const names = await attempt(run2, path, () => readdir(source));
   if (names === void 0) return;
-  await Promise.all(names.map((name) => copyPath(run, `${path}/${name}`)));
+  await Promise.all(names.map((name) => copyPath(run2, `${path}/${name}`)));
 };
-var copyLink = async (run, path, source, target) => {
-  const text2 = await attempt(run, path, () => readlink(source));
+var copyLink = async (run2, path, source, target) => {
+  const text2 = await attempt(run2, path, () => readlink(source));
   if (text2 === void 0) return;
   const resolved = resolve(dirname2(source), text2);
-  const junction = process.platform === "win32" && await isDirectoryOrMissing(run, resolved);
-  const linkTarget = copiedLinkTarget(run.checkout, run.destination, text2, resolved, junction, process.platform);
+  const junction = process.platform === "win32" && await isDirectoryOrMissing(run2, resolved);
+  const linkTarget = copiedLinkTarget(run2.checkout, run2.destination, text2, resolved, junction, process.platform);
   const type = junction ? "junction" : "file";
-  await attempt(run, path, () => symlink(linkTarget, target, type), ["EEXIST"]);
+  await attempt(run2, path, () => symlink(linkTarget, target, type), ["EEXIST"]);
 };
-var isDirectoryOrMissing = async (run, resolved) => {
+var isDirectoryOrMissing = async (run2, resolved) => {
   try {
-    return (await run.limit(() => stat2(resolved))).isDirectory();
+    return (await run2.limit(() => stat2(resolved))).isDirectory();
   } catch {
     return true;
   }
@@ -22951,31 +23138,31 @@ ${output2.stdout}`;
 
 // src/worktree/worktree-layout.ts
 import { createHash } from "node:crypto";
-import { basename as basename2, join as join6 } from "node:path";
+import { basename as basename2, join as join7 } from "node:path";
 var BRANCH_PREFIX = "atomic-workflow/";
 var TASK_BRANCH_NAME = "main";
 var FORK_POINT_PREFIX = "refs/atomic-workflow/fork-points/";
-var WORKTREES_DIRECTORY = join6(".atomic-workflow", "worktrees");
+var WORKTREES_DIRECTORY = join7(".atomic-workflow", "worktrees");
 var REPOSITORY_KEY_LENGTH = 8;
 var BRANCH_REF_PREFIX = "refs/heads/";
 var layoutOf = (checkout, home, platform) => {
   const key = createHash("sha256").update(comparablePath(checkout, platform)).digest("hex");
   return {
     checkout,
-    root: join6(home, WORKTREES_DIRECTORY, `${basename2(checkout)}-${key.slice(0, REPOSITORY_KEY_LENGTH)}`)
+    root: join7(home, WORKTREES_DIRECTORY, `${basename2(checkout)}-${key.slice(0, REPOSITORY_KEY_LENGTH)}`)
   };
 };
 var branchRef = (branch) => `${BRANCH_REF_PREFIX}${branch}`;
 var taskName = (task) => `${task.id}-${task.slug}`;
-var taskDirectory = (layout, task) => join6(layout.root, taskName(task));
+var taskDirectory = (layout, task) => join7(layout.root, taskName(task));
 var taskBranchOf = (task) => `${BRANCH_PREFIX}${taskName(task)}/${TASK_BRANCH_NAME}`;
 var taskBranchesRef = (task) => branchRef(`${BRANCH_PREFIX}${taskName(task)}/`);
 var taskPlaceOf = (layout, task) => ({
-  path: join6(taskDirectory(layout, task), TASK_BRANCH_NAME),
+  path: join7(taskDirectory(layout, task), TASK_BRANCH_NAME),
   branch: taskBranchOf(task)
 });
 var ticketPlaceOf = (layout, task, ticket) => ({
-  path: join6(taskDirectory(layout, task), `${ticket.id}-${ticket.slug}`),
+  path: join7(taskDirectory(layout, task), `${ticket.id}-${ticket.slug}`),
   branch: `${BRANCH_PREFIX}${taskName(task)}/${ticket.id}-${ticket.slug}`
 });
 var shown = (place) => ({ ...place, path: forwardSlashes(place.path) });
@@ -23077,7 +23264,7 @@ var checkTaskLanded = async (branches, taskBranch, baseBranch, context) => {
 };
 
 // src/worktree/rebase.ts
-import { join as join7 } from "node:path";
+import { join as join8 } from "node:path";
 var NO_HOOKS = ["-c", "core.hooksPath=/dev/null"];
 var REBASE_OPTIONS = ["--no-autosquash", "--no-autostash", "--no-update-refs"];
 var REBASE_DIRECTORIES = ["rebase-merge", "rebase-apply"];
@@ -23098,8 +23285,8 @@ var continueRebase = async (place, target, retry, context) => {
 var stoppedRebase = async (path, context) => {
   const directory = await rebaseDirectory(path, context);
   if (directory === void 0) return void 0;
-  const headName = (await context.fileSystem.readText(join7(directory, "head-name"))).trim();
-  const onto = (await context.fileSystem.readText(join7(directory, "onto"))).trim();
+  const headName = (await context.fileSystem.readText(join8(directory, "head-name"))).trim();
+  const onto = (await context.fileSystem.readText(join8(directory, "onto"))).trim();
   const branch = headName.startsWith(BRANCH_REF_PREFIX) ? headName.slice(BRANCH_REF_PREFIX.length) : void 0;
   return { branch, onto };
 };
@@ -23749,7 +23936,7 @@ var createQueue = () => {
 };
 
 // src/worktree/file-system.disk.ts
-import { access, mkdir as mkdir3, readFile as readFile2, rm as rm2 } from "node:fs/promises";
+import { access, mkdir as mkdir3, readFile as readFile3, rm as rm2 } from "node:fs/promises";
 var REMOVAL_RETRY_COUNT = 10;
 var REMOVAL_RETRY_INTERVAL = 200;
 var diskFileSystem = {
@@ -23761,7 +23948,7 @@ var diskFileSystem = {
       return false;
     }
   },
-  readText: async (path) => readFile2(path, "utf8"),
+  readText: async (path) => readFile3(path, "utf8"),
   makeDirectory: async (path) => {
     await mkdir3(path, { recursive: true });
   },
@@ -23775,14 +23962,14 @@ var execFileAsync = promisify(execFile);
 var OUTPUT_LIMIT = 64 * 1024 * 1024;
 var processRunGit = async (directory, commandLine, input2) => {
   try {
-    const run = execFileAsync("git", commandLine, {
+    const run2 = execFileAsync("git", commandLine, {
       cwd: directory,
       windowsHide: true,
       maxBuffer: OUTPUT_LIMIT,
       env: { ...process.env, GIT_EDITOR: "true", GIT_TERMINAL_PROMPT: "0" }
     });
-    if (input2 !== void 0) run.child.stdin?.end(input2);
-    const { stdout, stderr } = await run;
+    if (input2 !== void 0) run2.child.stdin?.end(input2);
+    const { stdout, stderr } = await run2;
     return { exitCode: 0, stdout, stderr };
   } catch (error62) {
     if (!isExitError(error62)) throw error62;
@@ -23900,6 +24087,9 @@ var serve3 = async (address, mainWorktree, storage) => {
     },
     changes2
   );
+  const usage = await pollStartUsageReader(claudeConfigPath(process.env.CLAUDE_CONFIG_DIR, homedir()), changes2);
+  const usageRefresher = createUsageRefresher({ refresh: claudeRefreshUsage, log: stderrLog });
+  usageRefresher.request();
   const awaitCommand = entryPointPath("await-command");
   const context = {
     sessions: published2.sessions,
@@ -23919,6 +24109,8 @@ var serve3 = async (address, mainWorktree, storage) => {
       }
     ),
     ticketClaims: mapCreateTicketClaims(),
+    usage,
+    usageRefresher,
     mainWorktree,
     caller: void 0,
     awaitCommandLine: (sessionId) => shellAwaitCommandLine(awaitCommand, sessionId),
@@ -23941,6 +24133,7 @@ var serve3 = async (address, mainWorktree, storage) => {
       }
     });
   } finally {
+    usage.stop();
     await webServer.close();
   }
 };

@@ -19909,8 +19909,12 @@ var sessionActivityReportMethod = {
   description: "Reports whether the agent of a session is idle, works, or waits for the user.",
   agent: false,
   params: PARAMS,
-  handle: async ({ sessionId, status, at }, { activity, clock }) => {
-    activity.report(sessionId, status, at ?? clock.now());
+  handle: async ({ sessionId, status, at }, { activity, sessions, usageRefresher, clock }) => {
+    const before = activity.get(sessionId)?.status;
+    const changed = activity.report(sessionId, status, at ?? clock.now());
+    if (!changed || status !== "idle" || before === "idle") return;
+    const session = await sessions.get(sessionId);
+    if (session?.role === "subagent") usageRefresher.request();
   }
 };
 

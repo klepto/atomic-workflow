@@ -37231,8 +37231,12 @@ var sessionActivityReportMethod = {
   description: "Reports whether the agent of a session is idle, works, or waits for the user.",
   agent: false,
   params: PARAMS13,
-  handle: async ({ sessionId, status, at }, { activity, clock }) => {
-    activity.report(sessionId, status, at ?? clock.now());
+  handle: async ({ sessionId, status, at }, { activity, sessions, usageRefresher, clock }) => {
+    const before = activity.get(sessionId)?.status;
+    const changed = activity.report(sessionId, status, at ?? clock.now());
+    if (!changed || status !== "idle" || before === "idle") return;
+    const session = await sessions.get(sessionId);
+    if (session?.role === "subagent") usageRefresher.request();
   }
 };
 
@@ -38347,8 +38351,18 @@ var ticketsSaveMethod = {
   handle: async ({ taskId, tickets }, context) => saveTickets(taskId, tickets, context)
 };
 
+// src/rpc/method.usage-get.ts
+var PARAMS44 = external_exports.object({});
+var usageGetMethod = {
+  name: "usageGet",
+  description: "Returns the latest 5-hour and weekly usage limits of the account, as Claude Code caches them: the used percentage and the reset time of each window, and the time of the fetch.",
+  agent: false,
+  params: PARAMS44,
+  handle: async (_params, { usage }) => usage.latest()
+};
+
 // src/rpc/method.worktree-create.ts
-var PARAMS44 = external_exports.object({
+var PARAMS45 = external_exports.object({
   taskId: external_exports.number().int().positive().describe("Identifier of the task"),
   ticketId: external_exports.number().int().positive().describe("Identifier of the ticket within its task")
 });
@@ -38356,7 +38370,7 @@ var worktreeCreateMethod = {
   name: "worktreeCreate",
   description: "Starts the work on a ticket of the atomic workflow: makes the worktree of its task and its own worktree where they do not exist, sets it in-progress, and returns the paths and branches of both worktrees with the ticket. Before it makes the branch of the ticket, it rebases the task branch onto the local base branch. On a conflict of that rebase, resolve and add the files in the worktree of the task that the error names, then call it again.",
   agent: true,
-  params: PARAMS44,
+  params: PARAMS45,
   handle: async ({ taskId, ticketId }, context) => {
     const { task, ticket } = await openTicket(taskId, ticketId, context.tasks);
     if (hasLanded(ticket.status))
@@ -38385,7 +38399,7 @@ var start = async (task, ticket, context) => {
 };
 
 // src/rpc/method.worktree-delete.ts
-var PARAMS45 = external_exports.object({
+var PARAMS46 = external_exports.object({
   taskId: external_exports.number().int().positive().describe("Identifier of the task"),
   ticketId: external_exports.number().int().positive().optional().describe("Identifier of the ticket whose worktree and branch to delete. Without it, deletes those of the task"),
   force: external_exports.boolean().default(false).describe("Whether to delete branches whose commits have not landed, and worktrees with uncommitted changes")
@@ -38395,7 +38409,7 @@ var worktreeDeleteMethod = {
   name: "worktreeDelete",
   description: "Deletes the worktree and the branch of a ticket of the atomic workflow, or without a ticket, every worktree and branch of the task. Refuses to lose work that has not landed unless forced.",
   agent: true,
-  params: PARAMS45,
+  params: PARAMS46,
   handle: async ({ taskId, ticketId, force }, context) => {
     const task = await findTask(taskId, context.tasks);
     if (ticketId === void 0) return deleteTask(task, force, context);
@@ -38434,7 +38448,7 @@ var isThrownAway = (ticket, unlanded) => isWorking(ticket.status) || hasLanded(t
 
 // src/rpc/method.worktree-merge.ts
 var SUMMARY_LINE = /^(feat|fix|chore|refactor|docs|test|perf|build|ci|style|revert)(\([^()\r\n]+\))?!?: \S/;
-var PARAMS46 = external_exports.object({
+var PARAMS47 = external_exports.object({
   taskId: external_exports.number().int().positive().describe("Identifier of the task"),
   ticketId: external_exports.number().int().positive().optional().describe(
     "Identifier of the ticket to land on the task branch. Without it, lands the task branch on the base branch once every ticket of the task is done"
@@ -38447,7 +38461,7 @@ var worktreeMergeMethod = {
   name: "worktreeMerge",
   description: "With a ticket, squashes the commits of the worktree of a ticket of the atomic workflow into one commit with the message, rebases it onto the task branch, moves the task branch forward to it, and sets the ticket needs-review. Without a ticket, once every ticket of the task is done, rebases the task branch onto its base branch, moves the base branch forward to it, deletes the worktrees and branches of the task, and sets the task done. On a conflict, resolve and add the files in the worktree that the error names, then call it again.",
   agent: true,
-  params: PARAMS46,
+  params: PARAMS47,
   handle: async ({ taskId, ticketId, message }, context) => {
     if (ticketId === void 0) {
       if (message !== void 0)
@@ -38514,6 +38528,7 @@ var checkMergeable = (task) => {
 var METHODS = [
   echoMethod,
   repositoryGetMethod,
+  usageGetMethod,
   sessionRegisterMethod,
   sessionTaskSetMethod,
   sessionTicketSetMethod,

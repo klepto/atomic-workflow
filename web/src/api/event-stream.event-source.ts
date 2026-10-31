@@ -9,6 +9,7 @@ const CHANGE_EVENTS: Readonly<Record<ChangeEvent, true>> = {
   sessions: true,
   messages: true,
   tasks: true,
+  usage: true,
 };
 
 /**

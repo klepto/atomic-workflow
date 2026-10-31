@@ -14,6 +14,11 @@ const MINUTE = 60 * SECOND;
 const HOUR = 60 * MINUTE;
 
 /**
+ * Length of a day, in ms.
+ */
+const DAY = 24 * HOUR;
+
+/**
  * Span of time in whole hours, minutes and seconds, each rounded down.
  */
 interface SpanParts {
@@ -57,3 +62,12 @@ export const formatDuration = (milliseconds: number): string => {
   }
   return minutes > 0 ? `${minutes}m ${seconds}s` : `${seconds}s`;
 };
+
+/**
+ * Returns the span `milliseconds` in short, as `formatDuration` does, except from a day on, where it gives the whole
+ * days and hours, each rounded down, such as `5d 3h`. A span below 0 is `0s`.
+ */
+export const formatLongDuration = (milliseconds: number): string =>
+  milliseconds < DAY
+    ? formatDuration(milliseconds)
+    : `${Math.floor(milliseconds / DAY)}d ${Math.floor((milliseconds % DAY) / HOUR)}h`;
