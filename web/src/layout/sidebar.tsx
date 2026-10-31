@@ -71,7 +71,7 @@ interface SidebarProps {
 const SidebarSection = ({ title, children }: SidebarSectionProps) => (
   <section className="flex min-h-0 min-w-0 flex-1 items-center gap-2 md:flex-col md:items-stretch md:gap-0">
     <h2 className="shrink-0 truncate px-1 font-semibold text-sidebar-foreground text-xs leading-5 md:px-3">{title}</h2>
-    <div aria-hidden="true" className="h-5 w-px shrink-0 bg-sidebar-border md:mt-1.5 md:mb-2 md:h-px md:w-auto" />
+    <div aria-hidden="true" className="h-5 w-px shrink-0 bg-border md:mt-1.5 md:mb-2 md:h-px md:w-auto" />
     {/* The margin and the padding of the list cancel out, so the focus ring of an entry is not cut at the edge. */}
     <ScrollArea className="-m-1 flex-1">{children}</ScrollArea>
   </section>
@@ -87,10 +87,10 @@ const SidebarSection = ({ title, children }: SidebarSectionProps) => (
  * working, and red while it waits for the user. Each chat is a link to itself beside the open task, and the open chat
  * `open` is marked as the current page. A subagent that runs can be stopped from its entry, and one that ended can be
  * deleted with its chat from it. A new agent starts inside the orchestrator session that attached last, among
- * `sessions`. The meter of the usage limits `usage` comes last: at the bottom of the column on a wide screen, and at
- * the end of the row on a narrow one. The button and the meter stay in place, and the chats scroll inside the section
- * between them. It is the navigation of a column at the left of the page on a wide screen, and of a row above the page
- * on a narrow one.
+ * `sessions`. The meter of the usage limits `usage` comes last, after a line: at the bottom of the column on a wide
+ * screen, and at the end of the row on a narrow one. The button and the meter stay in place, and the chats scroll
+ * inside the section between them. It is the navigation of a column at the left of the page on a wide screen, and of a
+ * row above the page on a narrow one.
  */
 export const Sidebar = ({ sessions, chats, open, task, usage, onOpen, readSessions }: SidebarProps) => (
   <nav
@@ -120,6 +120,10 @@ export const Sidebar = ({ sessions, chats, open, task, usage, onOpen, readSessio
         )}
       </ul>
     </SidebarSection>
+    <div
+      aria-hidden="true"
+      className="h-5 w-px shrink-0 self-center bg-border md:-my-3 md:h-px md:w-auto md:self-stretch"
+    />
     <UsageMeter usage={usage} />
   </nav>
 );

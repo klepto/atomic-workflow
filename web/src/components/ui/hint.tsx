@@ -1,7 +1,8 @@
 import { Button as ButtonPrimitive } from '@base-ui/react/button';
 import { Tooltip as TooltipPrimitive } from '@base-ui/react/tooltip';
-import { cloneElement, createElement, type ReactElement, type ReactNode, useId } from 'react';
+import { cloneElement, createElement, type ReactElement, type ReactNode, type RefObject, useId, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { cn } from '@/lib/utils.ts';
 
 /**
  * Props of the button that a hint reads or sets.
@@ -60,9 +61,35 @@ interface HintProviderProps {
 }
 
 /**
+ * Props of `OverflowHint`.
+ */
+interface OverflowHintProps {
+  /**
+   * Full text that the hint shows.
+   */
+  readonly text: string;
+
+  /**
+   * Element that shows `text` on one line, and cuts it off while it does not fit.
+   */
+  readonly target: RefObject<HTMLElement | null>;
+
+  /**
+   * One element that opens the hint on hover and on keyboard focus, such as a link that holds `target`.
+   */
+  readonly children: ReactElement;
+}
+
+/**
  * Delay before a hint opens on hover, in ms.
  */
 const HINT_DELAY = 250;
+
+/**
+ * Classes of the popup of every hint.
+ */
+const HINT_POPUP =
+  'flex max-w-xs origin-(--transform-origin) flex-col gap-0.5 rounded-md bg-popover px-2.5 py-1.5 text-popover-foreground text-xs shadow-md ring-1 ring-foreground/10 duration-100 data-closed:animate-out data-open:animate-in data-closed:fade-out-0 data-open:fade-in-0 data-closed:zoom-out-95 data-open:zoom-in-95 data-instant:animate-none motion-reduce:animate-none';
 
 /**
  * Returns the button `button`, described by the ids `describedBy`, that stays focusable while disabled. A native
@@ -117,12 +144,37 @@ export const Hint = ({ description, note, children }: HintProps) => {
       )}
       <TooltipPrimitive.Portal>
         <TooltipPrimitive.Positioner side="top" sideOffset={6} className="isolate z-50">
-          <TooltipPrimitive.Popup
-            data-slot="hint"
-            className="flex max-w-xs origin-(--transform-origin) flex-col gap-0.5 rounded-md bg-popover px-2.5 py-1.5 text-popover-foreground text-xs shadow-md ring-1 ring-foreground/10 duration-100 data-closed:animate-out data-open:animate-in data-closed:fade-out-0 data-open:fade-in-0 data-closed:zoom-out-95 data-open:zoom-in-95 data-instant:animate-none motion-reduce:animate-none"
-          >
+          <TooltipPrimitive.Popup data-slot="hint" className={HINT_POPUP}>
             <span>{description}</span>
             {noted && <span className="text-muted-foreground">{note}</span>}
+          </TooltipPrimitive.Popup>
+        </TooltipPrimitive.Positioner>
+      </TooltipPrimitive.Portal>
+    </TooltipPrimitive.Root>
+  );
+};
+
+/**
+ * Returns whether the element `element` cuts off its text, since the text is wider than the element.
+ */
+const overflows = (element: HTMLElement | null): boolean =>
+  element !== null && element.scrollWidth > element.clientWidth;
+
+/**
+ * Hint of the element `children` that shows the full text `text` of the element `target` while `target` cuts it off:
+ * a small popup above `children`, at its start, in the style of `Hint`. It opens at once on hover, with no delay, and
+ * on keyboard focus, but only while `target` cuts off its text. It closes on pointer leave, blur, Escape and click.
+ * The element keeps its own props, and a screen reader hears nothing more, since `target` holds the full text.
+ */
+export const OverflowHint = ({ text, target, children }: OverflowHintProps) => {
+  const [open, setOpen] = useState(false);
+  return (
+    <TooltipPrimitive.Root open={open} onOpenChange={(next) => setOpen(next && overflows(target.current))}>
+      <TooltipPrimitive.Trigger delay={0} render={children} />
+      <TooltipPrimitive.Portal>
+        <TooltipPrimitive.Positioner side="top" align="start" sideOffset={6} className="isolate z-50">
+          <TooltipPrimitive.Popup data-slot="hint" className={cn(HINT_POPUP, 'break-words')}>
+            {text}
           </TooltipPrimitive.Popup>
         </TooltipPrimitive.Positioner>
       </TooltipPrimitive.Portal>

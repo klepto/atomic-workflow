@@ -1,12 +1,12 @@
 import { LoaderCircle, Square, Trash2 } from 'lucide-react';
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { fetchCall } from '@/api/rpc.fetch.ts';
 import { ChatDot } from '@/chats/chat-dot.tsx';
 import type { Chat } from '@/chats/chat-list.ts';
 import { CHAT_STATUSES } from '@/chats/chat-statuses.ts';
 import { DeleteDialog } from '@/components/delete-dialog.tsx';
 import { Button } from '@/components/ui/button.tsx';
-import { Hint } from '@/components/ui/hint.tsx';
+import { Hint, OverflowHint } from '@/components/ui/hint.tsx';
 import { errorMessage } from '@/lib/error-message.ts';
 import { cn } from '@/lib/utils.ts';
 import { RouteLink } from '@/routing/route-link.tsx';
@@ -144,23 +144,28 @@ const StopAgent = ({ chat }: StopAgentProps) => {
  * Entry of the chat `chat` in the sidebar: the dot of its status and its label. A screen reader hears the label, then
  * the words of the status. It is a link to `to`, and is marked as the current page when `current` is true. The entry
  * of a subagent that runs has the button that stops it, and the entry of a subagent that ended has the button that
- * deletes it.
+ * deletes it. While the label does not fit the entry, a hover on the entry shows the full label in a hint at once.
  */
 export const ChatEntry = ({ chat, current, to }: ChatEntryProps) => {
+  const label = useRef<HTMLSpanElement>(null);
   const subagent = chat.role === 'subagent';
   const deletable = subagent && chat.status === 'ended';
   const stoppable = subagent && chat.status !== 'ended';
   return (
     <li className="group relative flex min-w-0 max-w-48 md:max-w-none">
-      <RouteLink
-        to={to}
-        aria-current={current ? 'page' : undefined}
-        className={cn(ENTRY_LINK, 'cursor-pointer', (deletable || stoppable) && 'pr-8')}
-      >
-        <ChatDot status={chat.status} />
-        <span className="truncate md:flex-1 md:contain-inline-size">{chat.label}</span>
-        <span className="sr-only">{`, ${CHAT_STATUSES[chat.status].words}`}</span>
-      </RouteLink>
+      <OverflowHint text={chat.label} target={label}>
+        <RouteLink
+          to={to}
+          aria-current={current ? 'page' : undefined}
+          className={cn(ENTRY_LINK, 'cursor-pointer', (deletable || stoppable) && 'pr-8')}
+        >
+          <ChatDot status={chat.status} />
+          <span ref={label} className="truncate md:flex-1 md:contain-inline-size">
+            {chat.label}
+          </span>
+          <span className="sr-only">{`, ${CHAT_STATUSES[chat.status].words}`}</span>
+        </RouteLink>
+      </OverflowHint>
       {deletable && <DeleteAgent chat={chat} />}
       {stoppable && <StopAgent chat={chat} />}
     </li>

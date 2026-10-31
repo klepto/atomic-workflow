@@ -61,8 +61,12 @@ const UsageRow = ({ label, usageWindow, now }: UsageRowProps) => {
         <span className="font-semibold text-sidebar-foreground">{label}</span>
         <span className="text-sidebar-foreground tabular-nums">{known ? `${percent}%` : UNKNOWN}</span>
       </div>
-      <div aria-hidden="true" className="h-1.5 overflow-hidden rounded-full bg-sidebar-border">
-        <div className="h-full rounded-full bg-sidebar-primary" style={{ width: `${percent}%` }} />
+      {/*
+       * The bar takes the colors of the page, not of the sidebar: a theme such as claude gives the sidebar a light
+       * border and a dark primary, which would show the bar inverted.
+       */}
+      <div aria-hidden="true" className="h-1.5 overflow-hidden rounded-full bg-border">
+        <div className="h-full rounded-full bg-primary" style={{ width: `${percent}%` }} />
       </div>
       {known && (
         <span className="text-muted-foreground tabular-nums">
