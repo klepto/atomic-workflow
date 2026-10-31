@@ -62,6 +62,11 @@ describe('parseActivity', () => {
     assert.equal(statusOf(entry('user', '<local-command-stdout></local-command-stdout>')), undefined);
   });
 
+  it('shows no status for a shell command of the bash mode and its output', () => {
+    assert.equal(statusOf(entry('user', '<bash-input>git status</bash-input>')), undefined);
+    assert.equal(statusOf(entry('user', '<bash-stdout>clean</bash-stdout><bash-stderr></bash-stderr>')), undefined);
+  });
+
   it('shows no status for an entry that only Claude Code wrote, or that starts no turn', () => {
     assert.equal(statusOf(entry('user', 'Skill text', { isMeta: true })), undefined);
     assert.equal(statusOf(entry('user', 'Background task done', { queueTranscriptOnly: true })), undefined);

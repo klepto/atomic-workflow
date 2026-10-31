@@ -5,6 +5,7 @@ import { ScrollArea } from '@/components/ui/scroll-area.tsx';
 import { routePath, taskRefOf } from '@/routing/route.ts';
 import { isPlainClick, RouteLink } from '@/routing/route-link.tsx';
 import { TaskIdLabel } from '@/tasks/task-id-label.tsx';
+import { orderByActivity } from '@/tasks/task-order.ts';
 import { TASK_PANEL_ID } from '@/tasks/task-panel.tsx';
 
 /**
@@ -32,7 +33,7 @@ interface TitleProps {
  */
 interface TaskTabsProps {
   /**
-   * Tasks of the repository, one tab each.
+   * Tasks of the repository, one tab each, in the order of the tabs.
    */
   readonly tasks: readonly TaskSummary[];
 
@@ -146,10 +147,11 @@ const Title = ({ repository, to, onClick }: TitleProps) => (
 );
 
 /**
- * Tabs of the tasks: one link for each task of `tasks`, with its slug and its id, to the path that `targetOf` returns
+ * Tabs of the tasks: one link for each task of `tasks`, with its id and its slug, to the path that `targetOf` returns
  * for its task. A click on the tab of the open task `openTaskId` calls `onCloseClick` before it follows the link. That
- * tab is the current one, and is marked as expanded. The row scrolls sideways when the tabs do not fit, and brings the
- * current tab into view.
+ * tab is the current one, and is marked as expanded. It has the background of the page and a border on its top and its
+ * sides, and covers the line below the header, so it merges into the page below it. The row scrolls sideways when the
+ * tabs do not fit, and brings the current tab into view.
  */
 const TaskTabs = ({ tasks, openTaskId, targetOf, onCloseClick }: TaskTabsProps) => {
   const row = useRef<HTMLDivElement>(null);
@@ -161,7 +163,7 @@ const TaskTabs = ({ tasks, openTaskId, targetOf, onCloseClick }: TaskTabsProps) 
   return (
     <ScrollArea viewportRef={row} className="flex-1">
       <nav aria-label="Tasks">
-        <ul className="flex h-11 items-stretch gap-1 px-2 md:h-12 md:px-0">
+        <ul className="flex h-12 items-stretch gap-1 px-2 pt-1.5 md:h-[3.3rem] md:px-0 md:pt-2">
           {tasks.map((task) => (
             <li key={task.id} className="flex">
               <RouteLink
@@ -170,10 +172,10 @@ const TaskTabs = ({ tasks, openTaskId, targetOf, onCloseClick }: TaskTabsProps) 
                 aria-expanded={task.id === openTaskId}
                 aria-controls={TASK_PANEL_ID}
                 onClick={task.id === openTaskId ? onCloseClick : undefined}
-                className="relative flex cursor-pointer items-center whitespace-nowrap rounded-sm px-3 text-muted-foreground text-sm outline-none transition-colors after:absolute after:inset-x-3 after:bottom-0 after:h-0.5 after:rounded-full hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:ring-inset aria-expanded:font-medium aria-expanded:text-foreground aria-expanded:after:bg-primary"
+                className="flex cursor-pointer items-center whitespace-nowrap rounded-t-md border-x border-t border-transparent px-3 text-muted-foreground text-sm outline-none transition-colors hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:ring-inset aria-expanded:border-border aria-expanded:bg-background aria-expanded:font-medium aria-expanded:text-foreground"
               >
-                <span>{task.slug}</span>
                 <TaskIdLabel id={task.id} />
+                <span>{task.slug}</span>
               </RouteLink>
             </li>
           ))}
@@ -184,11 +186,14 @@ const TaskTabs = ({ tasks, openTaskId, targetOf, onCloseClick }: TaskTabsProps) 
 };
 
 /**
- * Header across the top of the app: the title, and one tab per task. Each is a link. The title and the tab of the
- * open task lead to the open chat with no task open, so they close the task, and a plain click on either moves the
- * focus to the tab of the task. The tab of another task leads to that task with the open chat when the open chat is
- * among the chats of the task, and with its first chat otherwise. On a narrow screen the tabs take a row below the
- * title. The row of tabs is not shown while there is no task. The top right corner of the header stays free.
+ * Header across the top of the app: the title, and one tab per task, in the order of the last activity of the tasks, the
+ * latest first, as `orderByActivity` orders them. Each is a link. The title and the tab of the open task lead to the
+ * open chat with no task open, so they close the task, and a plain click on either moves the focus to the tab of the
+ * task. The tab of another task leads to that task with the open chat when the open chat is among the chats of the
+ * task, and with its first chat otherwise. On a narrow screen the tabs take a row below the title. The row of tabs is
+ * not shown while there is no task. The top right corner of the header stays free. The header has the background of
+ * the sidebar, and a line along its bottom that the current tab covers. The title is at least as wide as the sidebar,
+ * so that the tabs start to the right of it, and on a wide screen its text is at the height of the text of the tabs.
  */
 export const PageHeader = ({ repository, tasks, sessions, openTaskId, openChat }: PageHeaderProps) => {
   // A path to another view names the chat by its name, which every view finds.
@@ -216,13 +221,18 @@ export const PageHeader = ({ repository, tasks, sessions, openTaskId, openChat }
   };
 
   return (
-    <header className="border-b bg-background">
+    <header className="bg-sidebar shadow-[inset_0_-1px_0_var(--color-border)]">
       <div className="flex flex-col md:flex-row md:items-stretch md:gap-6 md:pr-44 md:pl-6">
-        <div className="flex min-h-12 min-w-0 items-center py-1.5 pr-36 pl-4 md:h-12 md:max-w-sm md:shrink-0 md:py-0 md:pr-0 md:pl-0">
+        <div className="flex min-h-[3.3rem] min-w-0 items-center py-1.5 pr-36 pl-4 md:h-[3.3rem] md:min-w-48 md:max-w-sm md:shrink-0 md:pt-2 md:pr-0 md:pb-0 md:pl-0">
           <Title repository={repository} to={closeTarget} onClick={focusOpenTab} />
         </div>
         {tasks.length > 0 && (
-          <TaskTabs tasks={tasks} openTaskId={openTaskId} targetOf={targetOf} onCloseClick={focusOpenTab} />
+          <TaskTabs
+            tasks={orderByActivity(tasks, sessions)}
+            openTaskId={openTaskId}
+            targetOf={targetOf}
+            onCloseClick={focusOpenTab}
+          />
         )}
       </div>
     </header>

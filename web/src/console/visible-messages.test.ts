@@ -53,6 +53,36 @@ describe('visibleMessages', () => {
     const logged = [message({ id: 1, content: 'Before\natomic-workflow:\n> middle\nAfter' })];
     assert.deepEqual(visibleMessages(logged), logged);
   });
+
+  it('merges a shell command of the bash mode with its output that follows it', () => {
+    const logged = [
+      message({ id: 1, sender: 'user', content: '<bash-input>ls</bash-input>' }),
+      message({ id: 2, sender: 'user', content: '<bash-stdout>a.ts</bash-stdout><bash-stderr></bash-stderr>' }),
+    ];
+    assert.deepEqual(visibleMessages(logged), [
+      message({
+        id: 1,
+        sender: 'user',
+        content: '<bash-input>ls</bash-input><bash-stdout>a.ts</bash-stdout><bash-stderr></bash-stderr>',
+      }),
+    ]);
+  });
+
+  it('keeps a shell command of the bash mode apart from an output of another session', () => {
+    const logged = [
+      message({ id: 1, sessionId: 'a', sender: 'user', content: '<bash-input>ls</bash-input>' }),
+      message({ id: 2, sessionId: 'b', sender: 'user', content: '<bash-stdout>a.ts</bash-stdout>' }),
+    ];
+    assert.deepEqual(visibleMessages(logged), logged);
+  });
+
+  it('keeps a shell command of the bash mode apart from a message that is no output', () => {
+    const logged = [
+      message({ id: 1, sender: 'user', content: '<bash-input>ls</bash-input>' }),
+      message({ id: 2, sender: 'user', content: 'Next' }),
+    ];
+    assert.deepEqual(visibleMessages(logged), logged);
+  });
 });
 
 describe('sessionBreaks', () => {

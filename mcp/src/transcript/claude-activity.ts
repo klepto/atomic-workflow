@@ -46,10 +46,10 @@ const HANDBACK_ENTRY = z.object({
 const INTERRUPT_MARK = '[Request interrupted by user';
 
 /**
- * Texts that Claude Code starts a message of the user with for a local command, such as `/clear`, and for its output.
- * A local command runs no turn, so no `Stop` hook ends it.
+ * Texts that Claude Code starts a message of the user with for a local command, such as `/clear` or a shell command of
+ * the bash mode, and for its output. A local command runs no turn, so no `Stop` hook ends it.
  */
-const LOCAL_COMMAND_MARKS: readonly string[] = ['<command-', '<local-command-'];
+const LOCAL_COMMAND_MARKS: readonly string[] = ['<command-', '<local-command-', '<bash-'];
 
 /**
  * Returns the status of the agent that the line `line` of a Claude Code transcript shows, with `value`, the value of

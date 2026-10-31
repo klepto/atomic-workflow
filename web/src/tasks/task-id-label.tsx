@@ -9,12 +9,13 @@ interface TaskIdLabelProps {
 }
 
 /**
- * Id of a task as muted text, `#<id>`, to stand beside the slug of the task. The `#` is display text only. A screen
- * reader hears the words `task <id>` after the slug, such as `demo, task 7`.
+ * Id of a task as muted text, `<id>.`, to stand before the slug of the task, such as `13. atomic-merge-guarantees`.
+ * The period is display text only. A screen reader hears the words `task <id>` before the slug, such as
+ * `task 7, demo`.
  */
 export const TaskIdLabel = ({ id }: TaskIdLabelProps) => (
-  <span className="ml-1 font-normal text-muted-foreground">
-    <span aria-hidden="true">{`#${id}`}</span>
-    <span className="sr-only">{`, task ${id}`}</span>
+  <span className="mr-1 font-normal text-muted-foreground">
+    <span aria-hidden="true">{`${id}.`}</span>
+    <span className="sr-only">{`task ${id}, `}</span>
   </span>
 );

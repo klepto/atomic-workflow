@@ -69,7 +69,7 @@ interface TaskDetailsProps {
 }
 
 /**
- * Content of the task panel for the task `task`: its slug, its id and the day it was created, with the buttons that
+ * Content of the task panel for the task `task`: its id, its slug and the day it was created, with the buttons that
  * run, stop and delete the task and close the panel, then its status with its stages and the timer of its latest
  * unattended run, then its goals, then its tickets with the buttons that review and approve each of them.
  */
@@ -78,8 +78,8 @@ const TaskDetails = ({ task, sessions, onClose, onOpenChat }: TaskDetailsProps) 
     <div className="flex items-start gap-3">
       <div className="flex min-w-0 flex-1 flex-col gap-1">
         <h2 className="truncate font-semibold text-lg leading-7 tracking-tight">
-          {task.slug}
           <TaskIdLabel id={task.id} />
+          {task.slug}
         </h2>
         <p className="text-muted-foreground text-xs">
           {`Created ${new Date(task.createdAt).toLocaleDateString(undefined, { dateStyle: 'medium' })}`}

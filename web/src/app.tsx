@@ -35,7 +35,9 @@ const ConnectionBanner = () => (
  * never scrolls: the chats of the sidebar, the tabs of the header, the main column and the task panel each scroll
  * inside themselves, so the sidebar reaches the bottom of the window and its usage limits stay in view.
  * While a task is open, the sidebar lists the chats of the task. The task of the open chat opens once its subagent gets
- * it. On a narrow screen the sidebar is a row above the main column, and the task panel covers both.
+ * it. On a narrow screen the sidebar is a row above the main column, and the task panel covers both. The top of the
+ * main column fades smoothly from the background of the page to transparent, so its content fades out as it scrolls
+ * up under the header.
  */
 const Shell = () => {
   const { online } = useConnection();
@@ -97,7 +99,11 @@ const Shell = () => {
             readSessions={readSessions}
           />
         </div>
-        <main className="flex min-h-0 min-w-0 flex-1 flex-col">
+        <main className="relative flex min-h-0 min-w-0 flex-1 flex-col">
+          <div
+            aria-hidden="true"
+            className="pointer-events-none absolute inset-x-0 top-0 z-10 h-12 bg-fade-from-background"
+          />
           {openTask !== undefined && ticket !== undefined ? (
             <TicketPage
               key={openTask.id}
@@ -135,7 +141,7 @@ const Shell = () => {
 export const App = () => (
   <HintProvider>
     <Shell />
-    <div className="absolute top-2 right-4 z-50">
+    <div className="absolute top-2.5 right-4 z-50">
       <ThemePicker />
     </div>
   </HintProvider>

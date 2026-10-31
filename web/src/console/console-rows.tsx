@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import type { LoggedMessage } from '@/api/types.ts';
 import type { Chat } from '@/chats/chat-list.ts';
 import { Button } from '@/components/ui/button.tsx';
@@ -5,6 +6,7 @@ import { Hint } from '@/components/ui/hint.tsx';
 import { chatWords } from '@/console/chat-words.ts';
 import type { PendingRoute } from '@/console/send-plan.ts';
 import type { PendingMessage } from '@/console/use-pending-sends.ts';
+import { parseBash } from '@/conversation/bash-text.ts';
 import { parseCommand } from '@/conversation/command-text.ts';
 import { MarkdownBody } from '@/conversation/markdown-body.tsx';
 import { MessageTime } from '@/conversation/message-time.tsx';
@@ -63,6 +65,21 @@ interface RowFootProps {
    * Classes added to the foot, which win over its own on a conflict.
    */
   readonly className?: string;
+}
+
+/**
+ * Props of `BashBox`.
+ */
+interface BashBoxProps {
+  /**
+   * Label above the box, such as `bash command:`.
+   */
+  readonly label: string;
+
+  /**
+   * Content of the box.
+   */
+  readonly children: ReactNode;
 }
 
 /**
@@ -177,10 +194,43 @@ const RowFoot = ({ sender, time, mono, className }: RowFootProps) => (
 );
 
 /**
+ * Box of a part of a text of the bash mode: the small label `label` above a bordered box that holds `children` in the
+ * monospace font, as preformatted text.
+ */
+const BashBox = ({ label, children }: BashBoxProps) => (
+  <div className="flex flex-col gap-1">
+    <p className="text-[0.6875rem] text-muted-foreground leading-4">{label}</p>
+    <pre className="whitespace-pre-wrap break-words rounded-md border bg-background px-3 py-2 font-mono text-xs leading-5">
+      {children}
+    </pre>
+  </div>
+);
+
+/**
  * Text `text` of the user as typed. A text that runs a command shows the name of the command in bold, then its
- * arguments, and none of the tags that Claude Code writes a command into the transcript with.
+ * arguments, and none of the tags that Claude Code writes a command into the transcript with. A text of the bash mode
+ * shows its shell command in a box labeled `bash command:`, then its output in a box labeled `bash output:`, its
+ * standard error in the color of an error, and `No output` for an output with empty streams, without the tags of
+ * either.
  */
 const UserText = ({ text }: UserTextProps) => {
+  const bash = parseBash(text);
+  if (bash !== undefined) {
+    const { command, output } = bash;
+    return (
+      <div className="flex min-w-0 flex-col gap-2">
+        {command !== undefined && <BashBox label="bash command:">{command}</BashBox>}
+        {output !== undefined && (
+          <BashBox label="bash output:">
+            {output.stdout === '' && output.stderr === '' && <span className="text-muted-foreground">No output</span>}
+            {output.stdout}
+            {output.stdout !== '' && output.stderr !== '' && '\n'}
+            {output.stderr !== '' && <span className="text-destructive">{output.stderr}</span>}
+          </BashBox>
+        )}
+      </div>
+    );
+  }
   const command = parseCommand(text);
   return (
     <p className="whitespace-pre-wrap break-words text-[0.9375rem] leading-7">
