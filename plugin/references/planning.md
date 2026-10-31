@@ -23,20 +23,25 @@ Start the first reply with the web URL that `activate.md` names.
 ## Unattended
 
 A stage runs in unattended mode when the word `--unattended` follows the task id in its arguments, such as
-`5 --unattended`. The word counts only there, and is not part of a prompt. Without it, the stage runs as the rest of
-these rules say. Unattended mode needs a task id: without one, say so, and stop.
+`5 --unattended`. For `plan-goals` without a task id, the word comes first, before the prompt of a new task, such as
+`--unattended <prompt>`. The word counts only there, and is not part of a prompt. Without it, the stage runs as the
+rest of these rules say. Unattended mode needs a task id, or a prompt for `plan-goals`: without one, say so, and stop.
 
 In unattended mode, no user takes part, so the stage runs in one reply:
 
 1. Follow `## Start`. If the status of the task is `complete` or `done`, print `Task <id> is <status>, so no stage of
    planning runs.`, and stop. There is no amend in unattended mode.
-2. Do the work of the stage on the stored plan, as its skill says.
+2. Do the work of the stage on the stored plan, or on the prompt of a new task, as its skill says.
 3. Apply `## Pushback` to your own draft in place of a request of the user. Where a rule flags the draft, change the
    draft to the better choice. Where the rule would ask the user, settle the choice yourself. Write no objection,
    since no user keeps a choice over it.
 4. Settle each choice that the stage would leave to the user, with the best option you can defend.
-5. Store the result, and follow the cascade.
-6. Finish as `## Finish` of the skill says outside amend mode, as if the user were satisfied: call `taskSetStatus`
+5. Give each ticket the mode `unattended`, so the run that follows needs no user. Cut work that would need the user
+   so that an agent does it alone: the agent settles the choice, checks the result, or takes an approach that needs
+   no person. Where every approach needs a person, such as a payment, leave the work out of the tickets, and name it
+   in `## Decisions` of the design as left to the user.
+6. Store the result, and follow the cascade.
+7. Finish as `## Finish` of the skill says outside amend mode, as if the user were satisfied: call `taskSetStatus`
    with the status that comes next, print the final part, and name the next step.
 
 Never ask the user a question, and never wait for an answer. `## Each turn` applies to the finish alone, with no

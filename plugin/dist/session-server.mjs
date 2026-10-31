@@ -38784,6 +38784,7 @@ var ENTRY = external_exports.object({
   uuid: external_exports.string(),
   timestamp: external_exports.iso.datetime(),
   isMeta: external_exports.boolean().optional(),
+  queueTranscriptOnly: external_exports.boolean().optional().catch(void 0),
   isSidechain: external_exports.boolean().optional(),
   isCompactSummary: external_exports.boolean().optional(),
   message: external_exports.object({
@@ -38832,8 +38833,10 @@ var LOCAL_COMMAND_MARKS = ["<command-", "<local-command-"];
 var parseActivity = (line, value, sidechain) => {
   const entry = ENTRY.safeParse(value);
   if (!entry.success) return void 0;
-  const { type, timestamp, isMeta, isSidechain = false, isCompactSummary, message } = entry.data;
-  if (!SENDERS.has(type) || isMeta || isSidechain !== sidechain || isCompactSummary) return void 0;
+  const { type, timestamp, isMeta, queueTranscriptOnly, isSidechain = false, isCompactSummary, message } = entry.data;
+  if (!SENDERS.has(type) || isMeta || queueTranscriptOnly || isSidechain !== sidechain || isCompactSummary) {
+    return void 0;
+  }
   const text = textOf(message.content).trim();
   if (type === "user" && LOCAL_COMMAND_MARKS.some((mark) => text.startsWith(mark))) return void 0;
   const ended = type === "user" ? text.startsWith(INTERRUPT_MARK) : sidechain && endsSubagentTurn(line, value, text, message.stop_reason);

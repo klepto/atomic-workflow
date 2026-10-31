@@ -14,7 +14,7 @@ Before anything else, read `../../references/planning.md`, relative to the base 
 rules that every stage of planning shares: start, cascade, pushback, and the format of each part of the plan.
 
 Arguments: `$ARGUMENTS`. A first word that is a number is the id of a task to resume. The word `--unattended` after
-the task id selects unattended mode, as `## Unattended` says. The rest is the prompt. Without `--unattended`, the stage
+the task id, or first without a task id, selects unattended mode, as `## Unattended` says. The rest is the prompt. Without `--unattended`, the stage
 runs as the rest of this skill says.
 
 ## Start
@@ -35,7 +35,18 @@ slug of the new task is three words from the prompt, or from the first goal with
 ## Unattended
 
 With `--unattended`, follow `## Unattended` of the planning rules, and ask nothing. A task that is `complete` or `done`
-gets the line of those rules, not the message above. Otherwise:
+gets the line of those rules, not the message above.
+
+Without a task id, create the task from the prompt:
+
+1. Only activate, as the first step of the start of planning says.
+2. Draft the goal list that the prompt asks for. Check each goal against `## Pushback`, and change each goal that a
+   rule flags: sharpen it, split it, or merge it into another.
+3. Store the first goal with `taskCreate`, and each later goal with `goalSave`, each with the source `agent`. The slug
+   of the new task is three words from the prompt.
+4. Finish as `## Finish` says.
+
+With a task id:
 
 1. Follow the start of planning with the stage `plan-goals`.
 2. Keep the stored goals. Check each one against `## Pushback`.

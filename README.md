@@ -1151,6 +1151,61 @@ Rejected:
 - A run that lasts only while a session is bound to the connection. A subagent calls over the connection of the main
   session, which stays bound across `/clear`, so the connection is the holder that matches the claims of tickets.
 
+## Phase 32
+
+`/atomic-workflow:run <prompt>` creates a task from a prompt, and runs it to its end with no user, as a run of an
+existing task does.
+
+- `/atomic-workflow:plan-goals --unattended <prompt>` drafts the goals that the prompt asks for, checks them against
+  pushback, and stores them with the source `agent`: the first one with `taskCreate`, and each later one with
+  `goalSave`. It then sets `plan-design`, as a stage in unattended mode does. Without a task id or a prompt,
+  unattended mode says so and stops.
+- The run calls `taskGet` with the first word of its arguments. When it finds a task, the run drives that task, as
+  before. When it fails on one word, the run prints the failure and stops, so a mistyped slug creates no task. When it
+  fails on several words, they are the prompt of a new task: the run invokes `plan-goals --unattended <prompt>`, reads
+  the new task, and goes on with `plan-design`.
+- The run starts its timer with `taskRunStart` once the task exists, so the goals of a new task fall outside it.
+
+Rejected:
+
+- A one-word prompt. It cannot be told from a mistyped slug, and a run from it would plan a task that nobody asked
+  for.
+
+## Phase 33
+
+An unattended run settles every choice itself, to its end: it cuts no ticket for the user, and blocks no ticket on a
+question or a change of the design.
+
+- `plan-tickets` in unattended mode, and each cascade in unattended mode, give every ticket the mode `unattended`.
+  Work that would need the user is cut so that an agent does it alone: the agent settles the choice, checks the
+  result, or takes an approach that needs no person. Work that every approach leaves to a person, such as a payment,
+  stays out of the tickets, and `## Decisions` of the design names it as left to the user.
+- `implement` with `--no-land` settles each question that it would ask the user, as `## Unattended` of
+  `plugin/references/implementation.md` says. A question about what to build takes the answer that the goals and the
+  design support best.
+- A better approach, or a criterion that cannot hold, that needs a contract to change, changes it when the change
+  keeps every name, signature and data shape that other tickets use, such as a limit on the side that the ticket
+  provides. The ticket names it in a decision `Contract change: <section>: <new text>, over <old text>, because
+  <reason>.`, and its check holds the code to the new text. After each pass, the run writes each such change into
+  the section of the design and its `## Decisions` with `designSave`, and into the `## Contract` of each ticket that
+  is `not-started` with `ticketsSave`. The task stays `complete`.
+- A change that would break what other tickets use keeps the contract, and names the better approach in a decision,
+  so the review weighs it. A criterion that cannot hold within the contract gets the nearest behavior that can, and a
+  decision that names the gap.
+- A ticket in unattended mode blocks only on a failure that no decision fixes: a command of `## Verify` that still
+  fails after three attempts at a fix, or a conflict that cannot be resolved without changing the intent of a ticket.
+
+Task 8 shows the gap that this closes. Its ticket 1 blocked, since the 256 KB bound of the blob in its contract made
+an acceptance criterion fail. The run ended, and the user had to amend the design. The bound is a rule on the side
+that ticket 1 provides, so the ticket now raises it itself, and the run updates the design.
+
+Rejected:
+
+- A ticket that stores the design itself. The tickets of a wave run in parallel, and `designSave` replaces the whole
+  text, so the run, which lands the tickets one at a time, stores each change.
+- A change of a name, a signature or a data shape inside a ticket in unattended mode. Other tickets of the same wave
+  build against it, so the change stays a decision for the review.
+
 ## Activity hooks
 
 The web app shows whether the agent of a session works, is idle, or waits for the user. The transcript shows when the
@@ -1169,6 +1224,9 @@ Claude Code report the two other statuses.
   seconds. The repository server stamps the report with the time it arrives.
 - The log of the transcript reports `working` with the time of each line of the user or the agent, so a new turn
   ends the `idle` or `waiting` of a hook. A report older than the latest report of the session changes nothing.
+- A line that Claude Code marks with `queueTranscriptOnly` reports no status. Claude Code writes such a line, such as
+  the notice of a background task that arrives while the agent is idle, without a turn, so no `Stop` hook would end
+  its `working`. The agent reads the notice with its next turn.
 
 ## Layout
 
@@ -1187,8 +1245,8 @@ plugin/                           the plugin, and the local marketplace that hol
                                   task branch, or with `--no-land` stops after the check
   skills/implement-all/SKILL.md   the implementation of every unattended ticket of a task, in waves of parallel
                                   subagents, which lands each one on the task branch in the order of their ids
-  skills/run/SKILL.md             the run of a task with no user, from any stage of planning until every unattended
-                                  ticket landed
+  skills/run/SKILL.md             the run of a task with no user, from a prompt or any stage of planning until every
+                                  unattended ticket landed
   skills/implement-prototype/SKILL.md the first stage, which writes the code of a ticket without tests
   skills/implement-tests/SKILL.md     the stage that locks the behavior of the code of a ticket with tests
   skills/implement-refactor/SKILL.md  the last stage of a complex ticket, which brings its code to its final shape

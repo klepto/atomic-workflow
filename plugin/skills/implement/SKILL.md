@@ -101,7 +101,8 @@ Before you land the ticket, check the whole work against its description:
 2. Read `git -C "<worktree>" diff <task branch>...HEAD`, and check each acceptance criterion against it. Name each
    criterion with the evidence that it holds.
 3. Check each part of `## Contract` against the diff: the parts that the ticket provides match it exactly, and the
-   parts that it uses are used as the contract says.
+   parts that it uses are used as the contract says. A part that a decision `Contract change:` changed matches its
+   new text.
 4. Collect the decisions of the ticket from the bodies of its commits, with
    `git -C "<worktree>" log --format=%b <task branch>..HEAD`.
 
@@ -138,8 +139,8 @@ With `--no-land`, no user takes part in the work, and the ticket does not land:
 
 - Take only a ticket in the mode `unattended`. For any other mode, do not call `worktreeCreate`, and stop with the
   report below, with the cause `Ticket <id> is <mode>, so it needs the user.`
-- Never ask the user. Where the work would need an answer from the user, block the ticket as `implementation.md`
-  says.
+- Never ask the user. Where the work would need an answer from the user, settle it yourself, as `## Unattended` of
+  `implementation.md` says. Block the ticket only where that section says.
 - After the check, write the commit message as step 1 of `## Land` says. Do not call `worktreeMerge` or
   `worktreeDelete`.
 

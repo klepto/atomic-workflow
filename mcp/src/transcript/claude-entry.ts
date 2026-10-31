@@ -3,14 +3,17 @@ import type { MessageSender } from '../storage/message-log-store.ts';
 
 /**
  * Schema of the fields of an entry of a Claude Code transcript that a message or a status needs. `stop_reason` is
- * `end_turn` on each entry of the agent that ends its turn. The format is internal to Claude Code, so every field that
- * a message does not need may be missing or change.
+ * `end_turn` on each entry of the agent that ends its turn. `queueTranscriptOnly` is `true` on each message that Claude
+ * Code only writes to the transcript, and that starts no turn, such as the notice of a background task that arrives
+ * while the agent is idle. The format is internal to Claude Code, so every field that a message does not need may be
+ * missing or change.
  */
 export const ENTRY = z.object({
   type: z.string(),
   uuid: z.string(),
   timestamp: z.iso.datetime(),
   isMeta: z.boolean().optional(),
+  queueTranscriptOnly: z.boolean().optional().catch(undefined),
   isSidechain: z.boolean().optional(),
   isCompactSummary: z.boolean().optional(),
   message: z.object({

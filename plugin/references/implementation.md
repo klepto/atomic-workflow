@@ -79,6 +79,7 @@ A contract binds you where other tickets rely on it:
   Each extension is a decision.
 - When a better approach needs a part of a contract to change or go, block the ticket, as `## Blocked` says, with the
   approach and what it gains. The user amends the design, which carries the change to every ticket that relies on it.
+  In unattended mode, decide instead, as `## Unattended` says.
 
 ## Follow-up tickets
 
@@ -118,8 +119,9 @@ Each stage:
 
 The code of a ticket has its final shape when:
 
-- Each part of `## Contract` that the ticket provides matches it exactly: names, signatures, data shapes, errors.
-  Elsewhere, the public API follows the patterns of the code beside it.
+- Each part of `## Contract` that the ticket provides matches it exactly: names, signatures, data shapes, errors. A
+  part that a decision `Contract change:` changed matches its new text. Elsewhere, the public API follows the
+  patterns of the code beside it.
 - The code follows the instructions of the repository and the conventions of the code beside it: its structure, such
   as interfaces where the repository uses them, its naming, and its handling of errors.
 - Each public declaration has documentation in the style of the repository.
@@ -134,4 +136,24 @@ a better approach that needs a contract to change, or a conflict that you cannot
 of a ticket. A question about how to build it is yours to decide, as `## Decisions` says. Call `ticketSetStatus` with
 `blocked`, the current stage, and the cause in one sentence as `reason`. Then tell the user the cause and what you need, and stop. The next
 `/atomic-workflow:implement <task id> <ticket id>` resumes at that stage. Without a ticket, `/atomic-workflow:implement`
-never picks a blocked ticket, since it waits for the user.
+never picks a blocked ticket, since it waits for the user. In unattended mode, `## Unattended` narrows the causes.
+
+## Unattended
+
+A ticket runs in unattended mode with `--no-land`, as `implement-all` and a run start it. No user answers, so you
+settle every choice yourself, to the end of the ticket. Each choice below is a decision, as `## Decisions` says:
+
+- A question about what to build that the description does not answer: take the answer that the goals and the
+  design support best.
+- A better approach, or a criterion that cannot hold, that needs a part of a contract to change: change it when the
+  change keeps every name, signature and data shape that other tickets use, such as a limit or a rule on the side
+  that the ticket provides. Write the decision as `Contract change: <section of the design>: <new text of the
+  part>, over <old text>, because <reason>.`, so the run carries it into the design. Check each criterion that the
+  change touches against the changed contract, and name in the decision how it reads now.
+- A change that would break what other tickets use: keep the contract, and take the best approach within it. Name the
+  better approach in the decision, so the review weighs it.
+- A criterion that cannot hold within the contract: meet the nearest behavior that can, and name the gap in the
+  decision.
+
+Block the ticket only on a failure that no decision fixes: a command of `## Verify` that still fails after three
+attempts at a fix, or a conflict that you cannot resolve without changing the intent of a ticket.

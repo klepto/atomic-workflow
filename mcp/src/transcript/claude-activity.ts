@@ -56,15 +56,18 @@ const LOCAL_COMMAND_MARKS: readonly string[] = ['<command-', '<local-command-'];
  * its JSON. With `sidechain`, only the entries of a subagent count, and without it, only the entries of the session
  * itself. Each entry of the user or the agent shows that a turn runs, tool calls and tool results included. A message
  * of the user that marks an interrupt shows that the turn ended, and so does an entry of a subagent that ends its
- * turn, as `endsSubagentTurn` tells. Entries that only Claude Code wrote, summaries of a compaction, a local command
- * and its output, and every other entry, such as the time that Claude Code notes after a turn, show no status, and
- * neither does a line that is not valid, so the function returns `undefined` for them.
+ * turn, as `endsSubagentTurn` tells. Entries that only Claude Code wrote, messages that only sit in the transcript and
+ * start no turn, summaries of a compaction, a local command and its output, and every other entry, such as the time
+ * that Claude Code notes after a turn, show no status, and neither does a line that is not valid, so the function
+ * returns `undefined` for them.
  */
 export const parseActivity = (line: string, value: unknown, sidechain: boolean): TranscriptActivity | undefined => {
   const entry = ENTRY.safeParse(value);
   if (!entry.success) return undefined;
-  const { type, timestamp, isMeta, isSidechain = false, isCompactSummary, message } = entry.data;
-  if (!SENDERS.has(type) || isMeta || isSidechain !== sidechain || isCompactSummary) return undefined;
+  const { type, timestamp, isMeta, queueTranscriptOnly, isSidechain = false, isCompactSummary, message } = entry.data;
+  if (!SENDERS.has(type) || isMeta || queueTranscriptOnly || isSidechain !== sidechain || isCompactSummary) {
+    return undefined;
+  }
   const text = textOf(message.content).trim();
   if (type === 'user' && LOCAL_COMMAND_MARKS.some((mark) => text.startsWith(mark))) return undefined;
   const ended =
