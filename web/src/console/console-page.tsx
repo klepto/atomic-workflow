@@ -47,14 +47,14 @@ interface ConsolePageProps {
 }
 
 /**
- * Returns where a skill that the chat `chat` sends runs: a new subagent for the main session, and the subagent itself
- * for a subagent.
+ * Returns where a skill that the chat `chat` sends runs: a subagent for the main session, the one that the chat of its
+ * job and target holds while it is attached, else a new one, and the subagent itself for a subagent.
  */
 const runsInOf = (chat: Chat): ReactNode =>
   chat.role === 'subagent' ? (
     <span className="font-mono text-foreground wrap-anywhere">{chat.label}</span>
   ) : (
-    <span className="text-foreground">a new subagent</span>
+    <span className="text-foreground">a subagent</span>
   );
 
 /**

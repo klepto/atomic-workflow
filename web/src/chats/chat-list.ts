@@ -1,7 +1,8 @@
 import type { ListedSession } from '@/api/types.ts';
 
 /**
- * Name and key of the one chat of every orchestrator session: the main session, which runs the atomic-workflow server.
+ * Alias of every orchestrator session, and the name and key of their one chat: the chat of the main session, which runs
+ * the atomic-workflow server.
  */
 const MAIN = 'main';
 
@@ -22,27 +23,29 @@ const TASK_ORCHESTRATOR = 'orchestrator';
 export type ChatStatus = ListedSession['status'];
 
 /**
- * Messages of a chat: the messages of one session, or of every session of a role.
+ * Messages of a chat: the messages of one session, or of every session that holds an alias.
  */
-export type ChatLogQuery = { readonly sessionId: string } | { readonly role: ListedSession['role'] };
+export type ChatLogQuery = { readonly sessionId: string } | { readonly alias: string };
 
 /**
- * Chat of the repository: the one chat of every orchestrator session, or the chat of one subagent.
+ * Chat of the repository: the one chat of every session that holds an alias, such as `main` for every orchestrator
+ * session, or the chat of one session with no alias.
  */
 export interface Chat {
   /**
-   * Key of the chat, which no other chat has: `main`, or the session id of a subagent.
+   * Key of the chat, which no other chat has: the alias of its sessions, such as `main`, or the session id of its one
+   * session with no alias.
    */
   readonly key: string;
 
   /**
-   * Name of the chat, which no other chat has, and which names it in a URL in any view: `main`, or the name that the
-   * server gives a subagent, such as `plan-cache-layer-redis` or `agent-5e6f7a8b`.
+   * Name of the chat, which no other chat has, and which names it in a URL in any view: the alias of its sessions, such
+   * as `main` or `plan-cache-layer-redis`, or the name that the server gives its one session, such as `agent-5e6f7a8b`.
    */
   readonly name: string;
 
   /**
-   * Words that the app shows for the chat: `main session`, or the name of a subagent.
+   * Words that the app shows for the chat: `main session` for the chat `main`, and the name otherwise.
    */
   readonly label: string;
 
@@ -56,6 +59,11 @@ export interface Chat {
    * Role of the sessions of the chat.
    */
   readonly role: ListedSession['role'];
+
+  /**
+   * Identifiers of the sessions of the chat, at least one, in the order in which `sessionList` answers them.
+   */
+  readonly sessionIds: readonly string[];
 
   /**
    * Whether the chat is the orchestrator of the open task.
@@ -124,25 +132,29 @@ const newestOf = (sessions: readonly ListedSession[]): ListedSession =>
   sessions.reduce((newest, session) => ((session.startedAt ?? 0) > (newest.startedAt ?? 0) ? session : newest));
 
 /**
- * Returns the chat of every orchestrator session of `sessions`. It relies on the order of `sessions`, as `sessionList`
- * answers them: the attached sessions in the order in which they attached, the latest last. The chat sends to the
- * orchestrator session that attached last, the last attached one of `sessions`, and has its status and its turn. Its
- * current session is that session, else the one that started last, whose start, latest message, context size, model
- * and effort it has. If `sessions` holds no orchestrator session, returns `undefined` instead.
+ * Returns the time of the last activity of the session `session`, in ms since the epoch: the time of its latest
+ * message, else the time of its start, else 0.
  */
-const mainChat = (sessions: readonly ListedSession[]): Chat | undefined => {
-  const orchestrators = sessions.filter((session) => session.role === 'orchestrator');
-  if (orchestrators.length === 0) {
-    return undefined;
-  }
-  const latest = orchestrators.findLast((session) => session.attached);
-  const current = latest ?? newestOf(orchestrators);
+const activityOf = (session: ListedSession): number => session.lastActivityAt ?? session.startedAt ?? 0;
+
+/**
+ * Returns the chat of the sessions `members`, which all hold the alias `alias`, or which are one session with no alias
+ * while `alias` is `null`. It relies on the order of `members`, as `sessionList` answers them: the attached sessions in
+ * the order in which they attached, the latest last. The chat sends to the session that attached last, and has its
+ * status, its turn and its newest action. Its current session is that session, else the one that started last, whose
+ * start, latest message, context size, model and effort it has. `members` holds at least one session.
+ */
+const chatOf = (alias: string | null, members: readonly ListedSession[]): Chat => {
+  const latest = members.findLast((session) => session.attached);
+  const current = latest ?? newestOf(members);
+  const name = alias ?? current.name;
   return {
-    key: MAIN,
-    name: MAIN,
-    label: MAIN_LABEL,
-    ref: MAIN,
-    role: 'orchestrator',
+    key: alias ?? current.sessionId,
+    name,
+    label: alias === MAIN ? MAIN_LABEL : name,
+    ref: name,
+    role: current.role,
+    sessionIds: members.map((session) => session.sessionId),
     taskOrchestrator: false,
     sessionId: latest?.sessionId,
     status: latest?.status ?? 'ended',
@@ -153,68 +165,90 @@ const mainChat = (sessions: readonly ListedSession[]): Chat | undefined => {
     contextTokens: current.contextTokens,
     model: current.model,
     effort: current.effort,
-    logQuery: { role: 'orchestrator' },
+    logQuery: alias === null ? { sessionId: current.sessionId } : { alias },
   };
 };
 
 /**
- * Returns the chat of the subagent `session`, the orchestrator of the open task when `taskOrchestrator` is true.
+ * Chat with the sessions it holds.
  */
-const subagentChat = (session: ListedSession, taskOrchestrator: boolean): Chat => ({
-  key: session.sessionId,
-  name: session.name,
-  label: session.name,
-  ref: taskOrchestrator ? TASK_ORCHESTRATOR : session.name,
-  role: 'subagent',
-  taskOrchestrator,
-  sessionId: session.attached ? session.sessionId : undefined,
-  status: session.status,
-  turnStartedAt: session.turnStartedAt,
-  latestAction: session.latestAction,
-  startedAt: session.startedAt,
-  lastActivityAt: session.lastActivityAt,
-  contextTokens: session.contextTokens,
-  model: session.model,
-  effort: session.effort,
-  logQuery: { sessionId: session.sessionId },
-});
+interface Group {
+  /**
+   * Chat of the sessions.
+   */
+  readonly chat: Chat;
+
+  /**
+   * Sessions of the chat.
+   */
+  readonly members: readonly ListedSession[];
+}
 
 /**
- * Returns the time of the last activity of the session `session`, in ms since the epoch: the time of its latest
- * message, else the time of its start, else 0.
+ * Returns the chats of the sessions `sessions`, each with its sessions: one chat for each alias that a session holds,
+ * in the order of the first session that holds it, and one chat for each session with no alias, in the order of
+ * `sessions`.
  */
-const activityOf = (session: ListedSession): number => session.lastActivityAt ?? session.startedAt ?? 0;
+const groupsOf = (sessions: readonly ListedSession[]): readonly Group[] => {
+  const groups = new Map<string, ListedSession[]>();
+  for (const session of sessions) {
+    const key = session.alias ?? session.sessionId;
+    const members = groups.get(key);
+    if (members === undefined) groups.set(key, [session]);
+    else members.push(session);
+  }
+  return [...groups.values()].map((members) => ({ chat: chatOf(members[0]?.alias ?? null, members), members }));
+};
 
 /**
- * Returns the orchestrator of the task `taskId` among the subagents `subagents`: the latest started one that is
- * attached, else the latest started one. If the task has none, returns `undefined` instead.
+ * Returns the time of the last activity of the group `group`, in ms since the epoch: the latest last activity of its
+ * sessions.
  */
-const taskOrchestratorOf = (subagents: readonly ListedSession[], taskId: number): ListedSession | undefined => {
-  const orchestrators = subagents
+const groupActivityOf = (group: Group): number => Math.max(...group.members.map(activityOf));
+
+/**
+ * Returns the orchestrator of the task `taskId` among the sessions `sessions`: the latest started session of the job
+ * `orchestrator` on the task that is attached, else the latest started one. If the task has none, returns `undefined`
+ * instead.
+ */
+const taskOrchestratorOf = (sessions: readonly ListedSession[], taskId: number): ListedSession | undefined => {
+  const orchestrators = sessions
     .filter((session) => session.job === TASK_ORCHESTRATOR && session.taskId === taskId)
     .toSorted((first, second) => (second.startedAt ?? 0) - (first.startedAt ?? 0));
   return orchestrators.find((session) => session.attached) ?? orchestrators[0];
 };
 
 /**
- * Returns the chats of the sessions `sessions`, in the order in which `sessionList` answers them. The chat of the main
- * session comes first, while any orchestrator session is known. With `taskId`, the orchestrator of the task `taskId`
- * comes next, while it has one, then every other subagent that works on the task. Without it, every subagent comes
- * next. The subagents after the fixed chats are in the order of their last activity, the latest first, whether
- * attached or ended.
+ * Returns whether the chat `chat` holds a session of `sessionIds`. A chat that keeps a session stays the same chat even
+ * when its key and its name change, such as once its session gets an alias.
+ */
+export const holdsAnySession = (chat: Chat, sessionIds: readonly string[]): boolean =>
+  chat.sessionIds.some((sessionId) => sessionIds.includes(sessionId));
+
+/**
+ * Returns the chats of the sessions `sessions`, one for each alias and one for each session with no alias. The chat
+ * `main`, of every orchestrator session, comes first while it is known. With `taskId`, the chat that holds the
+ * orchestrator of the task `taskId` comes next, with the ref `orchestrator`, while the task has one, then every other
+ * chat that holds a session of the task. Without it, every other chat comes next. The chats after the fixed ones are
+ * in the order of their last activity, the latest first, whether attached or ended.
  */
 export const listChats = (sessions: readonly ListedSession[], taskId?: number): readonly Chat[] => {
-  const subagents = sessions.filter(
-    (session) => session.role === 'subagent' && (taskId === undefined || session.taskId === taskId),
-  );
-  const main = mainChat(sessions);
-  const orchestrator = taskId === undefined ? undefined : taskOrchestratorOf(subagents, taskId);
-  const others = subagents
-    .filter((session) => session !== orchestrator)
-    .toSorted((first, second) => activityOf(second) - activityOf(first));
+  const groups = groupsOf(sessions);
+  const main = groups.find((group) => group.chat.key === MAIN);
+  const orchestratorSession = taskId === undefined ? undefined : taskOrchestratorOf(sessions, taskId);
+  const orchestrator =
+    orchestratorSession === undefined ? undefined : groups.find((group) => group.members.includes(orchestratorSession));
+  const others = groups
+    .filter(
+      (group) =>
+        group !== main &&
+        group !== orchestrator &&
+        (taskId === undefined || group.members.some((session) => session.taskId === taskId)),
+    )
+    .toSorted((first, second) => groupActivityOf(second) - groupActivityOf(first));
   return [
-    ...(main === undefined ? [] : [main]),
-    ...(orchestrator === undefined ? [] : [subagentChat(orchestrator, true)]),
-    ...others.map((session) => subagentChat(session, false)),
+    ...(main === undefined ? [] : [main.chat]),
+    ...(orchestrator === undefined ? [] : [{ ...orchestrator.chat, ref: TASK_ORCHESTRATOR, taskOrchestrator: true }]),
+    ...others.map((group) => group.chat),
   ];
 };

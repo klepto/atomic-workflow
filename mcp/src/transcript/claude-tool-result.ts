@@ -60,9 +60,9 @@ const TOOL_CALL_ENTRY = z.object({
 const TEXT_RESULT = z.tuple([z.object({ type: z.literal('text'), text: z.string() })]);
 
 /**
- * Schema of the task that the result of a tool of `TASK_TOOL` holds, with only its id and its slug.
+ * Schema of the task that the result of a tool of `TASK_TOOL` holds, with only its id.
  */
-const TASK_ID = z.object({ id: z.number().int().positive(), slug: z.string().min(1) });
+const TASK_ID = z.object({ id: z.number().int().positive() });
 
 /**
  * Schema of the result of the tool of `TICKET_TOOL`, with only the id of its ticket.
@@ -129,7 +129,7 @@ const taskOf = (content: unknown, created: boolean): TranscriptTask | undefined 
   const result = TEXT_RESULT.safeParse(content);
   if (!result.success) return undefined;
   const task = TASK_ID.safeParse(parseJson(result.data[0].text));
-  return task.success ? { taskId: task.data.id, slug: task.data.slug, created } : undefined;
+  return task.success ? { taskId: task.data.id, created } : undefined;
 };
 
 /**

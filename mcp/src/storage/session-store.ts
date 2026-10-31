@@ -76,8 +76,8 @@ export interface RegisteredSession {
   readonly ticketId: number | null;
 
   /**
-   * Display name that a feature gave the session, or `null` for a session that no feature named. Aliases are not
-   * unique.
+   * Alias of the session, the name of its chat, or `null` for a session with a chat of its own. Aliases are not
+   * unique: sessions that hold the same alias share one chat, such as every orchestrator session, which holds `main`.
    */
   readonly alias: string | null;
 

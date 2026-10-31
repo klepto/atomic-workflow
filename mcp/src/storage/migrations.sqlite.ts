@@ -184,4 +184,7 @@ export const MIGRATIONS: readonly string[] = [
   // Step 16 adds the start and the end of the latest run of a task. Each task stored before never ran.
   `ALTER TABLE task ADD COLUMN run_started_at INTEGER;
   ALTER TABLE task ADD COLUMN run_ended_at INTEGER;`,
+  // Step 17 gives each orchestrator session the alias `main`, whatever alias it held, since every orchestrator session
+  // shares the chat of the main session. Each subagent keeps the alias it holds, or none.
+  `UPDATE session SET alias = 'main' WHERE role = 'orchestrator';`,
 ];

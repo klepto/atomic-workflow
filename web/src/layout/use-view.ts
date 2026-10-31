@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react';
 import type { ListedSession, TaskSummary } from '@/api/types.ts';
-import { type Chat, listChats } from '@/chats/chat-list.ts';
+import { type Chat, holdsAnySession, listChats } from '@/chats/chat-list.ts';
 import { currentPath, navigate } from '@/routing/navigation.ts';
 import { findChat, findTask, routePath, type TicketView, taskRefOf, ticketPath } from '@/routing/route.ts';
 import { useRoute } from '@/routing/use-route.ts';
@@ -57,9 +57,9 @@ interface ResolvedChat {
   readonly ref: string;
 
   /**
-   * Key of the chat that the ref resolved to.
+   * Identifiers of the sessions of the chat that the ref resolved to.
    */
-  readonly key: string;
+  readonly sessionIds: readonly string[];
 }
 
 /**
@@ -67,8 +67,9 @@ interface ResolvedChat {
  * replaces the URL with the canonical path of that view, with no new history entry, whenever the two differ. A ticket
  * of the open task opens in place of a chat, and keeps the ref of the URL, which the page of the ticket resolves.
  * Until both the sessions and the tasks are known, nothing resolves and the URL stays as it is. A chat that the server
- * renames while it is open, such as `plan` once its task exists, stays open: the ref that resolved to it last still
- * names it, and the URL then takes its new name. Returns the view.
+ * renames while it is open, such as `plan` once its task exists and its session gets the alias `plan-<task slug>`,
+ * stays open: the ref that resolved to it last still names the chat that holds one of its sessions, and the URL then
+ * takes its new name. Returns the view.
  */
 export const useView = (
   sessions: readonly ListedSession[] | undefined,
@@ -83,7 +84,7 @@ export const useView = (
     chats !== undefined && route.chatRef !== undefined
       ? (findChat(chats, route.chatRef) ??
         (resolved.current?.ref === route.chatRef
-          ? chats.find((chat) => chat.key === resolved.current?.key)
+          ? chats.find((chat) => holdsAnySession(chat, resolved.current?.sessionIds ?? []))
           : undefined))
       : undefined;
   const ticket =
@@ -93,7 +94,9 @@ export const useView = (
   const open = ticket === undefined ? (named ?? chats?.[0]) : undefined;
   useEffect(() => {
     resolved.current =
-      named === undefined || route.chatRef === undefined ? undefined : { ref: route.chatRef, key: named.key };
+      named === undefined || route.chatRef === undefined
+        ? undefined
+        : { ref: route.chatRef, sessionIds: named.sessionIds };
   });
   const canonical = !known
     ? undefined

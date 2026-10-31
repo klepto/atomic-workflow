@@ -107,11 +107,12 @@ const revealCurrentTab = (row: HTMLElement): void => {
 
 /**
  * Returns whether the chat `chat` is among the chats of the task `taskId`, by the sessions `sessions`: the chat of the
- * main session is among the chats of every task, and the chat of a subagent among those of the task it works on.
+ * main session is among the chats of every task, and the chat of subagents among those of each task that one of them
+ * works on.
  */
 const isChatOfTask = (chat: Chat, taskId: number, sessions: readonly ListedSession[]): boolean =>
   chat.role === 'orchestrator' ||
-  sessions.some((session) => session.sessionId === chat.key && session.taskId === taskId);
+  sessions.some((session) => chat.sessionIds.includes(session.sessionId) && session.taskId === taskId);
 
 /**
  * Title of the app, `atomic-workflow / <repository>`, as a link to `to`. It reads `atomic-workflow` only while

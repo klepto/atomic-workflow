@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { AGENTS, type RegisteredSession, SESSION_ROLES } from '../storage/session-store.ts';
 import type { Method } from './method.ts';
 import { newSession } from './new-session.ts';
+import { MAIN_ALIAS } from './session-name.ts';
 
 /**
  * Schema of the parameters of `sessionRegister`.
@@ -18,7 +19,8 @@ const PARAMS = z.object({
 /**
  * `Method` named `sessionRegister`, which registers a session and returns it as registered. A session without a start
  * time gets the time of the call, and a session without a role is an orchestrator. A session that it registers works on
- * no task and no ticket, and has no job. A session that is registered already stays as it is. The activity that the
+ * no task and no ticket, and has no job. A new orchestrator session holds the alias `main`, which names the chat of the
+ * main session, and a new subagent holds none. A session that is registered already stays as it is. The activity that the
  * session reported before is forgotten, since its log starts anew, so its next status starts a new turn.
  */
 export const sessionRegisterMethod: Method<typeof PARAMS, RegisteredSession> = {
@@ -34,6 +36,7 @@ export const sessionRegisterMethod: Method<typeof PARAMS, RegisteredSession> = {
       startedAt: startedAt ?? clock.now(),
       role,
       parentId,
+      alias: role === 'orchestrator' ? MAIN_ALIAS : null,
     });
     activity.forget(sessionId);
     return sessions.register(session);

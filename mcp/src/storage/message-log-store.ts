@@ -1,5 +1,3 @@
-import type { SessionRole } from './session-store.ts';
-
 /**
  * Senders of a logged message: `user` for a message of the user, and `agent` for a message of the agent.
  */
@@ -60,9 +58,9 @@ export interface MessageQuery {
   readonly sessionId: string | undefined;
 
   /**
-   * Role of the sessions whose messages to select, or `undefined` for the messages of every role.
+   * Alias of the sessions whose messages to select, or `undefined` for the messages of every session.
    */
-  readonly role: SessionRole | undefined;
+  readonly alias: string | undefined;
 
   /**
    * Identifier after which the selection starts, or `undefined` for the latest messages. Only messages with a greater

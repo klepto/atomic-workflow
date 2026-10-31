@@ -34,7 +34,7 @@ interface ConsoleComposerProps {
   readonly skillsFailure: string | null;
 
   /**
-   * Where a skill that the composer sends runs, such as `a new subagent`.
+   * Where a skill that the composer sends runs, such as `a subagent`.
    */
   readonly runsIn: ReactNode;
 

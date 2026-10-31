@@ -35,7 +35,7 @@ const loggedMessage = (row: Record<string, unknown>): LoggedMessage => ({ ...row
 
 /**
  * Returns the `MessageLogStore` that keeps the message log in the table `message_log` of `database`, and reads the
- * role of a session from the table `session`.
+ * alias of a session from the table `session`.
  */
 export const sqliteMessageLogStore = (database: DatabaseSync): MessageLogStore => {
   const insert = database.prepare(
@@ -49,7 +49,7 @@ export const sqliteMessageLogStore = (database: DatabaseSync): MessageLogStore =
   );
   // A filter that is `null` selects every message.
   const filter = `(:sessionId IS NULL OR session_id = :sessionId)
-    AND (:role IS NULL OR session_id IN (SELECT id FROM session WHERE role = :role))`;
+    AND (:alias IS NULL OR session_id IN (SELECT id FROM session WHERE alias = :alias))`;
   const selectAfter = database.prepare(
     `SELECT ${COLUMNS} FROM message_log WHERE ${filter} AND id > :after ORDER BY id LIMIT :limit`,
   );
@@ -68,11 +68,11 @@ export const sqliteMessageLogStore = (database: DatabaseSync): MessageLogStore =
         selectMessageId.get({ sessionId, messageId });
       return loggedMessage(row ?? {});
     },
-    list: async ({ sessionId = null, role = null, after, limit }) => {
+    list: async ({ sessionId = null, alias = null, after, limit }) => {
       const rows =
         after === undefined
-          ? selectLatest.all({ sessionId, role, limit })
-          : selectAfter.all({ sessionId, role, after, limit });
+          ? selectLatest.all({ sessionId, alias, limit })
+          : selectAfter.all({ sessionId, alias, after, limit });
       return rows.map(loggedMessage);
     },
     deleteSession: async (sessionId) => Number(removeSession.run({ sessionId }).changes),

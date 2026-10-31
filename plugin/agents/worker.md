@@ -31,6 +31,12 @@ atomic-workflow:
    question that the skill asks the user as plain text, then end your turn with `waiting`. The answer of the user
    comes as your next message.
 
-3. If the output says that the server has stopped the messages of this session, or that the wait failed, do not run
+3. If your first message runs a skill, that skill is your job. Your job ends when the skill ends, at its last step or
+   at a step that tells you to stop, and not at a question that waits for an answer of the user. A skill that the
+   skill of your job runs, such as one stage of a plan, does not end your job. Once your job ends, write the last
+   reply of the skill as plain text. Then call the tool `subagentFinish` of the MCP server `atomic-workflow` with your
+   session id, and end your turn with `stopped`. The server then stops your wait. If your first message runs no
+   skill, you have no job, and you keep waiting for messages.
+4. If the output says that the server has stopped the messages of this session, or that the wait failed, do not run
    the wait command again. End your turn with `stopped`.
-4. If the output says that a newer wait has replaced this one, end your turn with `waiting`.
+5. If the output says that a newer wait has replaced this one, end your turn with `waiting`.

@@ -35,9 +35,14 @@ interface RefChat {
   readonly name: string;
 
   /**
-   * Key of the chat, such as the full session id of a subagent.
+   * Key of the chat, such as `main` or the full session id of a session with no alias.
    */
   readonly key: string;
+
+  /**
+   * Identifiers of the sessions of the chat.
+   */
+  readonly sessionIds: readonly string[];
 }
 
 /**
@@ -188,9 +193,10 @@ export const findTask = (tasks: readonly TaskSummary[], ref: string): TaskSummar
 /**
  * Returns the chat of `chats` that `ref` names, or `undefined` when none matches. `ref` matches the canonical ref of a
  * chat in its view, such as `orchestrator`, first, then its name, such as `orchestrator-cache-layer-redis`, then its
- * key, such as the full session id of a subagent.
+ * key, then the full session id of any of its sessions.
  */
 export const findChat = <Chat extends RefChat>(chats: readonly Chat[], ref: string): Chat | undefined =>
   chats.find((chat) => chat.ref === ref) ??
   chats.find((chat) => chat.name === ref) ??
-  chats.find((chat) => chat.key === ref);
+  chats.find((chat) => chat.key === ref) ??
+  chats.find((chat) => chat.sessionIds.includes(ref));

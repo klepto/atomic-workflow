@@ -35,6 +35,7 @@ import { sessionUsageSetMethod } from './method.session-usage-set.ts';
 import { skillListMethod } from './method.skill-list.ts';
 import { subagentCreateMethod } from './method.subagent-create.ts';
 import { subagentEndMethod } from './method.subagent-end.ts';
+import { subagentFinishMethod } from './method.subagent-finish.ts';
 import { subagentStartMethod } from './method.subagent-start.ts';
 import { subagentStopMethod } from './method.subagent-stop.ts';
 import { taskCreateMethod } from './method.task-create.ts';
@@ -208,6 +209,7 @@ export const METHODS: readonly Method[] = [
   subagentCreateMethod,
   subagentStopMethod,
   subagentEndMethod,
+  subagentFinishMethod,
   taskOrchestratorDeliverMethod,
   taskStopMethod,
   taskRunStartMethod,

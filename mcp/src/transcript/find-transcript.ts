@@ -131,11 +131,6 @@ export interface TranscriptTask {
   readonly taskId: number;
 
   /**
-   * Slug of the task.
-   */
-  readonly slug: string;
-
-  /**
    * Whether the call created the task, with `taskCreate`, rather than read it, with `taskGet`.
    */
   readonly created: boolean;

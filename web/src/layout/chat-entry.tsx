@@ -65,9 +65,9 @@ interface ChatEntryProps {
 }
 
 /**
- * Button that deletes the subagent of the chat `chat` with `sessionDelete`, with its chat, after it asks in a dialog.
- * It sits at the right end of the entry of the chat, and shows only while the pointer is over the entry, while it has
- * the focus, or while its dialog is open.
+ * Button that deletes every subagent of the chat `chat` with `sessionDelete`, one after the other, with the chat, after
+ * it asks in a dialog. It sits at the right end of the entry of the chat, and shows only while the pointer is over the
+ * entry, while it has the focus, or while its dialog is open.
  */
 const DeleteAgent = ({ chat }: DeleteAgentProps) => (
   <DeleteDialog
@@ -84,7 +84,9 @@ const DeleteAgent = ({ chat }: DeleteAgentProps) => (
     description="This deletes the agent with its chat. You cannot undo it."
     confirm="Delete agent"
     onDelete={async () => {
-      await fetchCall('sessionDelete', { sessionId: chat.key });
+      for (const sessionId of chat.sessionIds) {
+        await fetchCall('sessionDelete', { sessionId });
+      }
     }}
   >
     <Trash2 aria-hidden="true" className="size-3.5" />
@@ -92,9 +94,9 @@ const DeleteAgent = ({ chat }: DeleteAgentProps) => (
 );
 
 /**
- * Button that stops the subagent of the chat `chat` at once with `subagentStop`, even in the middle of a turn. It sits
- * at the right end of the entry of the chat, and shows only while the pointer is over the entry, or while it has the
- * focus. Once clicked, it shows a spinner and stays disabled until the subagent ends and the button goes away. A
+ * Button that stops the attached subagent of the chat `chat` at once with `subagentStop`, even in the middle of a turn,
+ * while the chat has one. It sits at the right end of the entry of the chat, and shows only while the pointer is over
+ * the entry, or while it has the focus. Once clicked, it shows a spinner and stays disabled until the subagent ends and the button goes away. A
  * failure enables it again, keeps it shown, and shows its message as the note of the hint of the button.
  */
 const StopAgent = ({ chat }: StopAgentProps) => {
@@ -105,10 +107,13 @@ const StopAgent = ({ chat }: StopAgentProps) => {
    * Stops the subagent, and keeps the message of a failure.
    */
   const stop = async () => {
+    if (chat.sessionId === undefined) {
+      return;
+    }
     setFailure(undefined);
     setStopping(true);
     try {
-      await fetchCall('subagentStop', { sessionId: chat.key });
+      await fetchCall('subagentStop', { sessionId: chat.sessionId });
     } catch (error) {
       setFailure(errorMessage(error));
       setStopping(false);

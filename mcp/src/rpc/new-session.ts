@@ -19,10 +19,15 @@ interface NewSessionFields
    * Identifier of the ticket that the session works on, or `null` or `undefined` for none.
    */
   readonly ticketId?: number | null;
+
+  /**
+   * Alias of the session, which names its chat, or `null` or `undefined` for none.
+   */
+  readonly alias?: string | null;
 }
 
 /**
- * Returns the session to register with the fields `fields`. It has no alias, and no context size, model or effort yet.
+ * Returns the session to register with the fields `fields`. It has no context size, model or effort yet.
  */
 export const newSession = ({
   id,
@@ -34,6 +39,7 @@ export const newSession = ({
   taskId = null,
   job = null,
   ticketId = null,
+  alias = null,
 }: NewSessionFields): RegisteredSession => ({
   id,
   agent,
@@ -44,7 +50,7 @@ export const newSession = ({
   taskId,
   job,
   ticketId,
-  alias: null,
+  alias,
   contextTokens: null,
   model: null,
   effort: null,

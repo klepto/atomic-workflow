@@ -42,8 +42,9 @@ export interface ListedSession {
   readonly job: string | null;
 
   /**
-   * Name of the chat of the session: `main` for an orchestrator session, and for a subagent its alias, or else its job
-   * with the slug of its target, such as `implement-cache-key-format`, unique among the subagents with no alias.
+   * Name of the chat of the session: its alias, such as `main` for an orchestrator session, or else its job with the
+   * slug of its target, such as `implement-cache-key-format`, with `-2`, `-3` and so on, so that it is unique among the
+   * sessions with no alias and differs from every alias.
    */
   readonly name: string;
 
@@ -102,8 +103,9 @@ export interface ListedSession {
   readonly effort: string | null;
 
   /**
-   * Alias of the session, a display name of 1 to 60 characters that a feature gave it, or `null` while it has none.
-   * Aliases are not unique.
+   * Alias of the session, 1 to 60 characters, or `null` while it has none: `main` for every orchestrator session, and
+   * for a subagent its job with the slug of its target, such as `implement-cache-key-format`. Sessions that hold the
+   * same alias share one chat.
    */
   readonly alias: string | null;
 }

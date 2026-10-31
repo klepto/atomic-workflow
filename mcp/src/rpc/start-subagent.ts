@@ -1,11 +1,13 @@
+import type { Task } from '../storage/task-store.ts';
 import { callMethod } from './call-method.ts';
 import { deliverServerMessage, deliverUserMessage } from './deliver-message.ts';
 import { errorMessage } from './error-message.ts';
-import { findTask } from './find-task.ts';
 import type { MethodContext } from './method.ts';
 import { registerSubagent } from './register-subagent.ts';
 import { RPC_ERROR_CODES, RpcError } from './rpc-error.ts';
 import { subagentFollowSessionMethod } from './session-method.subagent-follow.ts';
+import { aliasOf } from './session-name.ts';
+import { attachedSubagentSessions } from './subagent-queries.ts';
 
 /**
  * Time in ms that a new subagent has to attach.
@@ -32,39 +34,51 @@ interface SubagentStart {
   readonly parentId: string | undefined;
 
   /**
-   * Identifier of the task that the subagent works on, or `undefined` for none.
+   * Task that the subagent works on, or `undefined` for none.
    */
-  readonly taskId: number | undefined;
+  readonly task: Task | undefined;
 
   /**
-   * Job of the subagent, which names its chat, or `null` for none.
+   * Identifier of the ticket of the task that the subagent works on, or `null` for none.
+   */
+  readonly ticketId: number | null;
+
+  /**
+   * Job of the subagent, which gives its alias with its task and its ticket, or `null` for none.
    */
   readonly job: string | null;
 }
 
 /**
  * Starts the subagent that `start` describes inside its orchestrator session, with the services of `context`, and
- * returns its session id once it has attached. The orchestrator spawns the subagent on a message in its inbox, and the
- * subagent then waits for its messages with the command line of `awaitCommandLine`, in the background. The prompt is
- * the first message of the subagent, logged as a message of the user.
+ * returns its session id once it has attached. The subagent holds the alias that `aliasOf` gives its job, its task and
+ * its ticket. If the latest started subagent that holds that alias is attached with an open inbox, it takes the prompt
+ * as a message of the user instead, no subagent starts, and its session id is returned. Otherwise the orchestrator
+ * spawns the new subagent on a message in its inbox, and the subagent then waits for its messages with the command
+ * line of `awaitCommandLine`, in the background. The prompt is the first message of the subagent, logged as a message
+ * of the user.
  *
- * A task that does not exist fails with invalid parameters. Without the attached orchestrator session, fails with an
- * invalid request. A subagent that does not attach within `ATTACH_TIMEOUT` ms is stopped, and fails with an internal
- * error. Once it has attached, rejects as the request `subagentFollow` to the session server of the orchestrator does,
- * and the subagent then keeps running.
+ * Without the attached orchestrator session, fails with an invalid request. A subagent that does not attach within
+ * `ATTACH_TIMEOUT` ms is stopped, and fails with an internal error. Once it has attached, rejects as the request
+ * `subagentFollow` to the session server of the orchestrator does, and the subagent then keeps running.
  */
 export const startSubagent = async (
-  { prompt, parentId: pickedId, taskId, job }: SubagentStart,
+  { prompt, parentId: pickedId, task, ticketId, job }: SubagentStart,
   context: MethodContext,
 ): Promise<{ readonly sessionId: string }> => {
   const { sessions, sessionConnections, subagents, inboxes } = context;
-  if (taskId !== undefined) await findTask(taskId, context.tasks);
+  const alias = aliasOf(job, task, ticketId);
+  const holder = alias === null ? undefined : await attachedHolderOf(alias, context);
+  if (holder !== undefined) {
+    if (prompt !== undefined) await deliverUserMessage(holder, prompt, context);
+    return { sessionId: holder };
+  }
   const parentId = pickedId ?? sessionConnections.list().at(-1);
   const connection = parentId === undefined ? undefined : sessionConnections.get(parentId);
   const parent = parentId === undefined ? undefined : await sessions.get(parentId);
   if (parentId === undefined || connection === undefined || parent === undefined)
     throw new RpcError(RPC_ERROR_CODES.INVALID_REQUEST, 'No orchestrator session is attached');
-  const sessionId = await registerSubagent(parent, { taskId: taskId ?? null, job, ticketId: null }, context);
+  const sessionId = await registerSubagent(parent, { taskId: task?.id ?? null, job, ticketId, alias }, context);
   subagents.start(sessionId, parentId, connection);
   inboxes.open(sessionId, connection.closed);
   if (prompt !== undefined) await deliverUserMessage(sessionId, prompt, context);
@@ -81,6 +95,15 @@ export const startSubagent = async (
   await callMethod(subagentFollowSessionMethod, { sessionId, parentId }, connection);
   return { sessionId };
 };
+
+/**
+ * Returns the session id of the latest started subagent that holds the alias `alias`, is attached and has an open
+ * inbox, so that it can take a message, with the services of `context`. If there is none, returns `undefined` instead.
+ */
+const attachedHolderOf = async (alias: string, context: MethodContext): Promise<string | undefined> =>
+  (await attachedSubagentSessions(context)).findLast(
+    (session) => session.alias === alias && context.inboxes.find(session.id) === session.id,
+  )?.id;
 
 /**
  * Asks the orchestrator session `parentId` to spawn the subagent `sessionId`, with a message in its inbox, with the

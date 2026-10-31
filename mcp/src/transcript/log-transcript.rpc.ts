@@ -2,13 +2,11 @@ import type { z } from 'zod';
 import { messageLogMethod } from '../rpc/method.message-log.ts';
 import { sessionActionReportMethod } from '../rpc/method.session-action-report.ts';
 import { sessionActivityReportMethod } from '../rpc/method.session-activity-report.ts';
-import { sessionAliasSetMethod } from '../rpc/method.session-alias-set.ts';
 import { sessionRegisterMethod } from '../rpc/method.session-register.ts';
 import { sessionTaskSetMethod } from '../rpc/method.session-task-set.ts';
 import { sessionTicketSetMethod } from '../rpc/method.session-ticket-set.ts';
 import { sessionUsageSetMethod } from '../rpc/method.session-usage-set.ts';
 import type { RpcConnection } from '../rpc/rpc-connection.ts';
-import { SESSION_ALIAS_MAX_LENGTH } from '../storage/session-store.ts';
 import type { Transcript, TranscriptEntry, TranscriptMessage, TranscriptTask } from './find-transcript.ts';
 import type { LogTranscriptFunction } from './log-transcript.ts';
 import { summarizeEntries } from './summarize-entries.ts';
@@ -40,11 +38,11 @@ interface Log {
 
 /**
  * `LogTranscriptFunction` that calls the methods of the repository server one at a time, so the log keeps the order of
- * the transcript: `sessionRegister` once, then for each line `sessionTaskSet` and `sessionAliasSet` with its task,
- * `sessionTicketSet` with its ticket and `messageLog` with its message, and after the lines of each read
- * `sessionActivityReport` for each change of the status, `sessionActionReport` once and `sessionUsageSet` once. The
- * alias is the one that `planAlias` builds. The end of the session stops the tail of the transcript, which reads the
- * file once more before it resolves. Resolves and rejects as `LogTranscriptFunction` says.
+ * the transcript: `sessionRegister` once, then for each line `sessionTaskSet` with its task, `sessionTicketSet` with
+ * its ticket and `messageLog` with its message, and after the lines of each read `sessionActivityReport` for each
+ * change of the status, `sessionActionReport` once and `sessionUsageSet` once. The repository server sets the alias of
+ * the session itself. The end of the session stops the tail of the transcript, which reads the file once more before
+ * it resolves. Resolves and rejects as `LogTranscriptFunction` says.
  */
 export const rpcLogTranscript: LogTranscriptFunction = async (
   transcript,
@@ -114,17 +112,17 @@ const logLines = async (lines: readonly string[], log: Log): Promise<void> => {
 };
 
 /**
- * Tells the repository server `task` as the task that the session of the transcript of `log` works on. If the tool
- * created the task, also names the session after it, with the alias that `planAlias` returns.
+ * Tells the repository server `task` as the task that the session of the transcript of `log` works on, and whether
+ * the tool created it.
  */
 const reportTask = async (task: TranscriptTask, log: Log): Promise<void> => {
   const { transcript, connection, signal } = log;
-  const { sessionId } = transcript;
-  const params: z.input<typeof sessionTaskSetMethod.params> = { sessionId, taskId: task.taskId, created: task.created };
+  const params: z.input<typeof sessionTaskSetMethod.params> = {
+    sessionId: transcript.sessionId,
+    taskId: task.taskId,
+    created: task.created,
+  };
   await connection.request(sessionTaskSetMethod.name, params, signal);
-  if (!task.created) return;
-  const alias: z.input<typeof sessionAliasSetMethod.params> = { sessionId, alias: planAlias(task.slug) };
-  await connection.request(sessionAliasSetMethod.name, alias, signal);
 };
 
 /**
@@ -143,9 +141,3 @@ const logMessage = async (message: TranscriptMessage, log: Log): Promise<void> =
   const params: z.input<typeof messageLogMethod.params> = { sessionId: log.transcript.sessionId, ...message };
   await log.connection.request(messageLogMethod.name, params, log.signal);
 };
-
-/**
- * Returns the alias of a session that created the task with the slug `slug`: `plan-<slug>`, cut to
- * `SESSION_ALIAS_MAX_LENGTH` characters.
- */
-const planAlias = (slug: string): string => `plan-${slug}`.slice(0, SESSION_ALIAS_MAX_LENGTH);

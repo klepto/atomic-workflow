@@ -57,13 +57,14 @@ interface ListedSession {
   readonly job: string | null;
 
   /**
-   * Alias of the session, or `null` for a session that no feature named.
+   * Alias of the session, which sessions that share one chat hold, or `null` for a session with a chat of its own.
    */
   readonly alias: string | null;
 
   /**
-   * Name of the chat of the session: `main` for an orchestrator session, and for a subagent its alias, or else its job
-   * with the slug of its target, such as `implement-cache-key-format`, unique among the subagents with no alias.
+   * Name of the chat of the session: its alias, such as `main` or `implement-cache-key-format`, or else its base name,
+   * as `baseNameOf` gives it, with `-2`, `-3` and so on, so that no session with no alias shares its name with another
+   * session or with an alias.
    */
   readonly name: string;
 

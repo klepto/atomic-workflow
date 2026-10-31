@@ -20,6 +20,11 @@ interface SubagentWork {
    * Identifier of the ticket that the subagent works on, or `null` for none.
    */
   readonly ticketId: number | null;
+
+  /**
+   * Alias of the subagent, which names its chat, or `null` for none yet.
+   */
+  readonly alias: string | null;
 }
 
 /**
