@@ -1,5 +1,5 @@
 import type { CSSProperties } from 'react';
-import type { HighlighterCore, LanguageRegistration, ThemedToken } from 'shiki/core';
+import type { GrammarState, HighlighterCore, LanguageRegistration, ThemedToken } from 'shiki/core';
 
 /**
  * Function that loads the grammar of a language, after the grammars of the languages that it embeds. Resolves to the
@@ -16,6 +16,29 @@ export interface LanguageHighlighter {
    * `MAX_LINE_LENGTH` gets one color.
    */
   tokenize(code: string): ThemedToken[][];
+
+  /**
+   * Returns the colored pieces of each line of the code `code`, one array per line, read on from the grammar state
+   * `state` where an earlier piece of code ended, or from the start while `state` is `undefined`, with the grammar
+   * state where `code` ends. A line longer than `MAX_LINE_LENGTH` gets one color.
+   */
+  tokenizeFrom(code: string, state: GrammarState | undefined): TokenizedCode;
+}
+
+/**
+ * Colored pieces of each line of a piece of code, with the grammar state where the code ends.
+ */
+export interface TokenizedCode {
+  /**
+   * Colored pieces of each line, one array per line.
+   */
+  readonly tokens: ThemedToken[][];
+
+  /**
+   * Grammar state where the code ends, which the next piece of the same code reads on from, or `undefined` when the
+   * highlighter gave none.
+   */
+  readonly state: GrammarState | undefined;
 }
 
 /**
@@ -176,6 +199,15 @@ export const highlighterOf = async (loadLanguage: LanguageLoader): Promise<Langu
   return {
     tokenize: (code) =>
       instance.codeToTokens(code, { lang: language, theme, tokenizeMaxLineLength: MAX_LINE_LENGTH }).tokens,
+    tokenizeFrom: (code, state) => {
+      const result = instance.codeToTokens(code, {
+        lang: language,
+        theme,
+        tokenizeMaxLineLength: MAX_LINE_LENGTH,
+        grammarState: state,
+      });
+      return { tokens: result.tokens, state: result.grammarState };
+    },
   };
 };
 

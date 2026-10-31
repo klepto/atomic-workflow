@@ -1,4 +1,5 @@
 import { MessageSquare } from 'lucide-react';
+import type { ChangedFile } from '@/api/types.ts';
 import { Hint } from '@/components/ui/hint.tsx';
 import { ScrollArea } from '@/components/ui/scroll-area.tsx';
 import { counted } from '@/review/counted.ts';
@@ -6,7 +7,6 @@ import { FilePath } from '@/review/file-path.tsx';
 import { FILE_STATUSES } from '@/review/file-status.ts';
 import { LayoutToggle } from '@/review/layout-toggle.tsx';
 import { LineCounts } from '@/review/line-counts.tsx';
-import type { FileDiff } from '@/review/patch.ts';
 import type { ReviewDraft } from '@/review/review-draft.ts';
 import type { DiffLayout } from '@/review/use-diff-layout.ts';
 
@@ -15,9 +15,9 @@ import type { DiffLayout } from '@/review/use-diff-layout.ts';
  */
 interface FileListProps {
   /**
-   * Changed files, in their order.
+   * Summaries of the changed files, in their order.
    */
-  readonly files: readonly FileDiff[];
+  readonly files: readonly ChangedFile[];
 
   /**
    * Review, whose comments each row counts.

@@ -2,10 +2,11 @@ import { Fragment } from 'react';
 import { cn } from '@/lib/utils.ts';
 import { endsAt } from '@/review/comment-anchor.ts';
 import { CommentThread } from '@/review/comment-thread.tsx';
+import type { UnifiedPiece } from '@/review/diff-chunks.ts';
 import type { FileReview } from '@/review/file-review.ts';
 import { CodeCell, HunkHeader, LineButton, Rail } from '@/review/line-cells.tsx';
 import { codeTint, markOf, numberTint } from '@/review/line-mark.ts';
-import { type FileDiff, numberOn, sideOf } from '@/review/patch.ts';
+import { numberOn, sideOf } from '@/review/patch.ts';
 import type { FileHighlight } from '@/review/use-file-highlight.ts';
 
 /**
@@ -13,9 +14,9 @@ import type { FileHighlight } from '@/review/use-file-highlight.ts';
  */
 interface UnifiedBodyProps {
   /**
-   * Changes of the file.
+   * Runs of the lines of the hunks of the file to show.
    */
-  readonly file: FileDiff;
+  readonly pieces: readonly UnifiedPiece[];
 
   /**
    * Colors of the lines of the file, or `undefined` while they load.
@@ -34,15 +35,16 @@ interface UnifiedBodyProps {
 const UNIFIED_COLUMNS = 'grid-cols-[4px_6rem_minmax(0,1fr)]';
 
 /**
- * Hunks of the file `file` in one column, each line with its old and its new number and its code in the colors of
- * `highlight`, and the threads of the comments of `review` below the lines they end at.
+ * Runs `pieces` of the hunks of a file in one column, each with the header of its hunk when it starts the hunk, each
+ * line with its old and its new number and its code in the colors of `highlight`, and the threads of the comments of
+ * `review` below the lines they end at.
  */
-export const UnifiedBody = ({ file, highlight, review }: UnifiedBodyProps) =>
-  file.hunks.map((hunk, hunkIndex) => (
-    // biome-ignore lint/suspicious/noArrayIndexKey: the hunks of a file have no identity besides their place.
-    <Fragment key={hunkIndex}>
-      <HunkHeader header={hunk.header} columns={UNIFIED_COLUMNS} />
-      {hunk.lines.map((line, lineIndex) => {
+export const UnifiedBody = ({ pieces, highlight, review }: UnifiedBodyProps) =>
+  pieces.map((piece, pieceIndex) => (
+    // biome-ignore lint/suspicious/noArrayIndexKey: the runs of a chunk have no identity besides their place.
+    <Fragment key={pieceIndex}>
+      {piece.header !== null && <HunkHeader header={piece.header} columns={UNIFIED_COLUMNS} />}
+      {piece.lines.map((line, lineIndex) => {
         const side = sideOf(line);
         const mark = markOf(line, review);
         return (

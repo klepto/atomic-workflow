@@ -1,10 +1,11 @@
-import { memo } from 'react';
+import { memo, useState } from 'react';
 import type { ThemedToken } from 'shiki/core';
 import { Hint } from '@/components/ui/hint.tsx';
 import { tokenStyle } from '@/lib/code-highlight.ts';
 import { cn } from '@/lib/utils.ts';
 import type { FileReview } from '@/review/file-review.ts';
 import type { LineMark } from '@/review/line-mark.ts';
+import { LONG_LINE_LENGTH } from '@/review/long-line.ts';
 import { type DiffLine, type DiffSide, signOf } from '@/review/patch.ts';
 import type { FileHighlight } from '@/review/use-file-highlight.ts';
 
@@ -119,6 +120,35 @@ export const Rail = ({ mark }: RailProps) => (
  */
 const CodeText = ({ line, tokens }: CodeTextProps) => {
   if (line.text === '') return ' ';
+  if (line.text.length > LONG_LINE_LENGTH) return <LongCodeText line={line} tokens={tokens} />;
+  if (tokens === undefined) return line.text;
+  return tokens.map((token) => (
+    <span key={token.offset} style={tokenStyle(token)}>
+      {token.content}
+    </span>
+  ));
+};
+
+/**
+ * Text of the line `line`, which is longer than `LONG_LINE_LENGTH`: cut after `LONG_LINE_LENGTH` characters without
+ * colors, with a button that shows it whole, in the colors `tokens` once they loaded.
+ */
+const LongCodeText = ({ line, tokens }: CodeTextProps) => {
+  const [whole, setWhole] = useState(false);
+  if (!whole) {
+    return (
+      <>
+        {line.text.slice(0, LONG_LINE_LENGTH)}
+        <button
+          type="button"
+          onClick={() => setWhole(true)}
+          className="ml-2 cursor-pointer select-none rounded-sm px-1 font-sans text-primary underline-offset-2 outline-none hover:underline focus-visible:ring-2 focus-visible:ring-ring"
+        >
+          {`Show the whole line (${line.text.length.toLocaleString('en-US')} characters)`}
+        </button>
+      </>
+    );
+  }
   if (tokens === undefined) return line.text;
   return tokens.map((token) => (
     <span key={token.offset} style={tokenStyle(token)}>

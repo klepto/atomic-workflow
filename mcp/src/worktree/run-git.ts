@@ -26,11 +26,11 @@ export interface GitOutput {
 }
 
 /**
- * Function that runs git with the arguments `commandLine` in the directory `directory`, and returns its output,
- * whatever its exit code. Git opens no editor and asks for no credentials. If git cannot start, such as for a missing
- * git program or a missing directory, rejects with the error of the start.
+ * Function that runs git with the arguments `commandLine` in the directory `directory`, with `input` on its standard
+ * input when given, and returns its output, whatever its exit code. Git opens no editor and asks for no credentials.
+ * If git cannot start, such as for a missing git program or a missing directory, rejects with the error of the start.
  */
-export type RunGitFunction = (directory: string, commandLine: readonly string[]) => Promise<GitOutput>;
+export type RunGitFunction = (directory: string, commandLine: readonly string[], input?: string) => Promise<GitOutput>;
 
 /**
  * Returns the trimmed standard output of git with the arguments `commandLine` in `directory`, run with `runGit`.

@@ -1,6 +1,6 @@
 import { createTicketWorktree } from './create-ticket-worktree.ts';
 import { deleteTaskWorktrees, deleteTicketWorktree } from './delete-worktrees.ts';
-import { findTicketCommit } from './find-ticket-commit.ts';
+import { findTicketChanges, findTicketFilePatch } from './find-ticket-changes.ts';
 import { findUnlandedTickets } from './find-unlanded-tickets.ts';
 import { mergeTask } from './merge-task.ts';
 import { mergeTicket } from './merge-ticket.ts';
@@ -27,7 +27,9 @@ export const createWorktrees: CreateWorktreesFunction = ({ checkout, home, platf
   return {
     create: (task, ticket, baseBranch) => queue(() => createTicketWorktree(task, ticket, baseBranch, context)),
     merge: (task, ticket, message) => queue(() => mergeTicket(task, ticket, message, context)),
-    ticketCommit: (task, ticket, baseBranch) => queue(() => findTicketCommit(task, ticket, baseBranch, context)),
+    ticketChanges: (task, ticket, baseBranch) => queue(() => findTicketChanges(task, ticket, baseBranch, context)),
+    ticketFilePatch: (task, ticket, baseBranch, commit, path) =>
+      queue(() => findTicketFilePatch(task, ticket, baseBranch, commit, path, context)),
     unlandedTickets: (task, baseBranch) => queue(() => findUnlandedTickets(task, baseBranch, context)),
     mergeTask: (task, baseBranch) => queue(() => mergeTask(task, baseBranch, context)),
     deleteTicket: (task, ticket, force) => queue(() => deleteTicketWorktree(task, ticket, force, context)),

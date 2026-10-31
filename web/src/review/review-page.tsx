@@ -1,16 +1,17 @@
-import { useState } from 'react';
 import type { TaskSummary, Ticket } from '@/api/types.ts';
 import { ScrollArea } from '@/components/ui/scroll-area.tsx';
 import { ChangesNotice } from '@/review/changes-notice.tsx';
 import { counted } from '@/review/counted.ts';
 import { FileDiffView } from '@/review/file-diff-view.tsx';
 import { FileList } from '@/review/file-list.tsx';
+import { foldReasonOf } from '@/review/fold-reason.ts';
 import { OverallComment } from '@/review/overall-comment.tsx';
 import { ReviewActionBar } from '@/review/review-action-bar.tsx';
 import { EMPTY_DRAFT } from '@/review/review-draft.ts';
 import { useChanges } from '@/review/use-changes.ts';
 import { useCommentSelection } from '@/review/use-comment-selection.ts';
 import { useDiffLayout } from '@/review/use-diff-layout.ts';
+import { useFileFolds } from '@/review/use-file-folds.ts';
 import { useReviewActions } from '@/review/use-review-actions.ts';
 import { useReviewDraft } from '@/review/use-review-draft.ts';
 
@@ -41,8 +42,9 @@ const fileIdOf = (index: number): string => `review-file-${index}`;
 
 /**
  * Review of the ticket `ticket` of the task `task`, as a page of its changes: the list of the changed files at the
- * top, then the diff of each file, then a field for the overall comment, with the bar of the actions at the bottom. A
- * click on a line number selects that line to comment on, and a shift and a click extend the selection. Each file
+ * top, then the diff of each file, then a field for the overall comment, with the bar of the actions at the bottom. The
+ * lines of a big file load in the background, and a generated file or one with a long line shows folded until the
+ * reviewer shows it, which the page keeps while it stays open. A click on a line number selects that line to comment on, and a shift and a click extend the selection. Each file
  * takes comments on the whole file too, such as for a file that was only moved. The comments stay in the browser store
  * until they are sent. `Request changes` adds a ticket that makes the changes that the comments ask for, approves this
  * ticket when it needs review, and opens the new ticket. `Approve` discards the comments and approves this ticket.
@@ -51,17 +53,11 @@ const fileIdOf = (index: number): string => `review-file-${index}`;
  */
 export const ReviewPage = ({ task, ticket, onOpenChat }: ReviewPageProps) => {
   const landed = ticket.status === 'needs-review' || ticket.status === 'done';
-  const changes = useChanges(task.id, ticket.id, landed);
+  const [changes, retry] = useChanges(task.id, ticket.id, landed);
   const [draft, update] = useReviewDraft(task.id, ticket.id);
   const [layout, setLayout] = useDiffLayout();
-  const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(new Set());
   const files = changes.state === 'loaded' ? changes.files : [];
-
-  /**
-   * Shows the file `path` if it is folded.
-   */
-  const unfold = (path: string | undefined): void =>
-    setCollapsed((current) => new Set([...current].filter((other) => other !== path)));
+  const { isFolded, toggle, unfold } = useFileFolds(files);
 
   const selection = useCommentSelection(draft, update, unfold);
   const actions = useReviewActions(task, ticket, {
@@ -78,20 +74,11 @@ export const ReviewPage = ({ task, ticket, onOpenChat }: ReviewPageProps) => {
    * Shows the file at `index` if it is folded, and scrolls to it.
    */
   const jumpTo = (index: number): void => {
-    unfold(files[index]?.path);
+    const file = files[index];
+    if (file !== undefined) unfold(file.summary.path);
     const smooth = !window.matchMedia('(prefers-reduced-motion: reduce)').matches;
     document.getElementById(fileIdOf(index))?.scrollIntoView({ block: 'start', behavior: smooth ? 'smooth' : 'auto' });
   };
-
-  /**
-   * Folds the file `path` when it shows, and shows it when it is folded.
-   */
-  const toggle = (path: string): void =>
-    setCollapsed((current) => {
-      const next = new Set(current);
-      if (!next.delete(path)) next.add(path);
-      return next;
-    });
 
   const headline =
     changes.state === 'loaded'
@@ -112,17 +99,25 @@ export const ReviewPage = ({ task, ticket, onOpenChat }: ReviewPageProps) => {
           </header>
           {changes.state === 'loaded' && changes.files.length > 0 ? (
             <>
-              <FileList files={files} draft={draft} layout={layout} onLayout={setLayout} onJump={jumpTo} />
+              <FileList
+                files={files.map((file) => file.summary)}
+                draft={draft}
+                layout={layout}
+                onLayout={setLayout}
+                onJump={jumpTo}
+              />
               <div className="flex flex-col gap-4">
                 {files.map((file, index) => (
                   <FileDiffView
-                    key={file.path}
+                    key={file.summary.path}
                     id={fileIdOf(index)}
                     file={file}
                     layout={layout}
-                    collapsed={collapsed.has(file.path)}
-                    onToggle={() => toggle(file.path)}
-                    review={selection.reviewOf(file.path)}
+                    collapsed={isFolded(file)}
+                    reason={foldReasonOf(file)}
+                    onToggle={toggle}
+                    onRetry={retry}
+                    review={selection.reviewOf(file.summary.path)}
                   />
                 ))}
               </div>

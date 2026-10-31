@@ -2,11 +2,11 @@ import { Fragment } from 'react';
 import { cn } from '@/lib/utils.ts';
 import { endsAt } from '@/review/comment-anchor.ts';
 import { CommentThread } from '@/review/comment-thread.tsx';
+import type { SplitPiece } from '@/review/diff-chunks.ts';
 import type { FileReview } from '@/review/file-review.ts';
 import { CodeCell, HunkHeader, LineButton, Rail } from '@/review/line-cells.tsx';
 import { codeTint, markOf, numberTint } from '@/review/line-mark.ts';
-import { type DiffLine, type DiffSide, type FileDiff, numberOn } from '@/review/patch.ts';
-import { splitRowsOf } from '@/review/split-rows.ts';
+import { type DiffLine, type DiffSide, numberOn } from '@/review/patch.ts';
 import type { FileHighlight } from '@/review/use-file-highlight.ts';
 
 /**
@@ -39,9 +39,9 @@ interface SplitHalfProps {
  */
 interface SplitBodyProps {
   /**
-   * Changes of the file.
+   * Runs of the rows of the hunks of the file to show.
    */
-  readonly file: FileDiff;
+  readonly pieces: readonly SplitPiece[];
 
   /**
    * Colors of the lines of the file, or `undefined` while they load.
@@ -86,15 +86,16 @@ const SplitHalf = ({ line, side, highlight, review }: SplitHalfProps) => {
 };
 
 /**
- * Hunks of the file `file` in two columns, the old lines at the left and the new ones at the right, each with its code
- * in the colors of `highlight`, and the threads of the comments of `review` below the rows they end at.
+ * Runs `pieces` of the hunks of a file in two columns, each with the header of its hunk when it starts the hunk, the old
+ * lines at the left and the new ones at the right, each with its code in the colors of `highlight`, and the threads of
+ * the comments of `review` below the rows they end at.
  */
-export const SplitBody = ({ file, highlight, review }: SplitBodyProps) =>
-  file.hunks.map((hunk, hunkIndex) => (
-    // biome-ignore lint/suspicious/noArrayIndexKey: the hunks of a file have no identity besides their place.
-    <Fragment key={hunkIndex}>
-      <HunkHeader header={hunk.header} columns={SPLIT_COLUMNS} />
-      {splitRowsOf(hunk.lines).map((row, rowIndex) => (
+export const SplitBody = ({ pieces, highlight, review }: SplitBodyProps) =>
+  pieces.map((piece, pieceIndex) => (
+    // biome-ignore lint/suspicious/noArrayIndexKey: the runs of a chunk have no identity besides their place.
+    <Fragment key={pieceIndex}>
+      {piece.header !== null && <HunkHeader header={piece.header} columns={SPLIT_COLUMNS} />}
+      {piece.rows.map((row, rowIndex) => (
         // biome-ignore lint/suspicious/noArrayIndexKey: the rows of a hunk have no identity besides their place.
         <Fragment key={rowIndex}>
           <div className={cn('grid', SPLIT_COLUMNS)}>

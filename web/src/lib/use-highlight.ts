@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { startTransition, useEffect, useState } from 'react';
 
 /**
  * Cache of the colors of code that was colored once, by the key that names the code. A `Map` and a `WeakMap` both
@@ -20,8 +20,9 @@ interface HighlightCache<Key, Colors> {
  * Returns the colors of the code that `key` names, or `undefined` while they load. Reads them from `cache`, or else
  * colors the code with `color`, keeps its result in `cache`, and renders again once it resolves. `color` receives `key`,
  * and returns `undefined` for code that gets no colors, such as code in a language without a grammar or code longer
- * than `MAX_HIGHLIGHT_LINES`. Pass a `color` that stays the same across renders, such as a function of a module, since
- * a new function starts to color again. If the colors fail to load, the code keeps showing without colors.
+ * than `MAX_HIGHLIGHT_LINES`. The colors render as a transition, which input interrupts. Pass a `color` that stays
+ * the same across renders, such as a function of a module, since a new function starts to color again. If the colors
+ * fail to load, the code keeps showing without colors.
  */
 export const useHighlight = <Key, Colors>(
   key: Key,
@@ -40,7 +41,8 @@ export const useHighlight = <Key, Colors>(
     loading.then(
       (loaded) => {
         cache.set(key, loaded);
-        if (current) setColors(loaded);
+        // The colors of many lines render as a transition, so that the page keeps taking input meanwhile.
+        if (current) startTransition(() => setColors(loaded));
       },
       // Code without colors still shows its text, and the user cannot act on the failure.
       () => undefined,

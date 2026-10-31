@@ -103,19 +103,70 @@ export interface MergedTicket {
 }
 
 /**
- * Commit that holds the landed work of a ticket, with its changes.
+ * Commit that holds the landed work of a ticket, with the files that it changes.
  */
-export interface TicketCommit {
+export interface TicketChanges {
   /**
    * Id of the commit.
    */
   readonly commit: string;
 
   /**
-   * Changes of the commit against its parent, as the patch of `git show` with renames detected, and paths that are
-   * not quoted.
+   * Changed files, in the order of `git show -M`.
    */
-  readonly patch: string;
+  readonly files: readonly ChangedFile[];
+}
+
+/**
+ * Kind of the change of a file: `added`, `deleted`, `modified`, `renamed` or `copied`.
+ */
+export type ChangedFileStatus = 'added' | 'deleted' | 'modified' | 'renamed' | 'copied';
+
+/**
+ * File that a commit changes, with the section of the patch of the commit for it, unless the file is big.
+ */
+export interface ChangedFile {
+  /**
+   * Path that names the file: its new path, or its old path for a deleted file.
+   */
+  readonly path: string;
+
+  /**
+   * Path before a rename or a copy, else `null`.
+   */
+  readonly oldPath: string | null;
+
+  /**
+   * Kind of the change.
+   */
+  readonly status: ChangedFileStatus;
+
+  /**
+   * Added lines, as `git show --numstat` counts them. 0 for a binary file.
+   */
+  readonly additions: number;
+
+  /**
+   * Deleted lines, as `git show --numstat` counts them. 0 for a binary file.
+   */
+  readonly deletions: number;
+
+  /**
+   * Whether git reads the file as binary.
+   */
+  readonly binary: boolean;
+
+  /**
+   * Whether the file is build output or minified: the attribute `linguist-generated` of its path, or a rule on its
+   * path when the attribute is unspecified.
+   */
+  readonly generated: boolean;
+
+  /**
+   * Section of the patch of `git show -M` for this file alone, from its `diff --git` line to the line before the next
+   * file, with paths not quoted. `null` for a big file: over 1,000 changed lines, or an old or new blob over 1 MB.
+   */
+  readonly patch: string | null;
 }
 
 /**
@@ -214,13 +265,29 @@ export interface Worktrees {
   merge(task: WorkName, ticket: WorkName, message: string): Promise<MergedTicket>;
 
   /**
-   * Returns the commit that holds the landed work of the ticket `ticket` of the task `task`: the latest commit whose
-   * trailers name both, on the task branch, or on the base branch `baseBranch` once the task branch is gone. If no
-   * such commit exists, such as for a ticket that changed nothing or that landed before the trailers were written,
-   * returns `undefined` instead.
+   * Returns the commit that holds the landed work of the ticket `ticket` of the task `task`, with the files that it
+   * changes: the latest commit whose trailers name both, on the task branch, or on the base branch `baseBranch` once
+   * the task branch is gone. Each file comes with its section of the patch, unless it is big. If no such commit
+   * exists, such as for a ticket that changed nothing or that landed before the trailers were written, returns
+   * `undefined` instead.
    * If git fails to find or to show the commit, rejects with an error that quotes the last lines of git.
    */
-  ticketCommit(task: WorkName, ticket: WorkName, baseBranch: string | null): Promise<TicketCommit | undefined>;
+  ticketChanges(task: WorkName, ticket: WorkName, baseBranch: string | null): Promise<TicketChanges | undefined>;
+
+  /**
+   * Returns the section of the patch of the file `path` of the commit `commit`, in the form of `ChangedFile.patch`,
+   * where `commit` is the commit that `ticketChanges` finds for the ticket `ticket` of the task `task` with
+   * `baseBranch`. If the commit does not change a file named `path`, returns `undefined` instead.
+   * If `commit` is no longer the commit of the ticket, rejects with `not-allowed`. If git fails, rejects with an error
+   * that quotes the last lines of git.
+   */
+  ticketFilePatch(
+    task: WorkName,
+    ticket: WorkName,
+    baseBranch: string | null,
+    commit: string,
+    path: string,
+  ): Promise<string | undefined>;
 
   /**
    * Returns the ids of the tickets of the task `task` whose landed work a removal of the task branch would throw away,

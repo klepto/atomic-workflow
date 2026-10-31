@@ -16,14 +16,17 @@ const OUTPUT_LIMIT = 64 * 1024 * 1024;
 /**
  * `RunGitFunction` that runs the git program of the system as a child process, with no window on Windows.
  */
-export const processRunGit: RunGitFunction = async (directory, commandLine) => {
+export const processRunGit: RunGitFunction = async (directory, commandLine, input) => {
   try {
-    const { stdout, stderr } = await execFileAsync('git', commandLine, {
+    const run = execFileAsync('git', commandLine, {
       cwd: directory,
       windowsHide: true,
       maxBuffer: OUTPUT_LIMIT,
       env: { ...process.env, GIT_EDITOR: 'true', GIT_TERMINAL_PROMPT: '0' },
     });
+    // Git that reads no input never waits for its end, so only a call with input writes it.
+    if (input !== undefined) run.child.stdin?.end(input);
+    const { stdout, stderr } = await run;
     return { exitCode: 0, stdout, stderr };
   } catch (error) {
     if (!isExitError(error)) throw error;

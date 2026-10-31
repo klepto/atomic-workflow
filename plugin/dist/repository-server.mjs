@@ -21484,26 +21484,51 @@ var PARAMS38 = external_exports.object({
 });
 var ticketDiffMethod = {
   name: "ticketDiff",
-  description: "Returns the commit that holds the landed work of a ticket of the atomic workflow, with its patch, or null when none does.",
+  description: "Returns the commit that holds the landed work of a ticket of the atomic workflow, with its changed files and the patch of each small one, or null when none does.",
   agent: false,
   params: PARAMS38,
   handle: async ({ taskId, ticketId }, context) => {
     const task = await findTask(taskId, context.tasks);
     const ticket = ticketOf(task, ticketId);
-    const found = await worktreeCall(() => context.worktrees.ticketCommit(task, ticket, task.baseBranch));
+    const found = await worktreeCall(() => context.worktrees.ticketChanges(task, ticket, task.baseBranch));
     return found ?? null;
   }
 };
 
-// src/rpc/method.ticket-next.ts
+// src/rpc/method.ticket-file-diff.ts
 var PARAMS39 = external_exports.object({
+  taskId: external_exports.number().int().positive().describe("Identifier of the task"),
+  ticketId: external_exports.number().int().positive().describe("Identifier of the ticket within its task"),
+  commit: external_exports.string().min(1).describe("Id of the commit that ticketDiff returned for the ticket"),
+  path: external_exports.string().min(1).describe("Path of a changed file that ticketDiff returned for the ticket")
+});
+var ticketFileDiffMethod = {
+  name: "ticketFileDiff",
+  description: "Returns the patch of one changed file of the commit that holds the landed work of a ticket of the atomic workflow.",
+  agent: false,
+  params: PARAMS39,
+  handle: async ({ taskId, ticketId, commit, path }, context) => {
+    const task = await findTask(taskId, context.tasks);
+    const ticket = ticketOf(task, ticketId);
+    const patch = await worktreeCall(
+      () => context.worktrees.ticketFilePatch(task, ticket, task.baseBranch, commit, path)
+    );
+    if (patch === void 0) {
+      throw new RpcError(RPC_ERROR_CODES.INVALID_PARAMS, `Commit ${commit} does not change the file ${path}`);
+    }
+    return { patch };
+  }
+};
+
+// src/rpc/method.ticket-next.ts
+var PARAMS40 = external_exports.object({
   taskId: external_exports.number().int().positive().describe("Identifier of the task")
 });
 var ticketNextMethod = {
   name: "ticketNext",
   description: "Returns the next ticket to work on of a task of the atomic workflow whose plan is complete: the first ready ticket in progress, else the first ready ticket not started, or null. Also returns every ticket that can be picked, with its mode, and each ticket whose work has not landed and that cannot be picked, with its cause: elsewhere, blocked or dependencies.",
   agent: true,
-  params: PARAMS39,
+  params: PARAMS40,
   handle: async ({ taskId }, context) => {
     const task = await openCompleteTask(taskId, context.tasks);
     const open3 = task.tickets.filter(({ status }) => !hasLanded(status));
@@ -21635,7 +21660,7 @@ var refusalOf = (ticket, { status, stage, reason }) => {
 };
 
 // src/rpc/method.ticket-request-changes.ts
-var PARAMS40 = external_exports.object({
+var PARAMS41 = external_exports.object({
   taskId: external_exports.number().int().positive().describe("Identifier of the task"),
   ticketId: external_exports.number().int().positive().describe("Identifier of the reviewed ticket within its task"),
   review: external_exports.string().trim().min(1).describe("Comments of the review in Markdown, each with the file and the lines that it points at")
@@ -21645,7 +21670,7 @@ var ticketRequestChangesMethod = {
   name: "ticketRequestChanges",
   description: "Adds a ticket that makes the changes that the review of a landed ticket of the atomic workflow asked for, and approves the reviewed ticket.",
   agent: false,
-  params: PARAMS40,
+  params: PARAMS41,
   handle: async ({ taskId, ticketId, review }, context) => {
     const task = await findTask(taskId, context.tasks);
     const reviewed = reviewedTicketOf(task, ticketId);
@@ -21715,7 +21740,7 @@ var saveReopened = async (task, tickets, context) => {
 };
 
 // src/rpc/method.ticket-set-status.ts
-var PARAMS41 = external_exports.object({
+var PARAMS42 = external_exports.object({
   taskId: external_exports.number().int().positive().describe("Identifier of the task"),
   ticketId: external_exports.number().int().positive().describe("Identifier of the ticket within its task"),
   status: external_exports.enum(TICKET_STATUSES).exclude(["needs-review"]).describe(
@@ -21730,12 +21755,12 @@ var ticketSetStatusMethod = {
   name: "ticketSetStatus",
   description: "Sets the status of a ticket of the atomic workflow, with the stage of its work and the reason that it is blocked, and returns the ticket.",
   agent: true,
-  params: PARAMS41,
+  params: PARAMS42,
   handle: async (params, context) => setTicketStatus(params, context)
 };
 
 // src/rpc/method.tickets-save.ts
-var PARAMS42 = external_exports.object({
+var PARAMS43 = external_exports.object({
   taskId: external_exports.number().int().positive().describe("Identifier of the task"),
   tickets: external_exports.array(
     external_exports.object({
@@ -21764,12 +21789,12 @@ var ticketsSaveMethod = {
   name: "ticketsSave",
   description: "Replaces the tickets of a task of the atomic workflow with a whole new list of them, and returns the task. On a complete task, each ticket whose work started must stay as stored.",
   agent: true,
-  params: PARAMS42,
+  params: PARAMS43,
   handle: async ({ taskId, tickets }, context) => saveTickets(taskId, tickets, context)
 };
 
 // src/rpc/method.worktree-create.ts
-var PARAMS43 = external_exports.object({
+var PARAMS44 = external_exports.object({
   taskId: external_exports.number().int().positive().describe("Identifier of the task"),
   ticketId: external_exports.number().int().positive().describe("Identifier of the ticket within its task")
 });
@@ -21777,7 +21802,7 @@ var worktreeCreateMethod = {
   name: "worktreeCreate",
   description: "Starts the work on a ticket of the atomic workflow: makes the worktree of its task and its own worktree where they do not exist, sets it in-progress, and returns the paths and branches of both worktrees with the ticket. Before it makes the branch of the ticket, it rebases the task branch onto the local base branch. On a conflict of that rebase, resolve and add the files in the worktree of the task that the error names, then call it again.",
   agent: true,
-  params: PARAMS43,
+  params: PARAMS44,
   handle: async ({ taskId, ticketId }, context) => {
     const { task, ticket } = await openTicket(taskId, ticketId, context.tasks);
     if (hasLanded(ticket.status))
@@ -21806,7 +21831,7 @@ var start2 = async (task, ticket, context) => {
 };
 
 // src/rpc/method.worktree-delete.ts
-var PARAMS44 = external_exports.object({
+var PARAMS45 = external_exports.object({
   taskId: external_exports.number().int().positive().describe("Identifier of the task"),
   ticketId: external_exports.number().int().positive().optional().describe("Identifier of the ticket whose worktree and branch to delete. Without it, deletes those of the task"),
   force: external_exports.boolean().default(false).describe("Whether to delete branches whose commits have not landed, and worktrees with uncommitted changes")
@@ -21816,7 +21841,7 @@ var worktreeDeleteMethod = {
   name: "worktreeDelete",
   description: "Deletes the worktree and the branch of a ticket of the atomic workflow, or without a ticket, every worktree and branch of the task. Refuses to lose work that has not landed unless forced.",
   agent: true,
-  params: PARAMS44,
+  params: PARAMS45,
   handle: async ({ taskId, ticketId, force }, context) => {
     const task = await findTask(taskId, context.tasks);
     if (ticketId === void 0) return deleteTask(task, force, context);
@@ -21855,7 +21880,7 @@ var isThrownAway = (ticket, unlanded) => isWorking(ticket.status) || hasLanded(t
 
 // src/rpc/method.worktree-merge.ts
 var SUMMARY_LINE = /^(feat|fix|chore|refactor|docs|test|perf|build|ci|style|revert)(\([^()\r\n]+\))?!?: \S/;
-var PARAMS45 = external_exports.object({
+var PARAMS46 = external_exports.object({
   taskId: external_exports.number().int().positive().describe("Identifier of the task"),
   ticketId: external_exports.number().int().positive().optional().describe(
     "Identifier of the ticket to land on the task branch. Without it, lands the task branch on the base branch once every ticket of the task is done"
@@ -21868,7 +21893,7 @@ var worktreeMergeMethod = {
   name: "worktreeMerge",
   description: "With a ticket, squashes the commits of the worktree of a ticket of the atomic workflow into one commit with the message, rebases it onto the task branch, moves the task branch forward to it, and sets the ticket needs-review. Without a ticket, once every ticket of the task is done, rebases the task branch onto its base branch, moves the base branch forward to it, deletes the worktrees and branches of the task, and sets the task done. On a conflict, resolve and add the files in the worktree that the error names, then call it again.",
   agent: true,
-  params: PARAMS45,
+  params: PARAMS46,
   handle: async ({ taskId, ticketId, message }, context) => {
     if (ticketId === void 0) {
       if (message !== void 0)
@@ -21971,6 +21996,7 @@ var METHODS = [
   ticketNextMethod,
   ticketSetStatusMethod,
   ticketDiffMethod,
+  ticketFileDiffMethod,
   ticketRequestChangesMethod,
   worktreeCreateMethod,
   worktreeMergeMethod,
@@ -23411,6 +23437,96 @@ var removeDirectory = async (path, warnings, context) => {
   }
 };
 
+// src/worktree/changed-files.ts
+var BIG_FILE_LINES = 1e3;
+var BIG_FILE_BYTES = 1024 * 1024;
+var MISSING_BLOB = /^0+$/;
+var RAW_HEADER = /^:(\d+) (\d+) ([0-9a-f]+) ([0-9a-f]+) ([A-Z])(\d*)$/;
+var SECTION_START = /^diff --git /gm;
+var GENERATED_DIRECTORIES = ["dist", "build"];
+var GENERATED_ENDINGS = [".min.js", ".min.css", ".map"];
+var GENERATED_NAMES = ["package-lock.json", "yarn.lock", "pnpm-lock.yaml"];
+var parseListedFiles = (stdout) => {
+  const tokens = stdout.split("\0");
+  const records = [];
+  let index = 0;
+  while (tokens[index]?.startsWith(":")) {
+    const match = RAW_HEADER.exec(tokens[index] ?? "");
+    if (match === null) throw new Error(`Git listed an unexpected record ${tokens[index]}`);
+    const [, , , oldBlob = "", newBlob = "", letter = ""] = match;
+    const twoPaths = letter === "R" || letter === "C";
+    const first = tokens[index + 1] ?? "";
+    const second = twoPaths ? tokens[index + 2] ?? "" : null;
+    index += twoPaths ? 3 : 2;
+    records.push({
+      path: second ?? first,
+      oldPath: second === null ? null : first,
+      status: statusOf(letter),
+      oldBlob: MISSING_BLOB.test(oldBlob) ? null : oldBlob,
+      newBlob: MISSING_BLOB.test(newBlob) ? null : newBlob
+    });
+  }
+  return records.map((record2) => {
+    const counts = tokens[index] ?? "";
+    const [additions = "", deletions = "", path = ""] = counts.split("	");
+    index += path === "" ? 3 : 1;
+    const binary = additions === "-";
+    return {
+      ...record2,
+      additions: binary ? 0 : Number(additions),
+      deletions: binary ? 0 : Number(deletions),
+      binary
+    };
+  });
+};
+var statusOf = (letter) => {
+  switch (letter) {
+    case "A":
+      return "added";
+    case "D":
+      return "deleted";
+    case "R":
+      return "renamed";
+    case "C":
+      return "copied";
+    default:
+      return "modified";
+  }
+};
+var isBig = (file2, sizes) => {
+  if (file2.binary) return false;
+  if (file2.additions + file2.deletions > BIG_FILE_LINES) return true;
+  return [file2.oldBlob, file2.newBlob].some((blob) => blob !== null && (sizes.get(blob) ?? 0) > BIG_FILE_BYTES);
+};
+var parseBlobSizes = (stdout) => {
+  const sizes = /* @__PURE__ */ new Map();
+  for (const line of stdout.split("\n")) {
+    const [blob, type, size] = line.trim().split(" ");
+    if (blob !== void 0 && type === "blob" && size !== void 0) sizes.set(blob, Number(size));
+  }
+  return sizes;
+};
+var parseGeneratedAttributes = (stdout) => {
+  const values = /* @__PURE__ */ new Map();
+  const tokens = stdout.split("\0");
+  for (let index = 0; index + 2 < tokens.length; index += 3) {
+    const path = tokens[index] ?? "";
+    const value = tokens[index + 2] ?? "";
+    if (value === "unspecified") continue;
+    values.set(path, value !== "unset" && value !== "false");
+  }
+  return values;
+};
+var isGeneratedPath = (path) => {
+  const parts = path.split("/");
+  const name = parts.pop() ?? "";
+  return parts.some((part) => GENERATED_DIRECTORIES.includes(part)) || GENERATED_ENDINGS.some((ending) => name.endsWith(ending)) || GENERATED_NAMES.includes(name);
+};
+var splitPatch = (patch) => {
+  const starts = [...patch.matchAll(SECTION_START)].map((match) => match.index);
+  return starts.map((start3, index) => patch.slice(start3, starts[index + 1] ?? patch.length));
+};
+
 // src/worktree/merge-ticket.ts
 var TASK_TRAILER = "Atomic-Workflow-Task";
 var TICKET_TRAILER = "Atomic-Workflow-Ticket";
@@ -23453,9 +23569,59 @@ var forkPointOrMergeBase = async (place, taskTip, head, context) => {
   return gitOutput(place.path, ["merge-base", taskTip, head], context.runGit);
 };
 
-// src/worktree/find-ticket-commit.ts
+// src/worktree/find-ticket-changes.ts
+var SHOW_PATCH = [
+  "-c",
+  "core.quotePath=false",
+  "show",
+  "--format=",
+  "--no-color",
+  "--no-ext-diff",
+  "-M"
+];
+var findTicketChanges = async (task, ticket, baseBranch, context) => {
+  const commit = await findTicketCommit(task, ticket, baseBranch, context);
+  if (commit === void 0) return void 0;
+  const listed = await listFiles(commit, context);
+  const [sizes, attributes] = await Promise.all([
+    blobSizes(listed, context),
+    generatedAttributes(commit, listed, context)
+  ]);
+  const big = listed.filter((file2) => isBig(file2, sizes));
+  const patches = await smallPatches(commit, listed, big, context);
+  const files = listed.map(
+    (file2) => ({
+      path: file2.path,
+      oldPath: file2.oldPath,
+      status: file2.status,
+      additions: file2.additions,
+      deletions: file2.deletions,
+      binary: file2.binary,
+      generated: attributes.get(file2.path) ?? isGeneratedPath(file2.path),
+      patch: patches.get(file2) ?? null
+    })
+  );
+  return { commit, files };
+};
+var findTicketFilePatch = async (task, ticket, baseBranch, commit, path, context) => {
+  const found = await findTicketCommit(task, ticket, baseBranch, context);
+  if (found !== commit) {
+    throw new WorktreeError(
+      "not-allowed",
+      `The changes of ticket ${ticket.id} of task ${task.id} moved to another commit than ${commit}, so reload the review`
+    );
+  }
+  const file2 = (await listFiles(commit, context)).find((listed) => listed.path === path);
+  if (file2 === void 0) return void 0;
+  const paths = file2.oldPath === null ? [file2.path] : [file2.oldPath, file2.path];
+  const stdout = await gitStdout(
+    [...SHOW_PATCH, commit, "--", ...paths.map((each) => `:(literal)${each}`)],
+    void 0,
+    context
+  );
+  return splitPatch(stdout).join("");
+};
 var findTicketCommit = async (task, ticket, baseBranch, context) => {
-  const { checkout } = context.layout;
   const taskBranch = taskBranchOf(task);
   const branch = await branchExists(taskBranch, context) ? taskBranch : baseBranch;
   if (branch === null || !await branchExists(branch, context)) return void 0;
@@ -23470,12 +23636,39 @@ var findTicketCommit = async (task, ticket, baseBranch, context) => {
     `--grep=^${TICKET_TRAILER}: ${ticket.id}-${ticket.slug}$`,
     branchRef(branch)
   ];
-  const commit = await gitOutput(checkout, search, context.runGit);
-  if (commit === "") return void 0;
-  const show = ["-c", "core.quotePath=false", "show", "--format=", "--no-color", "--no-ext-diff", "-M", commit];
-  const output2 = await context.runGit(checkout, show);
-  if (output2.exitCode !== 0) throw gitFailure(checkout, show, output2);
-  return { commit, patch: output2.stdout };
+  const commit = await gitOutput(context.layout.checkout, search, context.runGit);
+  return commit === "" ? void 0 : commit;
+};
+var listFiles = async (commit, context) => parseListedFiles(
+  await gitStdout([...SHOW_PATCH, "--raw", "--numstat", "--no-abbrev", "-z", commit], void 0, context)
+);
+var blobSizes = async (files, context) => {
+  const blobs = files.flatMap((file2) => [file2.oldBlob, file2.newBlob]).filter((blob) => blob !== null);
+  if (blobs.length === 0) return /* @__PURE__ */ new Map();
+  return parseBlobSizes(await gitStdout(["cat-file", "--batch-check"], `${blobs.join("\n")}
+`, context));
+};
+var generatedAttributes = async (commit, files, context) => {
+  if (files.length === 0) return /* @__PURE__ */ new Map();
+  const commandLine = ["check-attr", "--stdin", "-z", `--source=${commit}`, "linguist-generated"];
+  const input2 = files.map((file2) => `${file2.path}\0`).join("");
+  return parseGeneratedAttributes(await gitStdout(commandLine, input2, context));
+};
+var smallPatches = async (commit, files, big, context) => {
+  const small = files.filter((file2) => !big.includes(file2));
+  if (small.length === 0) return /* @__PURE__ */ new Map();
+  const excluded = big.flatMap((file2) => file2.oldPath === null ? [file2.path] : [file2.oldPath, file2.path]);
+  const pathspec = excluded.length === 0 ? [] : ["--", ...excluded.map((path) => `:(exclude,literal)${path}`)];
+  const sections = splitPatch(await gitStdout([...SHOW_PATCH, commit, ...pathspec], void 0, context));
+  if (sections.length !== small.length) {
+    throw new Error(`Git showed ${sections.length} files of commit ${commit} where ${small.length} were expected`);
+  }
+  return new Map(small.map((file2, index) => [file2, sections[index] ?? ""]));
+};
+var gitStdout = async (commandLine, input2, context) => {
+  const output2 = await context.runGit(context.layout.checkout, commandLine, input2);
+  if (output2.exitCode !== 0) throw gitFailure(context.layout.checkout, commandLine, output2);
+  return output2.stdout;
 };
 
 // src/worktree/find-unlanded-tickets.ts
@@ -23538,7 +23731,8 @@ var createWorktrees = ({ checkout, home, platform }, dependencies) => {
   return {
     create: (task, ticket, baseBranch) => queue(() => createTicketWorktree(task, ticket, baseBranch, context)),
     merge: (task, ticket, message) => queue(() => mergeTicket2(task, ticket, message, context)),
-    ticketCommit: (task, ticket, baseBranch) => queue(() => findTicketCommit(task, ticket, baseBranch, context)),
+    ticketChanges: (task, ticket, baseBranch) => queue(() => findTicketChanges(task, ticket, baseBranch, context)),
+    ticketFilePatch: (task, ticket, baseBranch, commit, path) => queue(() => findTicketFilePatch(task, ticket, baseBranch, commit, path, context)),
     unlandedTickets: (task, baseBranch) => queue(() => findUnlandedTickets(task, baseBranch, context)),
     mergeTask: (task, baseBranch) => queue(() => mergeTask2(task, baseBranch, context)),
     deleteTicket: (task, ticket, force) => queue(() => deleteTicketWorktree(task, ticket, force, context)),
@@ -23579,14 +23773,16 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 var execFileAsync = promisify(execFile);
 var OUTPUT_LIMIT = 64 * 1024 * 1024;
-var processRunGit = async (directory, commandLine) => {
+var processRunGit = async (directory, commandLine, input2) => {
   try {
-    const { stdout, stderr } = await execFileAsync("git", commandLine, {
+    const run = execFileAsync("git", commandLine, {
       cwd: directory,
       windowsHide: true,
       maxBuffer: OUTPUT_LIMIT,
       env: { ...process.env, GIT_EDITOR: "true", GIT_TERMINAL_PROMPT: "0" }
     });
+    if (input2 !== void 0) run.child.stdin?.end(input2);
+    const { stdout, stderr } = await run;
     return { exitCode: 0, stdout, stderr };
   } catch (error62) {
     if (!isExitError(error62)) throw error62;

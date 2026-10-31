@@ -4,7 +4,7 @@ import type { DiffLine } from '@/review/patch.ts';
  * Row of the split view: the old line at the left and the new line at the right, either of them missing where the
  * change added or deleted more lines on one side. A line that both sides share is on both.
  */
-interface SplitRow {
+export interface SplitRow {
   /**
    * Old line, or `null` for none.
    */

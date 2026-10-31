@@ -1,4 +1,5 @@
-import type { ThemedToken } from 'shiki/core';
+import type { GrammarState, ThemedToken } from 'shiki/core';
+import { systemClock } from '@/lib/clock.system.ts';
 import { highlighterOf, type LanguageHighlighter, languageOfPath, MAX_HIGHLIGHT_LINES } from '@/lib/code-highlight.ts';
 import { useHighlight } from '@/lib/use-highlight.ts';
 import type { DiffHunk, DiffLine, FileDiff } from '@/review/patch.ts';
@@ -15,19 +16,40 @@ export type FileHighlight = ReadonlyMap<DiffLine, readonly ThemedToken[]>;
 const highlights = new WeakMap<FileDiff, FileHighlight>();
 
 /**
- * Colors the lines `lines` of one side of a hunk as one piece of code with `highlighter`, so that a construct that
- * spans lines, such as a block comment, colors each of its lines, and adds the colors of each line to `colors`.
+ * Most lines that one call of the highlighter colors before it lets the page take input again.
  */
-const colorSide = (
+const HIGHLIGHT_CHUNK = 100;
+
+/**
+ * Resolves after the tasks that wait, such as the input of the user, ran.
+ */
+const nextTask = async (): Promise<void> =>
+  new Promise((resolve) => {
+    systemClock.after(0, resolve);
+  });
+
+/**
+ * Colors the lines `lines` of one side of a hunk as one piece of code with `highlighter`, so that a construct that
+ * spans lines, such as a block comment, colors each of its lines, and adds the colors of each line to `colors`. It
+ * colors `HIGHLIGHT_CHUNK` lines at a time, each chunk read on from where the chunk before it ended, and lets the page
+ * take input between two chunks.
+ */
+const colorSide = async (
   highlighter: LanguageHighlighter,
   lines: readonly DiffLine[],
   colors: Map<DiffLine, readonly ThemedToken[]>,
-): void => {
-  const tokens = highlighter.tokenize(lines.map((line) => line.text).join('\n'));
-  // A line that holds a line break of its own splits in two, so its colors would land on the lines below it.
-  if (tokens.length !== lines.length) return;
-  for (const [index, line] of lines.entries()) {
-    colors.set(line, tokens[index] ?? []);
+): Promise<void> => {
+  let state: GrammarState | undefined;
+  for (let start = 0; start < lines.length; start += HIGHLIGHT_CHUNK) {
+    if (start > 0) await nextTask();
+    const chunk = lines.slice(start, start + HIGHLIGHT_CHUNK);
+    const colored = highlighter.tokenizeFrom(chunk.map((line) => line.text).join('\n'), state);
+    // A line that holds a line break of its own splits in two, so its colors would land on the lines below it.
+    if (colored.tokens.length !== chunk.length) return;
+    for (const [index, line] of chunk.entries()) {
+      colors.set(line, colored.tokens[index] ?? []);
+    }
+    state = colored.state;
   }
 };
 
@@ -35,17 +57,18 @@ const colorSide = (
  * Colors the old and then the new side of the hunk `hunk` with `highlighter`, so that a line both sides share keeps
  * the colors of its new side, and adds the colors of each line to `colors`.
  */
-const colorHunk = (
+const colorHunk = async (
   highlighter: LanguageHighlighter,
   hunk: DiffHunk,
   colors: Map<DiffLine, readonly ThemedToken[]>,
-): void => {
-  colorSide(
+): Promise<void> => {
+  await colorSide(
     highlighter,
     hunk.lines.filter((line) => line.kind !== 'add'),
     colors,
   );
-  colorSide(
+  await nextTask();
+  await colorSide(
     highlighter,
     hunk.lines.filter((line) => line.kind !== 'delete'),
     colors,
@@ -53,12 +76,14 @@ const colorHunk = (
 };
 
 /**
- * Returns the colors of the lines of the file `file` with `highlighter`, each hunk colored on its own.
+ * Returns the colors of the lines of the file `file` with `highlighter`, each hunk colored on its own, and lets the
+ * page take input between two hunks.
  */
-const colorFile = (file: FileDiff, highlighter: LanguageHighlighter): FileHighlight => {
+const colorFile = async (file: FileDiff, highlighter: LanguageHighlighter): Promise<FileHighlight> => {
   const colors = new Map<DiffLine, readonly ThemedToken[]>();
   for (const hunk of file.hunks) {
-    colorHunk(highlighter, hunk, colors);
+    await colorHunk(highlighter, hunk, colors);
+    await nextTask();
   }
   return colors;
 };

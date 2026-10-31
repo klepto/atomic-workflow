@@ -38038,26 +38038,51 @@ var PARAMS38 = external_exports.object({
 });
 var ticketDiffMethod = {
   name: "ticketDiff",
-  description: "Returns the commit that holds the landed work of a ticket of the atomic workflow, with its patch, or null when none does.",
+  description: "Returns the commit that holds the landed work of a ticket of the atomic workflow, with its changed files and the patch of each small one, or null when none does.",
   agent: false,
   params: PARAMS38,
   handle: async ({ taskId, ticketId }, context) => {
     const task = await findTask(taskId, context.tasks);
     const ticket = ticketOf(task, ticketId);
-    const found = await worktreeCall(() => context.worktrees.ticketCommit(task, ticket, task.baseBranch));
+    const found = await worktreeCall(() => context.worktrees.ticketChanges(task, ticket, task.baseBranch));
     return found ?? null;
   }
 };
 
-// src/rpc/method.ticket-next.ts
+// src/rpc/method.ticket-file-diff.ts
 var PARAMS39 = external_exports.object({
+  taskId: external_exports.number().int().positive().describe("Identifier of the task"),
+  ticketId: external_exports.number().int().positive().describe("Identifier of the ticket within its task"),
+  commit: external_exports.string().min(1).describe("Id of the commit that ticketDiff returned for the ticket"),
+  path: external_exports.string().min(1).describe("Path of a changed file that ticketDiff returned for the ticket")
+});
+var ticketFileDiffMethod = {
+  name: "ticketFileDiff",
+  description: "Returns the patch of one changed file of the commit that holds the landed work of a ticket of the atomic workflow.",
+  agent: false,
+  params: PARAMS39,
+  handle: async ({ taskId, ticketId, commit, path }, context) => {
+    const task = await findTask(taskId, context.tasks);
+    const ticket = ticketOf(task, ticketId);
+    const patch = await worktreeCall(
+      () => context.worktrees.ticketFilePatch(task, ticket, task.baseBranch, commit, path)
+    );
+    if (patch === void 0) {
+      throw new RpcError(RPC_ERROR_CODES.INVALID_PARAMS, `Commit ${commit} does not change the file ${path}`);
+    }
+    return { patch };
+  }
+};
+
+// src/rpc/method.ticket-next.ts
+var PARAMS40 = external_exports.object({
   taskId: external_exports.number().int().positive().describe("Identifier of the task")
 });
 var ticketNextMethod = {
   name: "ticketNext",
   description: "Returns the next ticket to work on of a task of the atomic workflow whose plan is complete: the first ready ticket in progress, else the first ready ticket not started, or null. Also returns every ticket that can be picked, with its mode, and each ticket whose work has not landed and that cannot be picked, with its cause: elsewhere, blocked or dependencies.",
   agent: true,
-  params: PARAMS39,
+  params: PARAMS40,
   handle: async ({ taskId }, context) => {
     const task = await openCompleteTask(taskId, context.tasks);
     const open4 = task.tickets.filter(({ status }) => !hasLanded(status));
@@ -38189,7 +38214,7 @@ var refusalOf = (ticket, { status, stage, reason }) => {
 };
 
 // src/rpc/method.ticket-request-changes.ts
-var PARAMS40 = external_exports.object({
+var PARAMS41 = external_exports.object({
   taskId: external_exports.number().int().positive().describe("Identifier of the task"),
   ticketId: external_exports.number().int().positive().describe("Identifier of the reviewed ticket within its task"),
   review: external_exports.string().trim().min(1).describe("Comments of the review in Markdown, each with the file and the lines that it points at")
@@ -38199,7 +38224,7 @@ var ticketRequestChangesMethod = {
   name: "ticketRequestChanges",
   description: "Adds a ticket that makes the changes that the review of a landed ticket of the atomic workflow asked for, and approves the reviewed ticket.",
   agent: false,
-  params: PARAMS40,
+  params: PARAMS41,
   handle: async ({ taskId, ticketId, review }, context) => {
     const task = await findTask(taskId, context.tasks);
     const reviewed = reviewedTicketOf(task, ticketId);
@@ -38269,7 +38294,7 @@ var saveReopened = async (task, tickets, context) => {
 };
 
 // src/rpc/method.ticket-set-status.ts
-var PARAMS41 = external_exports.object({
+var PARAMS42 = external_exports.object({
   taskId: external_exports.number().int().positive().describe("Identifier of the task"),
   ticketId: external_exports.number().int().positive().describe("Identifier of the ticket within its task"),
   status: external_exports.enum(TICKET_STATUSES).exclude(["needs-review"]).describe(
@@ -38284,12 +38309,12 @@ var ticketSetStatusMethod = {
   name: "ticketSetStatus",
   description: "Sets the status of a ticket of the atomic workflow, with the stage of its work and the reason that it is blocked, and returns the ticket.",
   agent: true,
-  params: PARAMS41,
+  params: PARAMS42,
   handle: async (params, context) => setTicketStatus(params, context)
 };
 
 // src/rpc/method.tickets-save.ts
-var PARAMS42 = external_exports.object({
+var PARAMS43 = external_exports.object({
   taskId: external_exports.number().int().positive().describe("Identifier of the task"),
   tickets: external_exports.array(
     external_exports.object({
@@ -38318,12 +38343,12 @@ var ticketsSaveMethod = {
   name: "ticketsSave",
   description: "Replaces the tickets of a task of the atomic workflow with a whole new list of them, and returns the task. On a complete task, each ticket whose work started must stay as stored.",
   agent: true,
-  params: PARAMS42,
+  params: PARAMS43,
   handle: async ({ taskId, tickets }, context) => saveTickets(taskId, tickets, context)
 };
 
 // src/rpc/method.worktree-create.ts
-var PARAMS43 = external_exports.object({
+var PARAMS44 = external_exports.object({
   taskId: external_exports.number().int().positive().describe("Identifier of the task"),
   ticketId: external_exports.number().int().positive().describe("Identifier of the ticket within its task")
 });
@@ -38331,7 +38356,7 @@ var worktreeCreateMethod = {
   name: "worktreeCreate",
   description: "Starts the work on a ticket of the atomic workflow: makes the worktree of its task and its own worktree where they do not exist, sets it in-progress, and returns the paths and branches of both worktrees with the ticket. Before it makes the branch of the ticket, it rebases the task branch onto the local base branch. On a conflict of that rebase, resolve and add the files in the worktree of the task that the error names, then call it again.",
   agent: true,
-  params: PARAMS43,
+  params: PARAMS44,
   handle: async ({ taskId, ticketId }, context) => {
     const { task, ticket } = await openTicket(taskId, ticketId, context.tasks);
     if (hasLanded(ticket.status))
@@ -38360,7 +38385,7 @@ var start = async (task, ticket, context) => {
 };
 
 // src/rpc/method.worktree-delete.ts
-var PARAMS44 = external_exports.object({
+var PARAMS45 = external_exports.object({
   taskId: external_exports.number().int().positive().describe("Identifier of the task"),
   ticketId: external_exports.number().int().positive().optional().describe("Identifier of the ticket whose worktree and branch to delete. Without it, deletes those of the task"),
   force: external_exports.boolean().default(false).describe("Whether to delete branches whose commits have not landed, and worktrees with uncommitted changes")
@@ -38370,7 +38395,7 @@ var worktreeDeleteMethod = {
   name: "worktreeDelete",
   description: "Deletes the worktree and the branch of a ticket of the atomic workflow, or without a ticket, every worktree and branch of the task. Refuses to lose work that has not landed unless forced.",
   agent: true,
-  params: PARAMS44,
+  params: PARAMS45,
   handle: async ({ taskId, ticketId, force }, context) => {
     const task = await findTask(taskId, context.tasks);
     if (ticketId === void 0) return deleteTask(task, force, context);
@@ -38409,7 +38434,7 @@ var isThrownAway = (ticket, unlanded) => isWorking(ticket.status) || hasLanded(t
 
 // src/rpc/method.worktree-merge.ts
 var SUMMARY_LINE = /^(feat|fix|chore|refactor|docs|test|perf|build|ci|style|revert)(\([^()\r\n]+\))?!?: \S/;
-var PARAMS45 = external_exports.object({
+var PARAMS46 = external_exports.object({
   taskId: external_exports.number().int().positive().describe("Identifier of the task"),
   ticketId: external_exports.number().int().positive().optional().describe(
     "Identifier of the ticket to land on the task branch. Without it, lands the task branch on the base branch once every ticket of the task is done"
@@ -38422,7 +38447,7 @@ var worktreeMergeMethod = {
   name: "worktreeMerge",
   description: "With a ticket, squashes the commits of the worktree of a ticket of the atomic workflow into one commit with the message, rebases it onto the task branch, moves the task branch forward to it, and sets the ticket needs-review. Without a ticket, once every ticket of the task is done, rebases the task branch onto its base branch, moves the base branch forward to it, deletes the worktrees and branches of the task, and sets the task done. On a conflict, resolve and add the files in the worktree that the error names, then call it again.",
   agent: true,
-  params: PARAMS45,
+  params: PARAMS46,
   handle: async ({ taskId, ticketId, message }, context) => {
     if (ticketId === void 0) {
       if (message !== void 0)
@@ -38525,6 +38550,7 @@ var METHODS = [
   ticketNextMethod,
   ticketSetStatusMethod,
   ticketDiffMethod,
+  ticketFileDiffMethod,
   ticketRequestChangesMethod,
   worktreeCreateMethod,
   worktreeMergeMethod,

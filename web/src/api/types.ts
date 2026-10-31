@@ -285,17 +285,73 @@ export interface Ticket {
 }
 
 /**
- * Commit that holds the landed work of a ticket, the result of `ticketDiff`, as `TicketCommit` of
+ * Changed file of the commit of a ticket, as `ChangedFile` of `mcp/src/worktree/worktrees.ts` declares it.
+ */
+export interface ChangedFile {
+  /**
+   * Path that names the file: its new path, or its old path for a deleted file.
+   */
+  readonly path: string;
+
+  /**
+   * Path before a rename or a copy, else `null`.
+   */
+  readonly oldPath: string | null;
+
+  /**
+   * What the commit did to the file.
+   */
+  readonly status: 'added' | 'deleted' | 'modified' | 'renamed' | 'copied';
+
+  /**
+   * Number of the added lines, as `git show --numstat` counts them. 0 for a binary file.
+   */
+  readonly additions: number;
+
+  /**
+   * Number of the deleted lines, as `git show --numstat` counts them. 0 for a binary file.
+   */
+  readonly deletions: number;
+
+  /**
+   * Whether git found the file binary.
+   */
+  readonly binary: boolean;
+
+  /**
+   * Whether the file is build output or minified.
+   */
+  readonly generated: boolean;
+
+  /**
+   * Section of the patch of `git show -M` for this file alone, from its `diff --git` line to the line before the next
+   * file, with paths not quoted. `null` for a big file, whose section `ticketFileDiff` returns.
+   */
+  readonly patch: string | null;
+}
+
+/**
+ * Changes of the commit that holds the landed work of a ticket, the result of `ticketDiff`, as `TicketChanges` of
  * `mcp/src/worktree/worktrees.ts` declares it.
  */
-export interface TicketCommit {
+export interface TicketChanges {
   /**
    * Id of the commit.
    */
   readonly commit: string;
 
   /**
-   * Changes of the commit against its parent, as the patch of `git show`, with renames detected and paths not quoted.
+   * Changed files, in the order of `git show -M`.
+   */
+  readonly files: readonly ChangedFile[];
+}
+
+/**
+ * Section of the patch of one changed file of the commit of a ticket, the result of `ticketFileDiff`.
+ */
+export interface TicketFilePatch {
+  /**
+   * Section of the patch of the file, in the same form as `ChangedFile.patch`.
    */
   readonly patch: string;
 }

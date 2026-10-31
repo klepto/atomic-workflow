@@ -45,6 +45,7 @@ import { taskRunStartMethod } from './method.task-run-start.ts';
 import { taskSetStatusMethod } from './method.task-set-status.ts';
 import { taskStopMethod } from './method.task-stop.ts';
 import { ticketDiffMethod } from './method.ticket-diff.ts';
+import { ticketFileDiffMethod } from './method.ticket-file-diff.ts';
 import { ticketNextMethod } from './method.ticket-next.ts';
 import { ticketRequestChangesMethod } from './method.ticket-request-changes.ts';
 import { ticketSetStatusMethod } from './method.ticket-set-status.ts';
@@ -212,6 +213,7 @@ export const METHODS: readonly Method[] = [
   ticketNextMethod,
   ticketSetStatusMethod,
   ticketDiffMethod,
+  ticketFileDiffMethod,
   ticketRequestChangesMethod,
   worktreeCreateMethod,
   worktreeMergeMethod,
