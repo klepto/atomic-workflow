@@ -1,5 +1,6 @@
 import type { CSSProperties } from 'react';
 import type { GrammarState, HighlighterCore, LanguageRegistration, ThemedToken } from 'shiki/core';
+import { bundledLanguagesInfo } from 'shiki/langs';
 
 /**
  * Function that loads the grammar of a language, after the grammars of the languages that it embeds. Resolves to the
@@ -68,78 +69,71 @@ const MAX_LINE_LENGTH = 1000;
 export const MAX_HIGHLIGHT_LINES = 5000;
 
 /**
- * Loaders of the grammars of the languages that get colors, by the extension of a file, or by its whole name for a
- * file without one. Only these grammars ship with the app, each loaded on the first code that needs it.
+ * Identifiers of the languages of Shiki by the names that the index of Shiki gives no language, or another language
+ * than the app gives them, in lower case: extensions of files, such as `hpp` for C++, and names of fenced code
+ * blocks, such as `golang` for Go. `console` names Shell here, where Shiki names the shell session.
  */
-const LANGUAGES: Readonly<Record<string, LanguageLoader>> = {
-  ts: () => import('shiki/langs/typescript.mjs'),
-  mts: () => import('shiki/langs/typescript.mjs'),
-  cts: () => import('shiki/langs/typescript.mjs'),
-  tsx: () => import('shiki/langs/tsx.mjs'),
-  js: () => import('shiki/langs/javascript.mjs'),
-  mjs: () => import('shiki/langs/javascript.mjs'),
-  cjs: () => import('shiki/langs/javascript.mjs'),
-  jsx: () => import('shiki/langs/jsx.mjs'),
-  json: () => import('shiki/langs/json.mjs'),
-  jsonc: () => import('shiki/langs/jsonc.mjs'),
-  md: () => import('shiki/langs/markdown.mjs'),
-  markdown: () => import('shiki/langs/markdown.mjs'),
-  css: () => import('shiki/langs/css.mjs'),
-  scss: () => import('shiki/langs/scss.mjs'),
-  html: () => import('shiki/langs/html.mjs'),
-  htm: () => import('shiki/langs/html.mjs'),
-  xml: () => import('shiki/langs/xml.mjs'),
-  svg: () => import('shiki/langs/xml.mjs'),
-  yaml: () => import('shiki/langs/yaml.mjs'),
-  yml: () => import('shiki/langs/yaml.mjs'),
-  toml: () => import('shiki/langs/toml.mjs'),
-  ini: () => import('shiki/langs/ini.mjs'),
-  sh: () => import('shiki/langs/shellscript.mjs'),
-  bash: () => import('shiki/langs/shellscript.mjs'),
-  zsh: () => import('shiki/langs/shellscript.mjs'),
-  ps1: () => import('shiki/langs/powershell.mjs'),
-  psm1: () => import('shiki/langs/powershell.mjs'),
-  bat: () => import('shiki/langs/bat.mjs'),
-  cmd: () => import('shiki/langs/bat.mjs'),
-  py: () => import('shiki/langs/python.mjs'),
-  rs: () => import('shiki/langs/rust.mjs'),
-  go: () => import('shiki/langs/go.mjs'),
-  java: () => import('shiki/langs/java.mjs'),
-  kt: () => import('shiki/langs/kotlin.mjs'),
-  kts: () => import('shiki/langs/kotlin.mjs'),
-  gradle: () => import('shiki/langs/groovy.mjs'),
-  groovy: () => import('shiki/langs/groovy.mjs'),
-  c: () => import('shiki/langs/c.mjs'),
-  h: () => import('shiki/langs/c.mjs'),
-  cs: () => import('shiki/langs/csharp.mjs'),
-  sql: () => import('shiki/langs/sql.mjs'),
-  dockerfile: () => import('shiki/langs/dockerfile.mjs'),
-  makefile: () => import('shiki/langs/make.mjs'),
-  diff: () => import('shiki/langs/diff.mjs'),
+const EXTRA_NAMES: Readonly<Record<string, string>> = {
+  cc: 'cpp',
+  cljc: 'clojure',
+  cljs: 'clojure',
+  console: 'shellscript',
+  cr: 'crystal',
+  csproj: 'xml',
+  csx: 'csharp',
+  cxx: 'cpp',
+  edn: 'clojure',
+  el: 'emacs-lisp',
+  env: 'dotenv',
+  ex: 'elixir',
+  exs: 'elixir',
+  frag: 'glsl',
+  fsi: 'fsharp',
+  fsx: 'fsharp',
+  golang: 'go',
+  gradle: 'groovy',
+  h: 'c',
+  hh: 'cpp',
+  hpp: 'cpp',
+  hrl: 'erlang',
+  htm: 'html',
+  hxx: 'cpp',
+  ml: 'ocaml',
+  mli: 'ocaml',
+  mm: 'objective-cpp',
+  patch: 'diff',
+  pl: 'perl',
+  pm: 'perl',
+  psd1: 'powershell',
+  psm1: 'powershell',
+  purs: 'purescript',
+  sol: 'solidity',
+  sv: 'system-verilog',
+  svg: 'xml',
+  vert: 'glsl',
+  vhd: 'vhdl',
+  wat: 'wasm',
+  xaml: 'xml',
+  xsd: 'xml',
+  xslt: 'xsl',
 };
 
 /**
- * Names of the languages that a fenced code block of Markdown gives beside the extensions of `LANGUAGES`, such as
- * `typescript` for `ts`.
+ * Loaders of the grammars of every language that Shiki ships, by each name of the language in lower case: its
+ * identifier and its aliases in the index of Shiki, such as `gdscript` and `gd`, and the names of `EXTRA_NAMES`. A
+ * name of `EXTRA_NAMES` wins over the index, and an identifier over an alias of another language. Each grammar loads
+ * on the first code that needs it, from a chunk of its own.
  */
-const FENCE_NAMES: Readonly<Record<string, string>> = {
-  typescript: 'ts',
-  javascript: 'js',
-  shell: 'sh',
-  shellscript: 'sh',
-  console: 'sh',
-  powershell: 'ps1',
-  pwsh: 'ps1',
-  batch: 'bat',
-  python: 'py',
-  rust: 'rs',
-  golang: 'go',
-  kotlin: 'kt',
-  csharp: 'cs',
-  docker: 'dockerfile',
-  make: 'makefile',
-  patch: 'diff',
-};
+const languageLoaders: ReadonlyMap<string, LanguageLoader> = new Map([
+  ...bundledLanguagesInfo.flatMap((info) =>
+    (info.aliases ?? []).map((alias): [string, LanguageLoader] => [alias.toLowerCase(), info.import]),
+  ),
+  ...bundledLanguagesInfo.map((info): [string, LanguageLoader] => [info.id.toLowerCase(), info.import]),
+  ...Object.entries(EXTRA_NAMES).flatMap(([name, id]): [string, LanguageLoader][] => {
+    const info = bundledLanguagesInfo.find((language) => language.id === id);
+    return info === undefined ? [] : [[name, info.import]];
+  }),
+]);
 
 /**
  * Highlighter of the page with the theme of the colors of the code, created on the first code to color, or
@@ -148,23 +142,20 @@ const FENCE_NAMES: Readonly<Record<string, string>> = {
 let highlighter: Promise<PageHighlighter> | undefined;
 
 /**
- * Returns the loader of the grammar of the file at `path`, by its extension or else by its whole name, such as
- * `Dockerfile`. If neither names a language that gets colors, returns `undefined` instead.
+ * Returns the loader of the grammar of the file at `path`, by its extension, such as `gd` for GDScript, or else by its
+ * whole name, such as `Dockerfile`, in any case. If neither names a language of Shiki, returns `undefined` instead.
  */
 export const languageOfPath = (path: string): LanguageLoader | undefined => {
   const name = path.slice(path.lastIndexOf('/') + 1).toLowerCase();
   const extension = name.slice(name.lastIndexOf('.') + 1);
-  return LANGUAGES[extension] ?? LANGUAGES[name];
+  return languageLoaders.get(extension) ?? languageLoaders.get(name);
 };
 
 /**
- * Returns the loader of the grammar of the language `name` of a fenced code block, such as `ts` or `typescript`. If
- * the name is not a language that gets colors, returns `undefined` instead.
+ * Returns the loader of the grammar of the language `name` of a fenced code block, such as `ts` or `typescript`, in
+ * any case. If the name is not a language of Shiki, returns `undefined` instead.
  */
-export const languageOfFence = (name: string): LanguageLoader | undefined => {
-  const lowered = name.toLowerCase();
-  return LANGUAGES[FENCE_NAMES[lowered] ?? lowered];
-};
+export const languageOfFence = (name: string): LanguageLoader | undefined => languageLoaders.get(name.toLowerCase());
 
 /**
  * Creates the highlighter of the page, and returns it with the name of its theme. Its code loads only now, so that a

@@ -202,7 +202,8 @@ export default defineConfig({
     assetsInlineLimit: 0,
     reportCompressedSize: false,
     // The main chunk is large on purpose, served from the local disk, so its size needs no warning. The highlighter and
-    // its grammars load as chunks of their own, by the dynamic imports of src/lib/code-highlight.ts.
+    // its grammars load as chunks of their own, by the dynamic imports of the language index of shiki that
+    // src/lib/code-highlight.ts reads.
     chunkSizeWarningLimit: 1024,
   },
 });
