@@ -162,17 +162,24 @@ const overflows = (element: HTMLElement | null): boolean =>
 
 /**
  * Hint of the element `children` that shows the full text `text` of the element `target` while `target` cuts it off:
- * a small popup above `children`, at its start, in the style of `Hint`. It opens at once on hover, with no delay, and
- * on keyboard focus, but only while `target` cuts off its text. It closes on pointer leave, blur, Escape and click.
+ * a small popup in the style of `Hint`, to the right of the cursor, which it follows, so it never covers the elements
+ * above or below `children`. On keyboard focus, it shows to the right of `children`. It opens at once on hover, with
+ * no delay, and on keyboard focus, but only while `target` cuts off its text. It closes on pointer leave, blur, Escape
+ * and click.
  * The element keeps its own props, and a screen reader hears nothing more, since `target` holds the full text.
  */
 export const OverflowHint = ({ text, target, children }: OverflowHintProps) => {
   const [open, setOpen] = useState(false);
   return (
-    <TooltipPrimitive.Root open={open} onOpenChange={(next) => setOpen(next && overflows(target.current))}>
+    <TooltipPrimitive.Root
+      open={open}
+      onOpenChange={(next) => setOpen(next && overflows(target.current))}
+      trackCursorAxis="both"
+      disableHoverablePopup
+    >
       <TooltipPrimitive.Trigger delay={0} render={children} />
       <TooltipPrimitive.Portal>
-        <TooltipPrimitive.Positioner side="top" align="start" sideOffset={6} className="isolate z-50">
+        <TooltipPrimitive.Positioner side="right" sideOffset={16} className="isolate z-50">
           <TooltipPrimitive.Popup data-slot="hint" className={cn(HINT_POPUP, 'break-words')}>
             {text}
           </TooltipPrimitive.Popup>
