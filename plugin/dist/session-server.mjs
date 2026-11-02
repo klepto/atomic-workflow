@@ -37230,9 +37230,9 @@ var permissionPromptListMethod = {
 };
 
 // src/rpc/call-method.ts
-var callMethod = async (method, params, connection) => (
+var callMethod = async (method, params, connection, signal) => (
   // The peer runs `method` itself, so the result has the type of `method`. No schema of the result exists to check it.
-  await connection.request(method.name, params)
+  await connection.request(method.name, params, signal)
 );
 
 // src/rpc/session-method.subagent-task-id.ts
@@ -39521,8 +39521,8 @@ var isNotFound = (error62) => error62 instanceof Error && "code" in error62 && e
 // src/transcript/tail-file.poll.ts
 var POLL_INTERVAL2 = 500;
 var CHUNK_SIZE = 1024 * 1024;
-var pollTailFile = async (path, handle, signal) => {
-  const tail = { path, offset: 0, partial: "", decoder: new StringDecoder("utf8") };
+var pollTailFile = async (path, handle, signal, options = {}) => {
+  const tail = { path, offset: options.offset ?? 0, partial: "", decoder: new StringDecoder("utf8") };
   for (; ; ) {
     const aborted2 = signal.aborted;
     await readAppended(tail, handle);

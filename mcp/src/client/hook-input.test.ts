@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { z } from 'zod';
-import { hookDirectory, parseHookInput } from './hook-input.ts';
+import { hookDirectory, parseHookInput, parsePermissionRequestInput } from './hook-input.ts';
 
 describe('parseHookInput', () => {
   it('returns the session id and the working directory of the input', () => {
@@ -35,5 +35,43 @@ describe('hookDirectory', () => {
   it('returns the working directory of the session without CLAUDE_PROJECT_DIR', () => {
     const input = { session_id: 'session-1', cwd: '/repository/mcp' };
     assert.equal(hookDirectory(input, {}), '/repository/mcp');
+  });
+});
+
+describe('parsePermissionRequestInput', () => {
+  it('returns the fields of the input of a prompt of a subagent', () => {
+    const input = {
+      session_id: 'session-1',
+      cwd: '/repository',
+      transcript_path: '/projects/repository/session-1.jsonl',
+      agent_id: 'agent-1',
+      agent_type: 'general-purpose',
+      tool_name: 'Bash',
+      tool_input: { command: 'npm test' },
+      permission_suggestions: [{ type: 'setMode', mode: 'acceptEdits', destination: 'session' }],
+    };
+    const text = JSON.stringify({ ...input, hook_event_name: 'PermissionRequest', permission_mode: 'default' });
+    assert.deepEqual(parsePermissionRequestInput(text), input);
+  });
+
+  it('returns the fields of the input of a prompt of the main session without the optional fields', () => {
+    const input = {
+      session_id: 'session-1',
+      cwd: '/repository',
+      transcript_path: '/projects/repository/session-1.jsonl',
+      tool_name: 'mcp__server__tool',
+      tool_input: {},
+    };
+    assert.deepEqual(parsePermissionRequestInput(JSON.stringify(input)), input);
+  });
+
+  it('throws for an input without a tool name', () => {
+    const text = JSON.stringify({ session_id: 'session-1', cwd: '/repository', transcript_path: '/t.jsonl' });
+    assert.throws(() => parsePermissionRequestInput(text), z.ZodError);
+  });
+
+  it('throws for an input without a transcript path', () => {
+    const text = JSON.stringify({ session_id: 'session-1', cwd: '/repository', tool_name: 'Bash', tool_input: {} });
+    assert.throws(() => parsePermissionRequestInput(text), z.ZodError);
   });
 });

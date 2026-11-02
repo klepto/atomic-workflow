@@ -10,6 +10,7 @@ export const BUNDLED_ENTRY_POINTS = [
   'await-command',
   'session-start',
   'session-activity',
+  'permission-request',
 ] as const;
 
 /**

@@ -49,6 +49,17 @@
           }
         ]
       }
+    ],
+    "PermissionRequest": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/dist/permission-request.mjs\"",
+            "timeout": 86400
+          }
+        ]
+      }
     ]
   }
 }

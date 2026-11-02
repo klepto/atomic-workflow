@@ -20714,9 +20714,9 @@ var permissionPromptListMethod = {
 };
 
 // src/rpc/call-method.ts
-var callMethod = async (method, params, connection) => (
+var callMethod = async (method, params, connection, signal) => (
   // The peer runs `method` itself, so the result has the type of `method`. No schema of the result exists to check it.
-  await connection.request(method.name, params)
+  await connection.request(method.name, params, signal)
 );
 
 // src/rpc/session-method.subagent-task-id.ts

@@ -9,15 +9,40 @@ const HOOK_INPUT = z.object({
 });
 
 /**
+ * Schema of the fields of the input of a `PermissionRequest` hook of Claude Code that the permission hook reads.
+ * `agent_id` and `agent_type` are present only when a subagent asks.
+ */
+const PERMISSION_REQUEST_INPUT = HOOK_INPUT.extend({
+  transcript_path: z.string().min(1),
+  agent_id: z.string().min(1).optional(),
+  agent_type: z.string().min(1).optional(),
+  tool_name: z.string().min(1),
+  tool_input: z.unknown(),
+  permission_suggestions: z.array(z.unknown()).optional(),
+});
+
+/**
  * Fields of the input of a hook of Claude Code that the hooks of the plugin read.
  */
 type HookInput = z.infer<typeof HOOK_INPUT>;
+
+/**
+ * Fields of the input of a `PermissionRequest` hook of Claude Code that the permission hook reads.
+ */
+export type PermissionRequestInput = z.infer<typeof PERMISSION_REQUEST_INPUT>;
 
 /**
  * Returns the fields of the input of a hook in `text`, the JSON that the hook reads on its standard input.
  * If `text` is not valid JSON, or lacks a field, throws.
  */
 export const parseHookInput = (text: string): HookInput => HOOK_INPUT.parse(JSON.parse(text));
+
+/**
+ * Returns the fields of the input of a `PermissionRequest` hook in `text`, the JSON that the hook reads on its
+ * standard input. If `text` is not valid JSON, or lacks a field, throws.
+ */
+export const parsePermissionRequestInput = (text: string): PermissionRequestInput =>
+  PERMISSION_REQUEST_INPUT.parse(JSON.parse(text));
 
 /**
  * Returns the directory of the project of the session of the hook input `input`: the variable `CLAUDE_PROJECT_DIR` of

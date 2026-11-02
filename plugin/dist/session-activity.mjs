@@ -19892,6 +19892,14 @@ var HOOK_INPUT = external_exports.object({
   session_id: external_exports.string().min(1),
   cwd: external_exports.string().min(1)
 });
+var PERMISSION_REQUEST_INPUT = HOOK_INPUT.extend({
+  transcript_path: external_exports.string().min(1),
+  agent_id: external_exports.string().min(1).optional(),
+  agent_type: external_exports.string().min(1).optional(),
+  tool_name: external_exports.string().min(1),
+  tool_input: external_exports.unknown(),
+  permission_suggestions: external_exports.array(external_exports.unknown()).optional()
+});
 var parseHookInput = (text2) => HOOK_INPUT.parse(JSON.parse(text2));
 var hookDirectory = (input2, environment) => environment.CLAUDE_PROJECT_DIR ?? input2.cwd;
 

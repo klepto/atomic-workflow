@@ -45,8 +45,8 @@ interface Tail {
  * after the read that follows the abort of `signal`. Rejects when the size of the file cannot be read for another
  * cause than that the file does not exist, when the file cannot be opened or read, or when `handle` rejects.
  */
-export const pollTailFile: TailFileFunction = async (path, handle, signal) => {
-  const tail: Tail = { path, offset: 0, partial: '', decoder: new StringDecoder('utf8') };
+export const pollTailFile: TailFileFunction = async (path, handle, signal, options = {}) => {
+  const tail: Tail = { path, offset: options.offset ?? 0, partial: '', decoder: new StringDecoder('utf8') };
   for (;;) {
     // A read after the abort passes the lines that were appended before it.
     const aborted = signal.aborted;
