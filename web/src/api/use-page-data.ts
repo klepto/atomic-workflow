@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { setOnline } from '@/api/connection.ts';
 import { fetchCall } from '@/api/rpc.fetch.ts';
 import { serialReads } from '@/api/serial-reads.ts';
-import type { ListedSession, Repository, TaskSummary, UsageLimits } from '@/api/types.ts';
+import type { ListedSession, PermissionPrompt, Repository, TaskSummary, UsageLimits } from '@/api/types.ts';
 import { useEventStream } from '@/api/use-event-stream.ts';
 
 /**
@@ -38,10 +38,22 @@ interface PageData {
   readonly messages: number;
 
   /**
+   * Open permission prompts of the repository, oldest first, as the latest `permissionPromptList` answered them, or
+   * `undefined` until it answered once.
+   */
+  readonly prompts: readonly PermissionPrompt[] | undefined;
+
+  /**
    * Reads the sessions again, such as after a call that changed them. Resolves once a read that started after the call
    * ended.
    */
   readonly readSessions: () => Promise<void>;
+
+  /**
+   * Reads the open permission prompts again, such as after an answer to a prompt that was gone. Resolves once a read
+   * that started after the call ended.
+   */
+  readonly readPrompts: () => Promise<void>;
 }
 
 /**
@@ -65,14 +77,25 @@ interface TaskListResult {
 }
 
 /**
+ * Result of `permissionPromptList`.
+ */
+interface PromptListResult {
+  /**
+   * Every open permission prompt, oldest first.
+   */
+  readonly prompts: readonly PermissionPrompt[];
+}
+
+/**
  * Ignores a failed read, so that the data of the page keeps the result of the latest read that succeeded.
  */
 const keepLastData = (): undefined => undefined;
 
 /**
  * Reads the data of the page and keeps it current by the one stream of the page at `/events`, which also feeds the
- * state of the connection. At load it reads the repository, the sessions, the tasks and the usage limits. On `sessions`
- * it reads the sessions again, on `tasks` the tasks, on `usage` the usage limits, and on `messages` it reads the
+ * state of the connection. At load it reads the repository, the sessions, the tasks, the usage limits and the open
+ * permission prompts. On `sessions` it reads the sessions again, on `tasks` the tasks, on `usage` the usage limits, on
+ * `prompts` the open permission prompts, and on `messages` it reads the
  * sessions again, since each holds the time of its latest message, and adds one to `messages`. When the stream opens
  * again after a drop, it reads everything again and adds one to `messages`, since events may have been lost meanwhile.
  * Reads of one resource never overlap. Returns the data of the page.
@@ -83,6 +106,7 @@ export const usePageData = (): PageData => {
   const [tasks, setTasks] = useState<readonly TaskSummary[]>();
   const [usage, setUsage] = useState<UsageLimits>();
   const [messages, setMessages] = useState(0);
+  const [prompts, setPrompts] = useState<readonly PermissionPrompt[]>();
   const [readers] = useState(() => ({
     repository: serialReads(() => fetchCall<Repository>('repositoryGet').then(setRepository, keepLastData)),
     sessions: serialReads(() =>
@@ -90,6 +114,9 @@ export const usePageData = (): PageData => {
     ),
     tasks: serialReads(() =>
       fetchCall<TaskListResult>('taskList').then((result) => setTasks(result.tasks), keepLastData),
+    ),
+    prompts: serialReads(() =>
+      fetchCall<PromptListResult>('permissionPromptList').then((result) => setPrompts(result.prompts), keepLastData),
     ),
     // A failed read forgets the usage limits, so that the meter shows them as unknown, not as values that may be stale.
     usage: serialReads(() => fetchCall<UsageLimits>('usageGet').then(setUsage, () => setUsage(undefined))),
@@ -100,6 +127,7 @@ export const usePageData = (): PageData => {
     void readers.sessions();
     void readers.tasks();
     void readers.usage();
+    void readers.prompts();
   }, [readers]);
 
   useEffect(() => {
@@ -117,6 +145,9 @@ export const usePageData = (): PageData => {
         case 'usage':
           void readers.usage();
           break;
+        case 'prompts':
+          void readers.prompts();
+          break;
         case 'messages':
           // The sessions hold the time of the latest message of each, which orders the chats.
           void readers.sessions();
@@ -131,5 +162,14 @@ export const usePageData = (): PageData => {
     onOnline: setOnline,
   });
 
-  return { repository, sessions, tasks, usage, messages, readSessions: readers.sessions };
+  return {
+    repository,
+    sessions,
+    tasks,
+    usage,
+    messages,
+    prompts,
+    readSessions: readers.sessions,
+    readPrompts: readers.prompts,
+  };
 };

@@ -448,12 +448,61 @@ export interface UsageLimits {
 }
 
 /**
+ * Suggestion of Claude Code for the answer always allow of a permission prompt, such as a rule to add to the settings
+ * or a mode to switch to, passed through as Claude Code gave it. The web app shows it by its fields, such as `type`,
+ * `rules`, `behavior`, `destination` and `mode`, and sends it back unchanged.
+ */
+export type PermissionSuggestion = Record<string, unknown>;
+
+/**
+ * Open permission prompt of a session of the repository in the result of `permissionPromptList`: a tool call that
+ * waits for the approval of the user.
+ */
+export interface PermissionPrompt {
+  /**
+   * Identifier of the prompt, made by the repository server, unique while it runs.
+   */
+  readonly id: string;
+
+  /**
+   * Identifier of the session on the repository server that asks: a subagent, or else the main session.
+   */
+  readonly sessionId: string;
+
+  /**
+   * Type of the agent that asks, `agent_type` of the input of the hook, or `null` for the main thread.
+   */
+  readonly agentType: string | null;
+
+  /**
+   * Name of the tool, such as `Bash`, or `mcp__<server>__<tool>`.
+   */
+  readonly toolName: string;
+
+  /**
+   * Input of the tool call, `tool_input` of the input of the hook, as Claude Code gave it.
+   */
+  readonly toolInput: unknown;
+
+  /**
+   * Suggestions of Claude Code for the answer always allow, `permission_suggestions` of the input of the hook, or an
+   * empty array when it gave none.
+   */
+  readonly suggestions: readonly PermissionSuggestion[];
+
+  /**
+   * Time when the prompt opened, in ms since the epoch, stamped by the repository server.
+   */
+  readonly openedAt: number;
+}
+
+/**
  * Name of an event of the stream at `/events`: the resource that changed, `ChangedResource` of
  * `mcp/src/changes/change-feed.ts`. `sessions` is the set of attached sessions with the status of each, `messages` the
- * message log, `tasks` the tasks with their goals, design and tickets, and `usage` the usage limits of the Claude
- * subscription.
+ * message log, `tasks` the tasks with their goals, design and tickets, `usage` the usage limits of the Claude
+ * subscription, and `prompts` the open permission prompts.
  */
-export type ChangeEvent = 'sessions' | 'messages' | 'tasks' | 'usage';
+export type ChangeEvent = 'sessions' | 'messages' | 'tasks' | 'usage' | 'prompts';
 
 /**
  * Skill that a session can run, in the result of `skillList`, as `TranscriptSkill` of

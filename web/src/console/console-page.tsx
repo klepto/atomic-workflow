@@ -1,5 +1,6 @@
 import { ArrowDown } from 'lucide-react';
 import { Fragment, type ReactNode, useMemo } from 'react';
+import type { PermissionPrompt } from '@/api/types.ts';
 import type { Chat } from '@/chats/chat-list.ts';
 import { useSkills } from '@/commands/use-skills.ts';
 import { Button } from '@/components/ui/button.tsx';
@@ -15,6 +16,7 @@ import { useChatLog } from '@/console/use-chat-log.ts';
 import { useFollowScroll } from '@/console/use-follow-scroll.ts';
 import { usePendingSends } from '@/console/use-pending-sends.ts';
 import { sessionBreaks, visibleMessages } from '@/console/visible-messages.ts';
+import { PromptCard } from '@/prompts/prompt-card.tsx';
 
 /**
  * Props of `ConsolePage`.
@@ -34,6 +36,16 @@ interface ConsolePageProps {
    * Whether the stream of the page is connected.
    */
   readonly online: boolean;
+
+  /**
+   * Open permission prompts of the sessions of the chat, oldest first.
+   */
+  readonly prompts: readonly PermissionPrompt[];
+
+  /**
+   * Reads the open permission prompts again, such as once the user answered one.
+   */
+  readonly onPromptAnswered: () => void;
 
   /**
    * Opens the chat with the key `key`, such as the chat of a subagent that a skill started.
@@ -65,9 +77,18 @@ const runsInOf = (chat: Chat): ReactNode =>
  * not. While the session of the chat works, a row at the end of the log says so, with the time of its turn and its
  * newest tool call. The log follows new messages and that row while it is scrolled to its end, and offers a jump to the
  * latest message once the user scrolled up. While the chat has no attached session, a line in place of the composer
- * says why. Above the composer, or that line, `SessionBar` shows the current session of the chat.
+ * says why. Above the composer, or that line, `SessionBar` shows the current session of the chat. Each open
+ * permission prompt of `prompts` shows at the end of the log, oldest first, with the buttons that answer it.
  */
-export const ConsolePage = ({ chat, messages, online, onOpen, readSessions }: ConsolePageProps) => {
+export const ConsolePage = ({
+  chat,
+  messages,
+  online,
+  prompts,
+  onPromptAnswered,
+  onOpen,
+  readSessions,
+}: ConsolePageProps) => {
   const { entries: logged, loaded, failure } = useChatLog(chat.logQuery, messages);
   const entries = useMemo(() => visibleMessages(logged), [logged]);
   const breaks = useMemo(() => sessionBreaks(entries), [entries]);
@@ -75,12 +96,12 @@ export const ConsolePage = ({ chat, messages, online, onOpen, readSessions }: Co
   const { pending, send, discard } = usePendingSends(chat, skills.skills, { onOpen, readSessions });
   const working = chat.status === 'working';
   const content = useMemo(
-    () => [entries, pending, working, chat.latestAction],
-    [entries, pending, working, chat.latestAction],
+    () => [entries, pending, working, chat.latestAction, prompts],
+    [entries, pending, working, chat.latestAction, prompts],
   );
   const { box, following, handleScroll, jumpToEnd } = useFollowScroll(content);
   const { sessionId } = chat;
-  const empty = entries.length === 0 && pending.length === 0;
+  const empty = entries.length === 0 && pending.length === 0 && prompts.length === 0;
 
   return (
     <div className="relative flex min-h-0 flex-1 flex-col">
@@ -109,6 +130,9 @@ export const ConsolePage = ({ chat, messages, online, onOpen, readSessions }: Co
               <PendingRow key={message.key} message={message} onDiscard={() => discard(message.key)} />
             ))}
             {working && <ThinkingRow since={chat.turnStartedAt} action={chat.latestAction} />}
+            {prompts.map((prompt) => (
+              <PromptCard key={prompt.id} prompt={prompt} onAnswered={onPromptAnswered} />
+            ))}
           </div>
         </div>
       </ScrollArea>

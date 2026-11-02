@@ -1,5 +1,9 @@
+import { useMemo } from 'react';
+import type { PermissionPrompt } from '@/api/types.ts';
 import { useConnection } from '@/api/use-connection.ts';
 import { usePageData } from '@/api/use-page-data.ts';
+import { listChats } from '@/chats/chat-list.ts';
+import { promptsByChat } from '@/chats/chat-prompts.ts';
 import { Alert, AlertDescription } from '@/components/ui/alert.tsx';
 import { HintProvider } from '@/components/ui/hint.tsx';
 import { NoChat } from '@/console/console-notices.tsx';
@@ -13,6 +17,11 @@ import { routePath, taskRefOf } from '@/routing/route.ts';
 import { TaskPanel } from '@/tasks/task-panel.tsx';
 import { ThemePicker } from '@/theme/theme-picker.tsx';
 import { TicketPage } from '@/tickets/ticket-page.tsx';
+
+/**
+ * Open permission prompts of a chat that has none.
+ */
+const NO_PROMPTS: readonly PermissionPrompt[] = [];
 
 /**
  * Banner below the header while the stream of the page is down. Messages and new agents fail until the server is back.
@@ -35,16 +44,20 @@ const ConnectionBanner = () => (
  * never scrolls: the chats of the sidebar, the tabs of the header, the main column and the task panel each scroll
  * inside themselves, so the sidebar reaches the bottom of the window and its usage limits stay in view.
  * While a task is open, the sidebar lists the chats of the task. The task of the open chat opens once its subagent gets
- * it. On a narrow screen the sidebar is a row above the main column, and the task panel covers both. The top of the
- * main column fades smoothly from the background of the page to transparent, so its content fades out as it scrolls
- * up under the header.
+ * it. Each open permission prompt shows in the chat of the session that asks, else in the chat of the main session,
+ * and marks its chat in the sidebar. On a narrow screen the sidebar is a row above the main column, and the task
+ * panel covers both. The top of the main column fades smoothly from the background of the page to transparent, so its
+ * content fades out as it scrolls up under the header.
  */
 const Shell = () => {
   const { online } = useConnection();
-  const { repository, sessions, tasks, usage, messages, readSessions } = usePageData();
+  const { repository, sessions, tasks, usage, messages, prompts, readSessions, readPrompts } = usePageData();
   const { openTask, chats, open, ticket } = useView(sessions, tasks);
   useFirstTaskOfOpenChat(open, sessions, tasks);
   const openTaskRef = openTask && taskRefOf(openTask);
+  // Every chat of the repository, not only those of the open task, so that a prompt of a chat that the sidebar does
+  // not list still shows in its own chat, not in the chat of the main session.
+  const chatPrompts = useMemo(() => promptsByChat(prompts ?? [], listChats(sessions ?? [])), [prompts, sessions]);
 
   /**
    * Opens the chat of the subagent `sessionId` that just started beside the open task. The URL names it by its session
@@ -95,6 +108,7 @@ const Shell = () => {
             open={open}
             task={openTask}
             usage={usage}
+            prompts={chatPrompts}
             onOpen={openAgentChat}
             readSessions={readSessions}
           />
@@ -122,6 +136,8 @@ const Shell = () => {
                 chat={open}
                 messages={messages}
                 online={online}
+                prompts={chatPrompts.get(open.key) ?? NO_PROMPTS}
+                onPromptAnswered={() => void readPrompts()}
                 onOpen={openSkillChat}
                 readSessions={readSessions}
               />

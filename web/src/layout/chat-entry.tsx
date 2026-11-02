@@ -1,4 +1,4 @@
-import { LoaderCircle, Square, Trash2 } from 'lucide-react';
+import { LoaderCircle, ShieldAlert, Square, Trash2 } from 'lucide-react';
 import { useRef, useState } from 'react';
 import { fetchCall } from '@/api/rpc.fetch.ts';
 import { ChatDot } from '@/chats/chat-dot.tsx';
@@ -62,6 +62,11 @@ interface ChatEntryProps {
    * Path that the entry links to.
    */
   readonly to: string;
+
+  /**
+   * Whether a session of the chat has an open permission prompt.
+   */
+  readonly prompting: boolean;
 }
 
 /**
@@ -145,8 +150,10 @@ const StopAgent = ({ chat }: StopAgentProps) => {
  * the words of the status. It is a link to `to`, and is marked as the current page when `current` is true. The entry
  * of a subagent that runs has the button that stops it, and the entry of a subagent that ended has the button that
  * deletes it. While the label does not fit the entry, a hover on the entry shows the full label in a hint at once.
+ * While `prompting` is true, a shield after the label marks the chat, and a screen reader hears that it asks for
+ * permission after the words of the status.
  */
-export const ChatEntry = ({ chat, current, to }: ChatEntryProps) => {
+export const ChatEntry = ({ chat, current, to, prompting }: ChatEntryProps) => {
   const label = useRef<HTMLSpanElement>(null);
   const subagent = chat.role === 'subagent';
   const deletable = subagent && chat.status === 'ended';
@@ -163,7 +170,12 @@ export const ChatEntry = ({ chat, current, to }: ChatEntryProps) => {
           <span ref={label} className="truncate md:flex-1 md:contain-inline-size">
             {chat.label}
           </span>
-          <span className="sr-only">{`, ${CHAT_STATUSES[chat.status].words}`}</span>
+          {prompting && (
+            <ShieldAlert aria-hidden="true" className="size-3.5 shrink-0 text-amber-600 dark:text-amber-400" />
+          )}
+          <span className="sr-only">
+            {`, ${CHAT_STATUSES[chat.status].words}${prompting ? ', asks for permission' : ''}`}
+          </span>
         </RouteLink>
       </OverflowHint>
       {deletable && <DeleteAgent chat={chat} />}

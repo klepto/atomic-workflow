@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import type { ListedSession, TaskSummary, UsageLimits } from '@/api/types.ts';
+import type { ListedSession, PermissionPrompt, TaskSummary, UsageLimits } from '@/api/types.ts';
 import type { Chat } from '@/chats/chat-list.ts';
 import { ScrollArea } from '@/components/ui/scroll-area.tsx';
 import { ChatEntry } from '@/layout/chat-entry.tsx';
@@ -53,6 +53,11 @@ interface SidebarProps {
   readonly usage: UsageLimits | undefined;
 
   /**
+   * Open permission prompts by the key of the chat that shows them, as `promptsByChat` returns them.
+   */
+  readonly prompts: ReadonlyMap<string, readonly PermissionPrompt[]>;
+
+  /**
    * Opens the chat of the subagent with the session id `sessionId`, which just started.
    */
   readonly onOpen: (sessionId: string) => void;
@@ -84,7 +89,8 @@ const SidebarSection = ({ title, children }: SidebarSectionProps) => (
  * section lists only the subagents that work on it, after the chat `main session` and the orchestrator of the task,
  * its heading names the task, and a new agent works on the task. A task without subagents says so below the chat
  * `main session`. The dot of each chat shows its status: a grey ring once ended, green while idle, yellow while
- * working, and red while it waits for the user. Each chat is a link to itself beside the open task, and the open chat
+ * working, and red while it waits for the user. A shield marks each chat with an open permission prompt among
+ * `prompts`. Each chat is a link to itself beside the open task, and the open chat
  * `open` is marked as the current page. A subagent that runs can be stopped from its entry, and one that ended can be
  * deleted with its chat from it. A new agent starts inside the orchestrator session that attached last, among
  * `sessions`. The meter of the usage limits `usage` comes last, after a line: at the bottom of the column on a wide
@@ -92,7 +98,7 @@ const SidebarSection = ({ title, children }: SidebarSectionProps) => (
  * inside the section between them. It is the navigation of a column at the left of the page on a wide screen, and of a
  * row above the page on a narrow one.
  */
-export const Sidebar = ({ sessions, chats, open, task, usage, onOpen, readSessions }: SidebarProps) => (
+export const Sidebar = ({ sessions, chats, open, task, usage, prompts, onOpen, readSessions }: SidebarProps) => (
   <nav
     aria-label="Chats"
     className="flex min-h-0 items-stretch gap-4 px-4 py-2 md:flex-1 md:flex-col md:gap-6 md:px-3 md:py-4"
@@ -111,6 +117,7 @@ export const Sidebar = ({ sessions, chats, open, task, usage, onOpen, readSessio
             chat={chat}
             current={chat.key === open?.key}
             to={routePath(task && taskRefOf(task), chat.ref)}
+            prompting={prompts.has(chat.key)}
           />
         ))}
         {task !== undefined && chats.every((chat) => chat.role !== 'subagent') && (
