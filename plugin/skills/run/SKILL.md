@@ -1,22 +1,26 @@
 ---
 name: run
-description: Runs a task unattended to its end, from a prompt for a new task, any stage of planning or a complete plan, until every ticket that an agent can do alone landed. Asks the user nothing.
+description: Runs a task to its end, from a prompt for a new task, any stage of planning or a complete plan, until every ticket that an agent can do alone landed. Settles the goals with the user first, then runs the rest unattended.
 argument-hint: "<task id | task slug | prompt>"
 allowed-tools: Skill, Agent, mcp__plugin_atomic-workflow_atomic-workflow__activate, mcp__plugin_atomic-workflow_atomic-workflow__taskGet, mcp__plugin_atomic-workflow_atomic-workflow__taskCreate, mcp__plugin_atomic-workflow_atomic-workflow__goalSave, mcp__plugin_atomic-workflow_atomic-workflow__goalDelete, mcp__plugin_atomic-workflow_atomic-workflow__designSave, mcp__plugin_atomic-workflow_atomic-workflow__ticketsSave, mcp__plugin_atomic-workflow_atomic-workflow__taskSetStatus, mcp__plugin_atomic-workflow_atomic-workflow__taskRunStart, mcp__plugin_atomic-workflow_atomic-workflow__taskRunEnd, mcp__plugin_atomic-workflow_atomic-workflow__ticketNext, mcp__plugin_atomic-workflow_atomic-workflow__worktreeCreate, mcp__plugin_atomic-workflow_atomic-workflow__worktreeMerge, mcp__plugin_atomic-workflow_atomic-workflow__worktreeDelete, mcp__plugin_atomic-workflow_atomic-workflow__ticketSetStatus, mcp__plugin_atomic-workflow_atomic-workflow__subagentCreate, Bash, PowerShell, Read, Edit, Grep, Glob, WebSearch, WebFetch
 ---
 
 # Run
 
-Drive a task from where it stands to its end, with no user: each remaining stage of planning in unattended mode, then
-passes of `implement-all` until every ticket in the mode `unattended` landed. Each stage and each pass is a skill that
-you invoke with the Skill tool. Do the work of no stage and no ticket in this conversation yourself.
+Drive a task from where it stands to its end: first the goals with the user, when the task has no settled goals yet,
+then each remaining stage of planning in unattended mode, then passes of `implement-all` until every ticket in the
+mode `unattended` landed. Each stage and each pass is a skill that you invoke with the Skill tool. Do the work of no
+stage and no ticket in this conversation yourself.
 
 Arguments: `$ARGUMENTS`. They name a task, by its id, its slug, or both as `<id>-<slug>`, or hold the prompt of a new
 task. Without arguments, print `The run needs a task or a prompt.`, and stop.
 
-The run asks the user nothing at any step. Each skill that it invokes runs without a user: the stages of planning in
-unattended mode, and the tickets in subagents that block a ticket where they would ask. When a skill that the run
-invokes ends and names a next step, such as a command for the user, ignore it: the run picks the next step itself.
+The goal phase is the only part of the run that asks the user anything, as `## Goal phase` says. A new task and a task
+whose status is `plan-goals` start with it. A task whose status is `plan-design`, `plan-tickets` or `complete` skips
+it. From the end of the goal phase on, the run asks the user nothing at any step. Each skill that it invokes then runs
+without a user: the stages of planning in unattended mode, and the tickets in subagents that block a ticket where they
+would ask. When a skill that the run invokes ends and names a next step, such as a command for the user, ignore it:
+the run picks the next step itself.
 
 If the user refuses a tool call, and the run cannot get past it, end the run with `## Report`, plus the line
 `Refused: <message of the refusal>`.
@@ -27,18 +31,40 @@ If the user refuses a tool call, and the run cannot get past it, end the run wit
    starts with `Started the atomic-workflow server.`, print the web URL.
 2. Call `taskGet` with the first word. If it finds a task, the run drives that task. If it fails and the arguments are
    one word, print its message, and stop. If it fails and the arguments are several words, they are the prompt of a
-   new task:
-   1. Invoke the skill `atomic-workflow:plan-goals` with the arguments `--unattended <prompt>`. Let it run to its end.
-      It creates the task with `taskCreate`, and stores its goals.
-   2. If no call to `taskCreate` succeeded, print `Stopped: the stage plan-goals created no task.`, and stop.
-   3. Call `taskGet` with the id that the result of `taskCreate` holds.
+   new task: run the goal phase for the new task, as `## Goal phase` says.
 3. If the status of the task is `done`, print `Task **<id>-<slug>** is done already.`, and stop.
-4. Call `taskRunStart` with the task id. It marks the start of the run, so the task panel of the web app shows how
-   long the run has taken. If it fails, print its message, and go on: the run does not need it.
+4. If the status of the task is `plan-goals`, run the goal phase for the task, as `## Goal phase` says.
+5. Call `taskRunStart` with the task id. It marks the start of the unattended part of the run, so the task panel of
+   the web app shows how long that part has taken. The time that the user takes to settle the goals does not count.
+   If it fails, print its message, and go on: the run does not need it.
+
+## Goal phase
+
+The goal phase settles the goals with the user, in the attended mode of `plan-goals`. Never pass `--unattended` to
+`plan-goals`.
+
+1. Invoke the skill `atomic-workflow:plan-goals`:
+   - For a new task, with the arguments `<prompt>`. It asks "Let's begin planning, what are your goals?", suggests
+     goals from the prompt, creates the task with `taskCreate`, and stores its goals.
+   - For a task whose status is `plan-goals`, with the arguments `<task id>`. It shows the stored goals, and asks what
+     to change.
+
+   It revises the goals with the user over as many turns as the user needs. Each answer of the user in this phase is
+   for `plan-goals`. Never answer for the user, and never approve the goals yourself.
+2. The goal phase ends when the user is satisfied with the goal list: `plan-goals` then calls `taskSetStatus` with
+   `plan-design` in its `## Finish`. Ignore the next stage that it names.
+3. Call `taskGet` with the task id, for a new task the id that the result of `taskCreate` holds. If the status is
+   `plan-design`, the goals are approved. Go on to the next step of `## Start` at once, in the same session, with no
+   command from the user.
+4. If the user ends the goal phase without approval, such as by asking to stop, the run ends:
+   - If no call to `taskCreate` succeeded for a new task, print `Stopped: the stage plan-goals created no task.`, and
+     stop.
+   - If the status of the task is still `plan-goals`, end the run with `## Report`, plus the line
+     `Stopped: the user did not approve the goals.`
 
 ## Planning
 
-While the status of the task is `plan-goals`, `plan-design` or `plan-tickets`:
+While the status of the task is `plan-design` or `plan-tickets`:
 
 1. Invoke the skill `atomic-workflow:<status>` with the arguments `<task id> --unattended`, such as
    `atomic-workflow:plan-design 5 --unattended`. Let it run to its end. Each stage sets the status of the next stage
@@ -84,7 +110,7 @@ The task stays `complete`. Call `taskGet` again once the plan is stored.
 
 ## Report
 
-Call `ticketNext` with the task id. Then, if step 4 of `## Start` called `taskRunStart`, call `taskRunEnd` with the
+Call `ticketNext` with the task id. Then, if step 5 of `## Start` called `taskRunStart`, call `taskRunEnd` with the
 task id, as the last call before the report. It marks the end of the run, also when a line `Stopped:` or `Refused:`
 ends it. Then print this report, and leave out each section without a line:
 
@@ -110,7 +136,7 @@ Next: <next step>
 The next step is the first of these that applies:
 
 1. No ticket is left: `Next: once their review passes, approve them with /atomic-workflow:approve <task id>.`
-2. The planning stopped: `Next: /atomic-workflow:plan <task id>.`
+2. The goal phase or the planning stopped: `Next: /atomic-workflow:plan <task id>.`
 3. A ticket is left: `Next: settle the tickets that are left, then run the task again.`
 
 A line `Refused:` or `Stopped:` that ended the run goes last, after `Next:`.

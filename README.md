@@ -60,7 +60,7 @@ Then, in a Claude Code session inside any git repository, plan a task, let agent
 > /atomic-workflow:approve 3
 ```
 
-Or let an agent do it all, and review at the end:
+Or settle the goals with an agent, let it do the rest, and review at the end:
 
 ```
 > /atomic-workflow:run Add a Redis cache in front of the product queries
@@ -91,8 +91,8 @@ Hand a big change to an agent in one prompt, and these problems show up:
   message, and the decisions that the agent took are listed in its body.
 - **Review and approval.** Read the diff of each landed ticket, comment on it, and request changes as a follow-up
   ticket, or approve it. Once every ticket is approved, the task branch lands on your base branch.
-- **Unattended runs.** Hand over a prompt or a planned task, and an agent takes it to the end on its own, without
-  questions.
+- **Unattended runs.** Hand over a prompt or a planned task. An agent plans the goals with you, then takes the task to
+  its end on its own, without questions.
 - **A local web app.** See the tasks and their tickets, chat with the sessions and their subagents, review the
   changes, and keep an eye on the 5-hour and weekly usage limits of your account.
 
@@ -133,7 +133,7 @@ when none runs, and prints the address of the web app. `/atomic-workflow:atomic-
 | `/atomic-workflow:implement <task> [ticket]` | Implements one ticket, the one named or the next ready one, and lands it on the task branch.      |
 | `/atomic-workflow:implement-all <task>`      | Implements every ticket that an agent can do alone, with the ready tickets in parallel subagents. |
 | `/atomic-workflow:approve <task> [ticket]`   | Approves the reviewed work of a ticket, or of every landed ticket, and lands the finished task.   |
-| `/atomic-workflow:run <task or prompt>`      | Runs a task to its end without you, from a prompt, any stage of planning, or a complete plan.     |
+| `/atomic-workflow:run <task or prompt>`      | Plans the goals with you, then runs a task to its end without you, from a prompt or any stage.    |
 | `/atomic-workflow:tasks [task]`              | Lists the tasks of the repository, or shows one task with its tickets.                            |
 
 A task or a ticket is named by its id, its slug, or both, such as `3`, `cache-layer-redis` or `3-cache-layer-redis`.
