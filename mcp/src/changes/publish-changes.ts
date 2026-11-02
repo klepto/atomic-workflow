@@ -1,3 +1,4 @@
+import type { PermissionPrompts } from '../attachment/permission-prompts.ts';
 import type { SessionActivity } from '../attachment/session-activity.ts';
 import type { SessionConnections } from '../attachment/session-connections.ts';
 import type { Subagents } from '../attachment/subagents.ts';
@@ -40,6 +41,11 @@ interface PublishedServices {
    * Status of the agent of each session, whose changes are `sessions`.
    */
   readonly activity: SessionActivity;
+
+  /**
+   * Registry of the open permission prompts, whose changes are `prompts`.
+   */
+  readonly prompts: PermissionPrompts;
 }
 
 /**
@@ -53,6 +59,7 @@ interface PublishedServices {
  * `SessionConnections.bind` publishes `sessions`, and again once its connection closes. `Subagents.attach` and
  * `Subagents.stop` publish `sessions`, and `Subagents.start` publishes `sessions` once its connection closes, since
  * that stops the subagent. `SessionActivity.report`, `SessionActivity.reportAction` and `SessionActivity.forget`
- * publish `sessions` when they return `true`. No read publishes. A write that rejects publishes nothing.
+ * publish `sessions` when they return `true`. `PermissionPrompts.open` publishes `prompts`, and again once the prompt
+ * leaves, answered or closed. No read publishes. A write that rejects publishes nothing.
  */
 export type PublishChangesFunction = (services: PublishedServices, changes: ChangeFeed) => PublishedServices;

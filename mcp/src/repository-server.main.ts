@@ -2,6 +2,7 @@ import { homedir } from 'node:os';
 import { parseArgs } from 'node:util';
 import { shellAwaitCommandLine } from './attachment/await-command-line.shell.ts';
 import { mapCreateInboxes } from './attachment/inboxes.map.ts';
+import { mapCreatePermissionPrompts } from './attachment/permission-prompts.map.ts';
 import { socketServeRepository } from './attachment/serve-repository.socket.ts';
 import { mapCreateSessionActivity } from './attachment/session-activity.map.ts';
 import { mapCreateSessionConnections } from './attachment/session-connections.map.ts';
@@ -81,6 +82,7 @@ const serve = async (address: string, mainWorktree: string, storage: Storage): P
       sessionConnections: mapCreateSessionConnections(),
       subagents: mapCreateSubagents(),
       activity: mapCreateSessionActivity(),
+      prompts: mapCreatePermissionPrompts(),
     },
     changes,
   );
@@ -107,6 +109,7 @@ const serve = async (address: string, mainWorktree: string, storage: Storage): P
       },
     ),
     ticketClaims: mapCreateTicketClaims(),
+    prompts: published.prompts,
     usage,
     usageRefresher,
     mainWorktree,

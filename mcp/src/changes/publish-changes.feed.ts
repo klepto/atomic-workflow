@@ -1,3 +1,4 @@
+import type { PermissionPrompts } from '../attachment/permission-prompts.ts';
 import type { SessionActivity } from '../attachment/session-activity.ts';
 import type { SessionConnections } from '../attachment/session-connections.ts';
 import type { Subagents } from '../attachment/subagents.ts';
@@ -18,6 +19,7 @@ export const feedPublishChanges: PublishChangesFunction = (services, changes) =>
   sessionConnections: publishingSessionConnections(services.sessionConnections, changes),
   subagents: publishingSubagents(services.subagents, changes),
   activity: publishingActivity(services.activity, changes),
+  prompts: publishingPrompts(services.prompts, changes),
 });
 
 /**
@@ -168,3 +170,19 @@ const publishingActivity = (activity: SessionActivity, changes: ChangeFeed): Ses
     get: (sessionId) => activity.get(sessionId),
   };
 };
+
+/**
+ * Wraps `prompts`, so that `open` publishes `prompts` to `changes`, and again once the prompt leaves, answered or
+ * closed.
+ */
+const publishingPrompts = (prompts: PermissionPrompts, changes: ChangeFeed): PermissionPrompts => ({
+  open: (prompt, closed) => {
+    const opened = prompts.open(prompt, closed);
+    changes.publish('prompts');
+    void opened.answer.then(() => changes.publish('prompts'));
+    return opened;
+  },
+  get: (id) => prompts.get(id),
+  list: () => prompts.list(),
+  answer: (id, answer) => prompts.answer(id, answer),
+});

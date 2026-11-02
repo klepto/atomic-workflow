@@ -1,5 +1,6 @@
 import type { z } from 'zod';
 import type { Inboxes } from '../attachment/inboxes.ts';
+import type { PermissionPrompts } from '../attachment/permission-prompts.ts';
 import type { SessionActivity } from '../attachment/session-activity.ts';
 import type { SessionConnections } from '../attachment/session-connections.ts';
 import type { Subagents } from '../attachment/subagents.ts';
@@ -22,6 +23,9 @@ import { messageDeliverMethod } from './method.message-deliver.ts';
 import { messageListMethod } from './method.message-list.ts';
 import { messageLogMethod } from './method.message-log.ts';
 import { messageLogDeleteMethod } from './method.message-log-delete.ts';
+import { permissionPromptAnswerMethod } from './method.permission-prompt-answer.ts';
+import { permissionPromptListMethod } from './method.permission-prompt-list.ts';
+import { permissionPromptOpenMethod } from './method.permission-prompt-open.ts';
 import { repositoryGetMethod } from './method.repository-get.ts';
 import { sessionActionReportMethod } from './method.session-action-report.ts';
 import { sessionActivityReportMethod } from './method.session-activity-report.ts';
@@ -108,6 +112,11 @@ export interface MethodContext {
    * Claims of the tickets in progress, each held by the connection of the client that works on it.
    */
   readonly ticketClaims: TicketClaims;
+
+  /**
+   * Open permission prompts of the agents of the repository, each until it is answered or its caller goes away.
+   */
+  readonly prompts: PermissionPrompts;
 
   /**
    * Reader of the usage limits of the account, from the cache of Claude Code.
@@ -234,4 +243,7 @@ export const METHODS: readonly Method[] = [
   worktreeCreateMethod,
   worktreeMergeMethod,
   worktreeDeleteMethod,
+  permissionPromptOpenMethod,
+  permissionPromptListMethod,
+  permissionPromptAnswerMethod,
 ];

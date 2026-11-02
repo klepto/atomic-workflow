@@ -1,8 +1,9 @@
 /**
  * Resource of the repository server that a change touches: `sessions`, the set of attached sessions, `messages`, the
- * message log, `tasks`, the tasks with their goals, design and tickets, or `usage`, the usage limits of the account.
+ * message log, `tasks`, the tasks with their goals, design and tickets, `usage`, the usage limits of the account, or
+ * `prompts`, the open permission prompts.
  */
-export type ChangedResource = 'sessions' | 'messages' | 'tasks' | 'usage';
+export type ChangedResource = 'sessions' | 'messages' | 'tasks' | 'usage' | 'prompts';
 
 /**
  * Feed of the changes of the repository server, which names each changed resource to its listeners. It coalesces: a

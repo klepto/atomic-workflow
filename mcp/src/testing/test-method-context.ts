@@ -1,4 +1,5 @@
 import { mapCreateInboxes } from '../attachment/inboxes.map.ts';
+import { mapCreatePermissionPrompts } from '../attachment/permission-prompts.map.ts';
 import { mapCreateSessionActivity } from '../attachment/session-activity.map.ts';
 import { mapCreateSessionConnections } from '../attachment/session-connections.map.ts';
 import { mapCreateSubagents } from '../attachment/subagents.map.ts';
@@ -48,6 +49,7 @@ export const testMethodContext = (overrides: Partial<MethodContext> = {}): Metho
     inboxes: mapCreateInboxes(),
     worktrees: NO_WORKTREES_GIVEN,
     ticketClaims: mapCreateTicketClaims(),
+    prompts: mapCreatePermissionPrompts(),
     usage: { latest: () => NO_USAGE_LIMITS, stop: () => {} },
     usageRefresher: { request: () => {} },
     mainWorktree: '/repository',

@@ -37187,19 +37187,135 @@ var messageLogDeleteMethod = {
   }
 };
 
+// src/rpc/method.permission-prompt-answer.ts
+import { isDeepStrictEqual } from "node:util";
+var DENY_MESSAGE = "Denied in the atomic-workflow web app.";
+var NOT_OPEN_MESSAGE = "The prompt is no longer open.";
+var PARAMS11 = external_exports.object({
+  promptId: external_exports.string().min(1).describe("Identifier of the open prompt"),
+  behavior: external_exports.enum(["allow", "deny"]).describe("Answer: allow the tool call, or deny it"),
+  suggestion: external_exports.record(external_exports.string(), external_exports.unknown()).optional().describe("Suggestion of the prompt to keep as a rule, for always allow, left out for allow once and deny")
+});
+var permissionPromptAnswerMethod = {
+  name: "permissionPromptAnswer",
+  description: "Answers an open permission prompt with allow, allow with a suggestion to keep, or deny.",
+  agent: false,
+  params: PARAMS11,
+  handle: async ({ promptId, behavior, suggestion }, { prompts }) => {
+    const prompt = prompts.get(promptId);
+    if (prompt === void 0) throw new RpcError(RPC_ERROR_CODES.INVALID_PARAMS, NOT_OPEN_MESSAGE);
+    prompts.answer(promptId, answerOf(prompt, behavior, suggestion));
+  }
+};
+var answerOf = (prompt, behavior, suggestion) => {
+  if (behavior === "deny") {
+    if (suggestion !== void 0)
+      throw new RpcError(RPC_ERROR_CODES.INVALID_PARAMS, "A deny answer takes no suggestion");
+    return { behavior, message: DENY_MESSAGE };
+  }
+  if (suggestion === void 0) return { behavior };
+  const kept = prompt.suggestions.find((candidate) => isDeepStrictEqual(candidate, suggestion));
+  if (kept === void 0) throw new RpcError(RPC_ERROR_CODES.INVALID_PARAMS, "The suggestion is not one of the prompt");
+  return { behavior, updatedPermissions: [kept] };
+};
+
+// src/rpc/method.permission-prompt-list.ts
+var PARAMS12 = external_exports.object({});
+var permissionPromptListMethod = {
+  name: "permissionPromptList",
+  description: "Returns every open permission prompt, the oldest first.",
+  agent: false,
+  params: PARAMS12,
+  handle: async (_params, { prompts }) => ({ prompts: prompts.list() })
+};
+
+// src/rpc/call-method.ts
+var callMethod = async (method, params, connection) => (
+  // The peer runs `method` itself, so the result has the type of `method`. No schema of the result exists to check it.
+  await connection.request(method.name, params)
+);
+
+// src/rpc/session-method.subagent-task-id.ts
+var PARAMS13 = external_exports.object({
+  sessionId: external_exports.string().min(1).describe("Identifier of the session of the subagent")
+});
+var subagentTaskIdSessionMethod = {
+  name: "subagentTaskId",
+  description: "Returns the id of the background task that runs a subagent of the session.",
+  agent: false,
+  params: PARAMS13,
+  handle: async ({ sessionId }, { subagentTaskId }) => ({ backgroundTaskId: subagentTaskId(sessionId) ?? null })
+};
+
+// src/rpc/method.permission-prompt-open.ts
+var PARAMS14 = external_exports.object({
+  sessionId: external_exports.string().min(1).describe("Identifier of the Claude Code session that asks, `session_id` of the hook"),
+  agentId: external_exports.string().nullable().describe("Identifier of the subagent that asks, `agent_id` of the hook, or null"),
+  agentType: external_exports.string().nullable().describe("Type of the subagent that asks, `agent_type` of the hook, or null"),
+  toolName: external_exports.string().min(1).describe("Name of the tool of the call"),
+  toolInput: external_exports.unknown().describe("Input of the tool call, as Claude Code gave it"),
+  suggestions: external_exports.array(external_exports.unknown()).describe("Suggestions of Claude Code for an always-allow answer, `permission_suggestions` of the hook")
+});
+var permissionPromptOpenMethod = {
+  name: "permissionPromptOpen",
+  description: "Opens a permission prompt of a session, and waits for the answer of the web app.",
+  agent: false,
+  params: PARAMS14,
+  handle: async ({ sessionId, agentId, agentType, toolName, toolInput, suggestions }, context) => {
+    const { caller } = context;
+    if (caller === void 0)
+      throw new RpcError(
+        RPC_ERROR_CODES.INVALID_REQUEST,
+        "Only a client that is connected to the repository server can open a permission prompt"
+      );
+    const askingId = agentId === null ? sessionId : await subagentOf(sessionId, agentId, context) ?? sessionId;
+    const { answer } = context.prompts.open(
+      {
+        sessionId: askingId,
+        agentType,
+        toolName,
+        toolInput,
+        suggestions: suggestions.filter(isSuggestion),
+        openedAt: context.clock.now()
+      },
+      caller.closed
+    );
+    const answered = await answer;
+    if (answered === void 0)
+      throw new RpcError(RPC_ERROR_CODES.INVALID_REQUEST, "The prompt closed before an answer");
+    return answered;
+  }
+};
+var isSuggestion = (value) => typeof value === "object" && value !== null && !Array.isArray(value);
+var subagentOf = async (parentId, agentId, context) => {
+  const connection = context.sessionConnections.get(parentId);
+  if (connection === void 0) return void 0;
+  const children = context.subagents.list().filter((subagent) => subagent.parentId === parentId);
+  const taskIds = await Promise.all(
+    children.map(
+      ({ sessionId }) => callMethod(subagentTaskIdSessionMethod, { sessionId }, connection).then(
+        ({ backgroundTaskId }) => backgroundTaskId,
+        // A session server that cannot answer leaves the prompt under its session, where the user still sees it.
+        () => null
+      )
+    )
+  );
+  return children.find((_, index) => taskIds[index] === agentId)?.sessionId;
+};
+
 // src/rpc/method.repository-get.ts
 import { basename } from "node:path";
-var PARAMS11 = external_exports.object({});
+var PARAMS15 = external_exports.object({});
 var repositoryGetMethod = {
   name: "repositoryGet",
   description: "Returns the repository of the atomic workflow: the absolute path of its main worktree, and its name, the last segment of that path.",
   agent: false,
-  params: PARAMS11,
+  params: PARAMS15,
   handle: async (_params, { mainWorktree }) => ({ name: basename(mainWorktree), directory: mainWorktree })
 };
 
 // src/rpc/method.session-action-report.ts
-var PARAMS12 = external_exports.object({
+var PARAMS16 = external_exports.object({
   sessionId: external_exports.string().min(1).describe("Identifier of the session whose newest action to report"),
   action: external_exports.string().min(1).nullable().describe("Newest tool call of the agent in one line, or null for none"),
   at: external_exports.number().int().nonnegative().describe("Time from which the action stands in ms since the epoch")
@@ -37208,7 +37324,7 @@ var sessionActionReportMethod = {
   name: "sessionActionReport",
   description: "Reports the newest tool call of the agent of a session, or that it has none.",
   agent: false,
-  params: PARAMS12,
+  params: PARAMS16,
   handle: async ({ sessionId, action, at }, { activity }) => {
     activity.reportAction(sessionId, action, at);
   }
@@ -37218,7 +37334,7 @@ var sessionActionReportMethod = {
 var ACTIVITY_STATUSES = ["idle", "working", "waiting"];
 
 // src/rpc/method.session-activity-report.ts
-var PARAMS13 = external_exports.object({
+var PARAMS17 = external_exports.object({
   sessionId: external_exports.string().min(1).describe("Identifier of the session whose status to report"),
   status: external_exports.enum(ACTIVITY_STATUSES).describe("Status of the agent of the session: idle, working or waiting"),
   at: external_exports.number().int().nonnegative().optional().describe("Time from which the status stands in ms since the epoch")
@@ -37227,7 +37343,7 @@ var sessionActivityReportMethod = {
   name: "sessionActivityReport",
   description: "Reports whether the agent of a session is idle, works, or waits for the user.",
   agent: false,
-  params: PARAMS13,
+  params: PARAMS17,
   handle: async ({ sessionId, status, at }, { activity, sessions, usageRefresher, clock }) => {
     const before = activity.get(sessionId)?.status;
     const changed = activity.report(sessionId, status, at ?? clock.now());
@@ -37300,7 +37416,7 @@ var baseNameOf = (session, task) => {
 };
 
 // src/rpc/method.session-alias-set.ts
-var PARAMS14 = external_exports.object({
+var PARAMS18 = external_exports.object({
   sessionId: external_exports.string().min(1).describe("Identifier of the registered session"),
   alias: external_exports.string().min(1).max(SESSION_ALIAS_MAX_LENGTH).regex(/^[^\r\n]*$/, "An alias holds no line break").nullable().describe(
     `Display name of the session, 1 to ${SESSION_ALIAS_MAX_LENGTH} characters with no line break, or null for none`
@@ -37310,7 +37426,7 @@ var sessionAliasSetMethod = {
   name: "sessionAliasSet",
   description: "Replaces the alias of a session, the name that shows in place of its id, or clears it for null.",
   agent: false,
-  params: PARAMS14,
+  params: PARAMS18,
   handle: async ({ sessionId, alias }, { sessions }) => {
     const session = await registeredSession(sessionId, sessions);
     if (session.role === "subagent" && alias === MAIN_ALIAS)
@@ -37322,24 +37438,6 @@ var sessionAliasSetMethod = {
       throw new RpcError(RPC_ERROR_CODES.INVALID_PARAMS, `An orchestrator session holds the alias ${MAIN_ALIAS} only`);
     await sessions.setAlias(sessionId, alias);
   }
-};
-
-// src/rpc/call-method.ts
-var callMethod = async (method, params, connection) => (
-  // The peer runs `method` itself, so the result has the type of `method`. No schema of the result exists to check it.
-  await connection.request(method.name, params)
-);
-
-// src/rpc/session-method.subagent-task-id.ts
-var PARAMS15 = external_exports.object({
-  sessionId: external_exports.string().min(1).describe("Identifier of the session of the subagent")
-});
-var subagentTaskIdSessionMethod = {
-  name: "subagentTaskId",
-  description: "Returns the id of the background task that runs a subagent of the session.",
-  agent: false,
-  params: PARAMS15,
-  handle: async ({ sessionId }, { subagentTaskId }) => ({ backgroundTaskId: subagentTaskId(sessionId) ?? null })
 };
 
 // src/rpc/subagent-queries.ts
@@ -37390,14 +37488,14 @@ var stopDeletedSubagent = async (sessionId, context) => {
 };
 
 // src/rpc/method.session-delete.ts
-var PARAMS16 = external_exports.object({
+var PARAMS19 = external_exports.object({
   sessionId: external_exports.string().min(1).describe("Identifier of the registered subagent to delete")
 });
 var sessionDeleteMethod = {
   name: "sessionDelete",
   description: "Deletes a subagent with its messages, for good, and stops it while it runs.",
   agent: false,
-  params: PARAMS16,
+  params: PARAMS19,
   handle: async ({ sessionId }, context) => {
     const session = await registeredSession(sessionId, context.sessions);
     if (session.role !== "subagent")
@@ -37410,7 +37508,7 @@ var sessionDeleteMethod = {
 };
 
 // src/rpc/method.session-list.ts
-var PARAMS17 = external_exports.object({
+var PARAMS20 = external_exports.object({
   attached: external_exports.boolean().optional().describe(
     "true for only the attached sessions, which can take a message now, false for only the others, all when left out"
   )
@@ -37419,7 +37517,7 @@ var sessionListMethod = {
   name: "sessionList",
   description: "Returns the sessions and subagents of the repository, whether each one is attached, so messages can be delivered to it now, and whether its agent is idle, works, waits for the user, or has ended.",
   agent: false,
-  params: PARAMS17,
+  params: PARAMS20,
   handle: async ({ attached }, context) => {
     const registered = await context.sessions.list();
     const details = await detailsOf(registered, context);
@@ -37514,7 +37612,7 @@ var newSession = ({
 });
 
 // src/rpc/method.session-register.ts
-var PARAMS18 = external_exports.object({
+var PARAMS21 = external_exports.object({
   sessionId: external_exports.string().min(1).describe("Identifier of the session, as the agent gives it"),
   agent: external_exports.enum(AGENTS).describe("Agent that the session runs in: claude or codex"),
   directory: external_exports.string().min(1).describe("Absolute path of the directory of the project of the session"),
@@ -37526,7 +37624,7 @@ var sessionRegisterMethod = {
   name: "sessionRegister",
   description: "Registers a session of an agent in the repository, so that its messages can be logged.",
   agent: false,
-  params: PARAMS18,
+  params: PARAMS21,
   handle: async ({ sessionId, agent, directory, startedAt, role, parentId = null }, { sessions, activity, clock }) => {
     const session = newSession({
       id: sessionId,
@@ -37553,7 +37651,7 @@ var deriveSessionAlias = async (sessionId, created, context) => {
 };
 
 // src/rpc/method.session-task-set.ts
-var PARAMS19 = external_exports.object({
+var PARAMS22 = external_exports.object({
   sessionId: external_exports.string().min(1).describe("Identifier of the registered session"),
   taskId: external_exports.number().int().positive().describe("Identifier of the task that the session works on"),
   created: external_exports.boolean().optional().describe("Whether the session created the task, false when left out")
@@ -37562,7 +37660,7 @@ var sessionTaskSetMethod = {
   name: "sessionTaskSet",
   description: "Sets the task that a subagent works on, unless it works on a task already and did not create this one.",
   agent: false,
-  params: PARAMS19,
+  params: PARAMS22,
   handle: async ({ sessionId, taskId, created = false }, context) => {
     const { sessions } = context;
     const session = await registeredSession(sessionId, sessions);
@@ -37573,7 +37671,7 @@ var sessionTaskSetMethod = {
 };
 
 // src/rpc/method.session-ticket-set.ts
-var PARAMS20 = external_exports.object({
+var PARAMS23 = external_exports.object({
   sessionId: external_exports.string().min(1).describe("Identifier of the registered session"),
   ticketId: external_exports.number().int().positive().describe("Identifier of the ticket that the session works on")
 });
@@ -37581,7 +37679,7 @@ var sessionTicketSetMethod = {
   name: "sessionTicketSet",
   description: "Sets the ticket that a subagent works on, unless it works on a ticket already.",
   agent: false,
-  params: PARAMS20,
+  params: PARAMS23,
   handle: async ({ sessionId, ticketId }, context) => {
     const session = await registeredSession(sessionId, context.sessions);
     if (session.role !== "subagent" || !isTicketJob(session.job)) return;
@@ -37591,7 +37689,7 @@ var sessionTicketSetMethod = {
 };
 
 // src/rpc/method.session-usage-set.ts
-var PARAMS21 = external_exports.object({
+var PARAMS24 = external_exports.object({
   sessionId: external_exports.string().min(1).describe("Identifier of the registered session"),
   contextTokens: external_exports.number().int().nonnegative().describe("Size of the context of the session in tokens, as the usage of its newest model request shows it"),
   model: external_exports.string().min(1).nullable().describe("Identifier of the model that answered the newest model request, or null when it is not known"),
@@ -37601,7 +37699,7 @@ var sessionUsageSetMethod = {
   name: "sessionUsageSet",
   description: "Sets the context size, the model and the effort of a session, from its newest model request.",
   agent: false,
-  params: PARAMS21,
+  params: PARAMS24,
   handle: async ({ sessionId, ...usage }, { sessions }) => {
     await registeredSession(sessionId, sessions);
     await sessions.setUsage(sessionId, usage);
@@ -37609,27 +37707,27 @@ var sessionUsageSetMethod = {
 };
 
 // src/rpc/session-method.skill-list.ts
-var PARAMS22 = external_exports.object({
+var PARAMS25 = external_exports.object({
   sessionId: external_exports.string().min(1).describe("Identifier of the session that the agent runs now")
 });
 var skillListSessionMethod = {
   name: "skillList",
   description: "Returns the skills that the agent of the session can run.",
   agent: false,
-  params: PARAMS22,
+  params: PARAMS25,
   handle: async ({ sessionId }, { listSkills: listSkills2 }) => ({ skills: listSkills2(sessionId) })
 };
 
 // src/rpc/method.skill-list.ts
 var ACTIVATION_SKILL = "atomic-workflow:atomic-workflow";
-var PARAMS23 = external_exports.object({
+var PARAMS26 = external_exports.object({
   sessionId: external_exports.string().min(1).describe("Identifier of the attached session or subagent")
 });
 var skillListMethod = {
   name: "skillList",
   description: "Returns the skills that an attached session or subagent of the repository can run.",
   agent: false,
-  params: PARAMS23,
+  params: PARAMS26,
   handle: async ({ sessionId }, context) => {
     const orchestratorId = orchestratorOf(sessionId, context);
     const connection = orchestratorId === void 0 ? void 0 : context.sessionConnections.get(orchestratorId);
@@ -37656,7 +37754,7 @@ var registerSubagent = async (parent, work, context) => {
 };
 
 // src/rpc/session-method.subagent-follow.ts
-var PARAMS24 = external_exports.object({
+var PARAMS27 = external_exports.object({
   sessionId: external_exports.string().min(1).describe("Identifier of the session of the subagent"),
   parentId: external_exports.string().min(1).describe("Identifier of the orchestrator session that the subagent runs inside"),
   oneShot: external_exports.boolean().default(false).describe(
@@ -37667,12 +37765,12 @@ var subagentFollowSessionMethod = {
   name: "subagentFollow",
   description: "Logs the transcript of a subagent of the session.",
   agent: false,
-  params: PARAMS24,
+  params: PARAMS27,
   handle: async ({ sessionId, parentId, oneShot }, { followSubagent: followSubagent2 }) => followSubagent2(sessionId, parentId, oneShot)
 };
 
 // src/rpc/method.subagent-create.ts
-var PARAMS25 = external_exports.object({
+var PARAMS28 = external_exports.object({
   taskId: external_exports.number().int().positive().describe("Identifier of the task that the subagent works on"),
   ticketId: external_exports.number().int().positive().optional().describe("Identifier of the ticket of the task that the subagent implements, which names its chat")
 });
@@ -37680,7 +37778,7 @@ var subagentCreateMethod = {
   name: "subagentCreate",
   description: "Registers a subagent of this session that works on a task, and returns its session id. Start the subagent with the Agent tool right after, with a prompt whose first line is `Your session id is <session id>.`, so that its chat shows under the task.",
   agent: true,
-  params: PARAMS25,
+  params: PARAMS28,
   handle: async ({ taskId, ticketId }, context) => {
     const { sessions, subagents, caller } = context;
     const task = await findTask(taskId, context.tasks);
@@ -37720,28 +37818,28 @@ var checkTicket = async (task, ticketId, context) => {
 };
 
 // src/rpc/method.subagent-end.ts
-var PARAMS26 = external_exports.object({
+var PARAMS29 = external_exports.object({
   sessionId: external_exports.string().describe("Session id of the subagent that has ended")
 });
 var subagentEndMethod = {
   name: "subagentEnd",
   description: "Removes a subagent that has ended from the started subagents.",
   agent: false,
-  params: PARAMS26,
+  params: PARAMS29,
   handle: async ({ sessionId }, { subagents, inboxes }) => {
     if (subagents.stop(sessionId)) inboxes.close(sessionId);
   }
 };
 
 // src/rpc/method.subagent-finish.ts
-var PARAMS27 = external_exports.object({
+var PARAMS30 = external_exports.object({
   sessionId: external_exports.string().describe("Session id of the subagent that calls the tool, from its prompt")
 });
 var subagentFinishMethod = {
   name: "subagentFinish",
   description: "Ends this subagent once the skill of its first message has ended. Call it with the session id of your prompt, after your last reply, then end your turn.",
   agent: true,
-  params: PARAMS27,
+  params: PARAMS30,
   handle: async ({ sessionId }, context) => {
     if (!isSubagentOfCaller(sessionId, context) || !await stopSubagent(sessionId, context))
       throw new RpcError(RPC_ERROR_CODES.INVALID_PARAMS, `No subagent ${sessionId} of this session is started`);
@@ -37807,7 +37905,7 @@ var spawnMessage = (sessionId, commandLine) => [
 ].join("\n");
 
 // src/rpc/method.subagent-start.ts
-var PARAMS28 = external_exports.object({
+var PARAMS31 = external_exports.object({
   prompt: external_exports.string().min(1).optional().describe("First command of the subagent, none when left out"),
   parentId: external_exports.string().optional().describe("Session id of the orchestrator, the one that attached last when left out"),
   taskId: external_exports.number().int().positive().optional().describe("Identifier of the task that the subagent works on")
@@ -37817,7 +37915,7 @@ var subagentStartMethod = {
   name: "subagentStart",
   description: "Starts a subagent inside an orchestrator session, by default the one that attached last, and returns its session id.",
   agent: false,
-  params: PARAMS28,
+  params: PARAMS31,
   handle: async ({ prompt, parentId, taskId }, context) => {
     const job = jobOfPrompt(prompt);
     const target = await targetOf(prompt, job, taskId, context);
@@ -37846,14 +37944,14 @@ var ticketOfWord = (task, word) => {
 };
 
 // src/rpc/method.subagent-stop.ts
-var PARAMS29 = external_exports.object({
+var PARAMS32 = external_exports.object({
   sessionId: external_exports.string().describe("Session id of the subagent to stop")
 });
 var subagentStopMethod = {
   name: "subagentStop",
   description: "Stops a subagent that subagentStart started.",
   agent: false,
-  params: PARAMS29,
+  params: PARAMS32,
   handle: async ({ sessionId }, context) => {
     if (!await stopSubagent(sessionId, context))
       throw new RpcError(RPC_ERROR_CODES.INVALID_PARAMS, `No subagent ${sessionId} is started`);
@@ -37861,7 +37959,7 @@ var subagentStopMethod = {
 };
 
 // src/rpc/method.task-create.ts
-var PARAMS30 = external_exports.object({
+var PARAMS33 = external_exports.object({
   slug: SLUG.describe(
     "Short name of the task, derived from what the user asked for: exactly three lowercase words joined by hyphens"
   ),
@@ -37873,7 +37971,7 @@ var taskCreateMethod = {
   name: "taskCreate",
   description: "Creates a task of the atomic workflow with its first goal, once the user approved that goal, and returns it.",
   agent: true,
-  params: PARAMS30,
+  params: PARAMS33,
   handle: async ({ slug, summary, details = null, source }, { tasks, clock }) => tasks.create({ slug, createdAt: clock.now(), goal: { summary, details, source } })
 };
 
@@ -37950,7 +38048,7 @@ var worktreeCall = async (call2) => {
 };
 
 // src/rpc/method.task-delete.ts
-var PARAMS31 = external_exports.object({
+var PARAMS34 = external_exports.object({
   task: TASK_REFERENCE,
   force: external_exports.boolean().default(false).describe(
     "Whether to delete the task also when its branches hold commits that have not landed, or its worktrees hold uncommitted changes, which are then lost"
@@ -37960,7 +38058,7 @@ var taskDeleteMethod = {
   name: "taskDelete",
   description: "Deletes a task of the atomic workflow with its goals, its design, its tickets, and its worktrees and branches, for good. Refuses to lose work that has not landed unless forced.",
   agent: true,
-  params: PARAMS31,
+  params: PARAMS34,
   handle: async ({ task: reference, force }, context) => {
     const task = await findTask(reference, context.tasks);
     const taskId = task.id;
@@ -37983,29 +38081,29 @@ var taskDeleteMethod = {
 var subagentIdsOfTask = async (taskId, context) => (await context.sessions.list()).filter((session) => session.role === "subagent" && session.taskId === taskId).map(({ id }) => id);
 
 // src/rpc/method.task-get.ts
-var PARAMS32 = external_exports.object({
+var PARAMS35 = external_exports.object({
   task: TASK_REFERENCE
 });
 var taskGetMethod = {
   name: "taskGet",
   description: "Returns a task of the atomic workflow, named by its id, its slug or both as <id>-<slug>, with its status, its goals, its design and its tickets.",
   agent: true,
-  params: PARAMS32,
+  params: PARAMS35,
   handle: async ({ task }, { tasks }) => findTask(task, tasks)
 };
 
 // src/rpc/method.task-list.ts
-var PARAMS33 = external_exports.object({});
+var PARAMS36 = external_exports.object({});
 var taskListMethod = {
   name: "taskList",
   description: "Returns every task of the atomic workflow with its slug, its status, its creation time and its number of completed tickets, whose work landed, and its total number of tickets.",
   agent: true,
-  params: PARAMS33,
+  params: PARAMS36,
   handle: async (_params, { tasks }) => ({ tasks: await tasks.list() })
 };
 
 // src/rpc/method.task-orchestrator-deliver.ts
-var PARAMS34 = external_exports.object({
+var PARAMS37 = external_exports.object({
   taskId: external_exports.number().int().positive().describe("Identifier of the task whose orchestrator takes the message"),
   content: external_exports.string().min(1).describe("Text of the message, such as a command that runs a skill")
 });
@@ -38013,7 +38111,7 @@ var taskOrchestratorDeliverMethod = {
   name: "taskOrchestratorDeliver",
   description: "Gives a message to the orchestrator of a task, a subagent that takes the commands of the task, and starts it first when none is attached.",
   agent: false,
-  params: PARAMS34,
+  params: PARAMS37,
   handle: async ({ taskId, content }, context) => {
     const task = await findTask(taskId, context.tasks);
     return startSubagent(
@@ -38024,14 +38122,14 @@ var taskOrchestratorDeliverMethod = {
 };
 
 // src/rpc/method.task-run-end.ts
-var PARAMS35 = external_exports.object({
+var PARAMS38 = external_exports.object({
   taskId: external_exports.number().int().positive().describe("Identifier of the task whose unattended run ends")
 });
 var taskRunEndMethod = {
   name: "taskRunEnd",
   description: "Marks the end of the active unattended run of a task of the atomic workflow, for the run timer of the web app, and returns the task.",
   agent: true,
-  params: PARAMS35,
+  params: PARAMS38,
   handle: async ({ taskId }, { tasks, clock }) => {
     await findTask(taskId, tasks);
     await tasks.endRun(taskId, clock.now());
@@ -38040,14 +38138,14 @@ var taskRunEndMethod = {
 };
 
 // src/rpc/method.task-run-start.ts
-var PARAMS36 = external_exports.object({
+var PARAMS39 = external_exports.object({
   taskId: external_exports.number().int().positive().describe("Identifier of the task whose unattended run starts")
 });
 var taskRunStartMethod = {
   name: "taskRunStart",
   description: "Marks the start of an unattended run of a task of the atomic workflow, for the run timer of the web app, and returns the task.",
   agent: true,
-  params: PARAMS36,
+  params: PARAMS39,
   handle: async ({ taskId }, { tasks, caller, clock }) => {
     await findTask(taskId, tasks);
     const startedAt = clock.now();
@@ -38059,7 +38157,7 @@ var taskRunStartMethod = {
 };
 
 // src/rpc/method.task-set-status.ts
-var PARAMS37 = external_exports.object({
+var PARAMS40 = external_exports.object({
   taskId: external_exports.number().int().positive().describe("Identifier of the task"),
   status: external_exports.enum(TASK_STATUSES).exclude(["done"]).describe("Status to set: the stage of planning the user works on, or complete")
 });
@@ -38067,7 +38165,7 @@ var taskSetStatusMethod = {
   name: "taskSetStatus",
   description: "Sets the status of a task of the atomic workflow to the stage of planning the user works on, or to complete once the user is satisfied with the whole plan, and returns the task.",
   agent: true,
-  params: PARAMS37,
+  params: PARAMS40,
   handle: async ({ taskId, status }, { tasks }) => {
     const task = await openTask(taskId, tasks);
     const missing = missingPart(task, status);
@@ -38094,14 +38192,14 @@ var pendingDependencies = (task, ticket) => ticket.dependsOn.filter((id) => {
 });
 
 // src/rpc/method.task-stop.ts
-var PARAMS38 = external_exports.object({
+var PARAMS41 = external_exports.object({
   taskId: external_exports.number().int().positive().describe("Identifier of the task whose subagents to stop")
 });
 var taskStopMethod = {
   name: "taskStop",
   description: "Stops every subagent that works on a task, releases the claims of its tickets, and ends its active run.",
   agent: false,
-  params: PARAMS38,
+  params: PARAMS41,
   handle: async ({ taskId }, context) => {
     const task = await findTask(taskId, context.tasks);
     const subagents = await subagentsOfTask(taskId, context);
@@ -38138,7 +38236,7 @@ var releaseClaims = (task, holders, context) => {
 };
 
 // src/rpc/method.ticket-diff.ts
-var PARAMS39 = external_exports.object({
+var PARAMS42 = external_exports.object({
   taskId: external_exports.number().int().positive().describe("Identifier of the task"),
   ticketId: external_exports.number().int().positive().describe("Identifier of the ticket within its task")
 });
@@ -38146,7 +38244,7 @@ var ticketDiffMethod = {
   name: "ticketDiff",
   description: "Returns the commit that holds the landed work of a ticket of the atomic workflow, with its changed files and the patch of each small one, or null when none does.",
   agent: false,
-  params: PARAMS39,
+  params: PARAMS42,
   handle: async ({ taskId, ticketId }, context) => {
     const task = await findTask(taskId, context.tasks);
     const ticket = ticketOf(task, ticketId);
@@ -38156,7 +38254,7 @@ var ticketDiffMethod = {
 };
 
 // src/rpc/method.ticket-file-diff.ts
-var PARAMS40 = external_exports.object({
+var PARAMS43 = external_exports.object({
   taskId: external_exports.number().int().positive().describe("Identifier of the task"),
   ticketId: external_exports.number().int().positive().describe("Identifier of the ticket within its task"),
   commit: external_exports.string().min(1).describe("Id of the commit that ticketDiff returned for the ticket"),
@@ -38166,7 +38264,7 @@ var ticketFileDiffMethod = {
   name: "ticketFileDiff",
   description: "Returns the patch of one changed file of the commit that holds the landed work of a ticket of the atomic workflow.",
   agent: false,
-  params: PARAMS40,
+  params: PARAMS43,
   handle: async ({ taskId, ticketId, commit, path }, context) => {
     const task = await findTask(taskId, context.tasks);
     const ticket = ticketOf(task, ticketId);
@@ -38181,14 +38279,14 @@ var ticketFileDiffMethod = {
 };
 
 // src/rpc/method.ticket-next.ts
-var PARAMS41 = external_exports.object({
+var PARAMS44 = external_exports.object({
   taskId: external_exports.number().int().positive().describe("Identifier of the task")
 });
 var ticketNextMethod = {
   name: "ticketNext",
   description: "Returns the next ticket to work on of a task of the atomic workflow whose plan is complete: the first ready ticket in progress, else the first ready ticket not started, or null. Also returns every ticket that can be picked, with its mode, and each ticket whose work has not landed and that cannot be picked, with its cause: elsewhere, blocked or dependencies.",
   agent: true,
-  params: PARAMS41,
+  params: PARAMS44,
   handle: async ({ taskId }, context) => {
     const task = await openCompleteTask(taskId, context.tasks);
     const open4 = task.tickets.filter(({ status }) => !hasLanded(status));
@@ -38320,7 +38418,7 @@ var refusalOf = (ticket, { status, stage, reason }) => {
 };
 
 // src/rpc/method.ticket-request-changes.ts
-var PARAMS42 = external_exports.object({
+var PARAMS45 = external_exports.object({
   taskId: external_exports.number().int().positive().describe("Identifier of the task"),
   ticketId: external_exports.number().int().positive().describe("Identifier of the reviewed ticket within its task"),
   review: external_exports.string().trim().min(1).describe("Comments of the review in Markdown, each with the file and the lines that it points at")
@@ -38330,7 +38428,7 @@ var ticketRequestChangesMethod = {
   name: "ticketRequestChanges",
   description: "Adds a ticket that makes the changes that the review of a landed ticket of the atomic workflow asked for, and approves the reviewed ticket.",
   agent: false,
-  params: PARAMS42,
+  params: PARAMS45,
   handle: async ({ taskId, ticketId, review }, context) => {
     const task = await findTask(taskId, context.tasks);
     const reviewed = reviewedTicketOf(task, ticketId);
@@ -38400,7 +38498,7 @@ var saveReopened = async (task, tickets, context) => {
 };
 
 // src/rpc/method.ticket-set-status.ts
-var PARAMS43 = external_exports.object({
+var PARAMS46 = external_exports.object({
   taskId: external_exports.number().int().positive().describe("Identifier of the task"),
   ticketId: external_exports.number().int().positive().describe("Identifier of the ticket within its task"),
   status: external_exports.enum(TICKET_STATUSES).exclude(["needs-review"]).describe(
@@ -38415,12 +38513,12 @@ var ticketSetStatusMethod = {
   name: "ticketSetStatus",
   description: "Sets the status of a ticket of the atomic workflow, with the stage of its work and the reason that it is blocked, and returns the ticket.",
   agent: true,
-  params: PARAMS43,
+  params: PARAMS46,
   handle: async (params, context) => setTicketStatus(params, context)
 };
 
 // src/rpc/method.tickets-save.ts
-var PARAMS44 = external_exports.object({
+var PARAMS47 = external_exports.object({
   taskId: external_exports.number().int().positive().describe("Identifier of the task"),
   tickets: external_exports.array(
     external_exports.object({
@@ -38449,17 +38547,17 @@ var ticketsSaveMethod = {
   name: "ticketsSave",
   description: "Replaces the tickets of a task of the atomic workflow with a whole new list of them, and returns the task. On a complete task, each ticket whose work started must stay as stored.",
   agent: true,
-  params: PARAMS44,
+  params: PARAMS47,
   handle: async ({ taskId, tickets }, context) => saveTickets(taskId, tickets, context)
 };
 
 // src/rpc/method.usage-get.ts
-var PARAMS45 = external_exports.object({});
+var PARAMS48 = external_exports.object({});
 var usageGetMethod = {
   name: "usageGet",
   description: "Returns the latest 5-hour and weekly usage limits of the account, as Claude Code caches them: the used percentage and the reset time of each window, and the time of the fetch.",
   agent: false,
-  params: PARAMS45,
+  params: PARAMS48,
   handle: async (_params, { usage }) => usage.latest()
 };
 
@@ -38475,7 +38573,7 @@ var REBASE_CHECKS = external_exports.object({
 );
 
 // src/rpc/method.worktree-create.ts
-var PARAMS46 = external_exports.object({
+var PARAMS49 = external_exports.object({
   taskId: external_exports.number().int().positive().describe("Identifier of the task"),
   ticketId: external_exports.number().int().positive().describe("Identifier of the ticket within its task"),
   checks: REBASE_CHECKS.optional()
@@ -38484,7 +38582,7 @@ var worktreeCreateMethod = {
   name: "worktreeCreate",
   description: "Starts the work on a ticket of the atomic workflow: makes the worktree of its task and its own worktree where they do not exist, sets it in-progress, and returns the paths and branches of both worktrees with the ticket. Before it makes the branch of the ticket, it rebases the task branch onto the local base branch. On a conflict of that rebase, resolve and add the files in the worktree of the task that the error names, then call it again. When the rebase rewrites landed tickets, it fails with the kind needs-checks, the worktree and the commit of the candidate: run the checks there, then call it again with checks.",
   agent: true,
-  params: PARAMS46,
+  params: PARAMS49,
   handle: async ({ taskId, ticketId, checks }, context) => {
     const { task, ticket } = await openTicket(taskId, ticketId, context.tasks);
     if (hasLanded(ticket.status))
@@ -38513,7 +38611,7 @@ var start = async (task, ticket, checks, context) => {
 };
 
 // src/rpc/method.worktree-delete.ts
-var PARAMS47 = external_exports.object({
+var PARAMS50 = external_exports.object({
   taskId: external_exports.number().int().positive().describe("Identifier of the task"),
   ticketId: external_exports.number().int().positive().optional().describe("Identifier of the ticket whose worktree and branch to delete. Without it, deletes those of the task"),
   force: external_exports.boolean().default(false).describe("Whether to delete branches whose commits have not landed, and worktrees with uncommitted changes")
@@ -38523,7 +38621,7 @@ var worktreeDeleteMethod = {
   name: "worktreeDelete",
   description: "Deletes the worktree and the branch of a ticket of the atomic workflow, or without a ticket, every worktree and branch of the task. Refuses to lose work that has not landed unless forced.",
   agent: true,
-  params: PARAMS47,
+  params: PARAMS50,
   handle: async ({ taskId, ticketId, force }, context) => {
     const task = await findTask(taskId, context.tasks);
     if (ticketId === void 0) return deleteTask(task, force, context);
@@ -38570,7 +38668,7 @@ var taskBranchOf = (task) => `${BRANCH_PREFIX}${taskName(task)}/${TASK_BRANCH_NA
 
 // src/rpc/method.worktree-merge.ts
 var SUMMARY_LINE = /^(feat|fix|chore|refactor|docs|test|perf|build|ci|style|revert)(\([^()\r\n]+\))?!?: \S/;
-var PARAMS48 = external_exports.object({
+var PARAMS51 = external_exports.object({
   taskId: external_exports.number().int().positive().describe("Identifier of the task"),
   ticketId: external_exports.number().int().positive().optional().describe(
     "Identifier of the ticket to land on the task branch. Without it, lands the task branch on the base branch once every ticket of the task is done"
@@ -38585,7 +38683,7 @@ var worktreeMergeMethod = {
   name: "worktreeMerge",
   description: "With a ticket, squashes the commits of the worktree of a ticket of the atomic workflow into one commit with the message, rebases it onto the task branch, moves the task branch forward to it, and sets the ticket needs-review. A call with a ticket that stopped finishes when it is called again with the same arguments. Without a ticket, once every ticket of the task is done, rebases the task branch onto its base branch, moves the base branch forward to it, deletes the worktrees and branches of the task, and sets the task done. A call without a ticket that stopped finishes when it is called again with the same arguments, and a call for a task that is done returns its result again. On a conflict, resolve and add the files in the worktree that the error names, then call it again. When the rebase of the task branch rewrites landed tickets, it fails with the kind needs-checks, the worktree and the commit of the candidate: run the checks there, then call it again with checks.",
   agent: true,
-  params: PARAMS48,
+  params: PARAMS51,
   handle: async ({ taskId, ticketId, message, checks }, context) => {
     if (ticketId === void 0) {
       if (message !== void 0)
@@ -38709,7 +38807,10 @@ var METHODS = [
   ticketRequestChangesMethod,
   worktreeCreateMethod,
   worktreeMergeMethod,
-  worktreeDeleteMethod
+  worktreeDeleteMethod,
+  permissionPromptOpenMethod,
+  permissionPromptListMethod,
+  permissionPromptAnswerMethod
 ];
 
 // src/rpc/session-method.ts

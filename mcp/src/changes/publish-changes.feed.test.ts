@@ -1,24 +1,16 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
+import { mapCreatePermissionPrompts } from '../attachment/permission-prompts.map.ts';
+import type { NewPermissionPrompt } from '../attachment/permission-prompts.ts';
 import { mapCreateSessionActivity } from '../attachment/session-activity.map.ts';
 import { mapCreateSessionConnections } from '../attachment/session-connections.map.ts';
 import { mapCreateSubagents } from '../attachment/subagents.map.ts';
 import type { RegisteredSession } from '../storage/session-store.ts';
 import type { NewTask } from '../storage/task-store.ts';
+import { type TestChangeFeed, testChangeFeed } from '../testing/test-change-feed.ts';
 import { testConnection } from '../testing/test-connection.ts';
 import { testStorage } from '../testing/test-storage.ts';
-import type { ChangedResource, ChangeFeed } from './change-feed.ts';
 import { feedPublishChanges } from './publish-changes.feed.ts';
-
-/**
- * `ChangeFeed` of a test, which records each resource that it is told, at once and in order.
- */
-interface RecordingFeed extends ChangeFeed {
-  /**
-   * Resources that the feed was told, in order.
-   */
-  readonly published: readonly ChangedResource[];
-}
 
 /**
  * Wrapped services of a test, with the feed that they publish to.
@@ -27,7 +19,7 @@ interface Published {
   /**
    * Feed that the services publish to.
    */
-  readonly feed: RecordingFeed;
+  readonly feed: TestChangeFeed;
 
   /**
    * Services that publish to `feed`.
@@ -36,29 +28,29 @@ interface Published {
 }
 
 /**
+ * Permission prompt of the tests.
+ */
+const PROMPT: NewPermissionPrompt = {
+  sessionId: 'session-1',
+  agentType: null,
+  toolName: 'Bash',
+  toolInput: { command: 'ls' },
+  suggestions: [],
+  openedAt: 0,
+};
+
+/**
  * Task of the tests.
  */
 const TASK: NewTask = { slug: 'cache-layer', createdAt: 0, goal: { summary: 'Cache', details: null, source: 'user' } };
 
 /**
- * Returns a new `RecordingFeed`.
- */
-const recordingFeed = (): RecordingFeed => {
-  const published: ChangedResource[] = [];
-  return {
-    published,
-    publish: (resource) => void published.push(resource),
-    subscribe: () => () => undefined,
-  };
-};
-
-/**
  * Returns the services of a new `testStorage` and new map adapters, wrapped by `feedPublishChanges` with a new
- * `RecordingFeed`.
+ * `TestChangeFeed`.
  */
 const published = (): Published => {
   const storage = testStorage();
-  const feed = recordingFeed();
+  const feed = testChangeFeed();
   const services = feedPublishChanges(
     {
       messageLog: storage.messageLog,
@@ -67,6 +59,7 @@ const published = (): Published => {
       sessionConnections: mapCreateSessionConnections(),
       subagents: mapCreateSubagents(),
       activity: mapCreateSessionActivity(),
+      prompts: mapCreatePermissionPrompts(),
     },
     feed,
   );
@@ -160,7 +153,7 @@ describe('feedPublishChanges', () => {
 
     it('publishes nothing for a write that rejects', async () => {
       const storage = testStorage();
-      const feed = recordingFeed();
+      const feed = testChangeFeed();
       const services = feedPublishChanges(
         {
           messageLog: storage.messageLog,
@@ -174,6 +167,7 @@ describe('feedPublishChanges', () => {
           sessionConnections: mapCreateSessionConnections(),
           subagents: mapCreateSubagents(),
           activity: mapCreateSessionActivity(),
+          prompts: mapCreatePermissionPrompts(),
         },
         feed,
       );
@@ -253,6 +247,34 @@ describe('feedPublishChanges', () => {
       assert.equal(services.activity.forget('session-1'), false);
       assert.equal(services.activity.get('session-1'), undefined);
       assert.deepEqual(feed.published, ['sessions', 'sessions', 'sessions']);
+    });
+  });
+
+  describe('prompts', () => {
+    it('publishes prompts when a prompt opens, and again when it is answered', async () => {
+      const { feed, services } = published();
+      const { prompt, answer } = services.prompts.open(PROMPT, new Promise<void>(() => undefined));
+      assert.deepEqual(feed.published, ['prompts']);
+      assert.equal(services.prompts.answer(prompt.id, { behavior: 'allow' }), true);
+      await answer;
+      assert.deepEqual(feed.published, ['prompts', 'prompts']);
+    });
+
+    it('publishes prompts again when the prompt closes without an answer', async () => {
+      const { feed, services } = published();
+      const connection = testConnection();
+      const { answer } = services.prompts.open(PROMPT, connection.closed);
+      connection.close();
+      assert.equal(await answer, undefined);
+      assert.deepEqual(feed.published, ['prompts', 'prompts']);
+    });
+
+    it('publishes nothing for a read or an answer to no open prompt', () => {
+      const { feed, services } = published();
+      services.prompts.list();
+      services.prompts.get('1');
+      assert.equal(services.prompts.answer('1', { behavior: 'allow' }), false);
+      assert.deepEqual(feed.published, []);
     });
   });
 });
