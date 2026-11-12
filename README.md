@@ -36,13 +36,13 @@ You need [Claude Code](https://code.claude.com/docs), Node.js 24 or newer, and g
 Clone the repository:
 
 ```sh
-git clone https://github.com/<owner>/atomic-workflow-mcp.git
+git clone https://github.com/klepto/atomic-workflow.git
 ```
 
 In a Claude Code session, add the marketplace from the `plugin/` folder of the clone, and install the plugin:
 
 ```
-/plugin marketplace add ./atomic-workflow-mcp/plugin
+/plugin marketplace add ./atomic-workflow/plugin
 /plugin install atomic-workflow@atomic-workflow
 ```
 
@@ -210,7 +210,7 @@ that needs it starts it again.
 Pull the clone, then update the marketplace in a Claude Code session:
 
 ```sh
-git -C atomic-workflow-mcp pull
+git -C atomic-workflow pull
 ```
 
 ```
