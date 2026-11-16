@@ -1,29 +1,31 @@
+import { startTransition, useEffect, useState } from 'react';
 import { systemClock } from '@/lib/clock.system.ts';
-import { highlighterOf, languageOfPath, MAX_HIGHLIGHT_LINES } from '@/lib/code-highlight.ts';
-import { useHighlight } from '@/lib/use-highlight.ts';
-import { colorFile, type FileHighlight } from '@/review/file-highlight.ts';
+import { webWorkerFileColorer } from '@/review/file-colorer.web-worker.ts';
+import type { FileHighlight } from '@/review/file-highlight.ts';
+import { createHighlightStore } from '@/review/highlight-store.ts';
 import type { FileDiff } from '@/review/patch.ts';
 
 /**
- * Colors of each file that was colored once, so that a file that shows again does not color again.
+ * Colors of the files of the page, kept for the life of the page, so that a file that shows again does not color
+ * again.
  */
-const highlights = new WeakMap<FileDiff, FileHighlight>();
+const store = createHighlightStore({ colorer: webWorkerFileColorer, clock: systemClock });
 
 /**
- * Returns the colors of the lines of the file `file`, or `undefined` when the language of the file gets no colors, or
- * the file has more lines than `MAX_HIGHLIGHT_LINES`. The promise rejects when the highlighter or the grammar fails to
- * load.
+ * Returns the colors of the lines of the file `file` so far, or `undefined` before the first colors arrive, and for a
+ * file that gets no colors. The colors arrive in batches, each a new object that holds every line colored so far, at
+ * most once each 100 ms. If the colors fail to load, the file keeps showing its text without colors.
  */
-const highlightFile = (file: FileDiff): Promise<FileHighlight> | undefined => {
-  const loadLanguage = languageOfPath(file.path);
-  const lineCount = file.hunks.reduce((count, hunk) => count + hunk.lines.length, 0);
-  if (loadLanguage === undefined || lineCount > MAX_HIGHLIGHT_LINES) return undefined;
-  return highlighterOf(loadLanguage).then((highlighter) => colorFile(file, highlighter, systemClock));
+export const useFileHighlight = (file: FileDiff): FileHighlight | undefined => {
+  const [colors, setColors] = useState(() => store.get(file));
+
+  useEffect(() => {
+    setColors(store.get(file));
+    return store.subscribe(file, () => {
+      // The colors of many lines render as a transition, so that the page keeps taking input meanwhile.
+      startTransition(() => setColors(store.get(file)));
+    });
+  }, [file]);
+
+  return colors;
 };
-
-/**
- * Returns the colors of the lines of the file `file`, or `undefined` while they load, and for a file that gets no
- * colors. If the colors fail to load, the file keeps showing its text without colors.
- */
-export const useFileHighlight = (file: FileDiff): FileHighlight | undefined =>
-  useHighlight(file, highlights, highlightFile);

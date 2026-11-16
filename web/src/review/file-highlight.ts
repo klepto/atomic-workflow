@@ -1,7 +1,6 @@
 import type { GrammarState, ThemedToken } from 'shiki/core';
-import type { Clock } from '@/lib/clock.ts';
 import type { LanguageHighlighter } from '@/lib/code-highlight.ts';
-import type { DiffHunk, DiffLine, FileDiff } from '@/review/patch.ts';
+import type { DiffLine, FileDiff } from '@/review/patch.ts';
 
 /**
  * Colored pieces of the text of each line of a file, by the line of the diff that holds the text. A line without an
@@ -10,83 +9,82 @@ import type { DiffHunk, DiffLine, FileDiff } from '@/review/patch.ts';
 export type FileHighlight = ReadonlyMap<DiffLine, readonly ThemedToken[]>;
 
 /**
- * Most lines that one call of the highlighter colors before it lets the page take input again.
+ * Lines of one side of a hunk, which color as one piece of code, so that a construct that spans lines, such as a block
+ * comment, colors each of its lines.
  */
-const HIGHLIGHT_CHUNK = 100;
+export type HunkSide = readonly DiffLine[];
 
 /**
- * Resolves once a timer of `clock` without delay ran, so that the tasks that wait, such as the input of the user, run
- * first.
+ * Colors of a run of lines of one side of a hunk.
  */
-const nextTask = async (clock: Clock): Promise<void> =>
-  new Promise((resolve) => {
-    clock.after(0, resolve);
-  });
+export interface ColorBatch {
+  /**
+   * Index of the side in the sides of `hunkSidesOf`.
+   */
+  readonly side: number;
+
+  /**
+   * Index of the first line of the run in its side.
+   */
+  readonly start: number;
+
+  /**
+   * Colored pieces of each line of the run, one array per line.
+   */
+  readonly tokens: readonly (readonly ThemedToken[])[];
+}
 
 /**
- * Colors the lines `lines` of one side of a hunk as one piece of code with `highlighter`, so that a construct that
- * spans lines, such as a block comment, colors each of its lines, and adds the colors of each line to `colors`. It
- * colors `HIGHLIGHT_CHUNK` lines at a time, each chunk read on from where the chunk before it ended, and waits for a
- * timer of `clock` between two chunks.
+ * Most lines of one batch of colors, so that the page takes each batch in a short task.
  */
-const colorSide = async (
+const BATCH_LINES = 200;
+
+/**
+ * Returns the sides of each hunk of the file `file` that hold lines: the old side and then the new side of each hunk,
+ * so that a line both sides share keeps the colors of its new side.
+ */
+export const hunkSidesOf = (file: FileDiff): readonly HunkSide[] =>
+  file.hunks
+    .flatMap((hunk) => [
+      hunk.lines.filter((line) => line.kind !== 'add'),
+      hunk.lines.filter((line) => line.kind !== 'delete'),
+    ])
+    .filter((side) => side.length > 0);
+
+/**
+ * Colors each side of `sides`, each a list of the texts of its lines, with `highlighter`, and sends the colors of each
+ * run of up to `BATCH_LINES` lines to `send`, in order. Each run reads on from where the run before it ended. A side
+ * where a line holds a line break of its own stops at that run, since its colors would land on the lines below it.
+ */
+export const colorSides = (
   highlighter: LanguageHighlighter,
-  clock: Clock,
-  lines: readonly DiffLine[],
-  colors: Map<DiffLine, readonly ThemedToken[]>,
-): Promise<void> => {
-  let state: GrammarState | undefined;
-  for (let start = 0; start < lines.length; start += HIGHLIGHT_CHUNK) {
-    if (start > 0) await nextTask(clock);
-    const chunk = lines.slice(start, start + HIGHLIGHT_CHUNK);
-    const colored = highlighter.tokenizeFrom(chunk.map((line) => line.text).join('\n'), state);
-    // A line that holds a line break of its own splits in two, so its colors would land on the lines below it.
-    if (colored.tokens.length !== chunk.length) return;
-    for (const [index, line] of chunk.entries()) {
-      colors.set(line, colored.tokens[index] ?? []);
+  sides: readonly (readonly string[])[],
+  send: (batch: ColorBatch) => void,
+): void => {
+  for (const [side, texts] of sides.entries()) {
+    let state: GrammarState | undefined;
+    for (let start = 0; start < texts.length; start += BATCH_LINES) {
+      const run = texts.slice(start, start + BATCH_LINES);
+      const colored = highlighter.tokenizeFrom(run.join('\n'), state);
+      if (colored.tokens.length !== run.length) break;
+      send({ side, start, tokens: colored.tokens });
+      state = colored.state;
     }
-    state = colored.state;
   }
 };
 
 /**
- * Colors the old and then the new side of the hunk `hunk` with `highlighter`, so that a line both sides share keeps
- * the colors of its new side, and adds the colors of each line to `colors`.
+ * Adds the colors of the batch `batch` to `colors`, for the lines of `sides` that it colors.
  */
-const colorHunk = async (
-  highlighter: LanguageHighlighter,
-  clock: Clock,
-  hunk: DiffHunk,
+export const addBatch = (
   colors: Map<DiffLine, readonly ThemedToken[]>,
-): Promise<void> => {
-  await colorSide(
-    highlighter,
-    clock,
-    hunk.lines.filter((line) => line.kind !== 'add'),
-    colors,
-  );
-  await nextTask(clock);
-  await colorSide(
-    highlighter,
-    clock,
-    hunk.lines.filter((line) => line.kind !== 'delete'),
-    colors,
-  );
-};
-
-/**
- * Returns the colors of the lines of the file `file` with `highlighter`, each hunk colored on its own, and waits for a
- * timer of `clock` between two hunks, so that the page takes input while a big file colors.
- */
-export const colorFile = async (
-  file: FileDiff,
-  highlighter: LanguageHighlighter,
-  clock: Clock,
-): Promise<FileHighlight> => {
-  const colors = new Map<DiffLine, readonly ThemedToken[]>();
-  for (const hunk of file.hunks) {
-    await colorHunk(highlighter, clock, hunk, colors);
-    await nextTask(clock);
+  sides: readonly HunkSide[],
+  batch: ColorBatch,
+): void => {
+  const lines = sides[batch.side];
+  if (lines === undefined) return;
+  for (const [index, tokens] of batch.tokens.entries()) {
+    const line = lines[batch.start + index];
+    if (line !== undefined) colors.set(line, tokens);
   }
-  return colors;
 };

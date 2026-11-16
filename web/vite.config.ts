@@ -194,6 +194,12 @@ export default defineConfig({
       '@': fileURLToPath(new URL('./src', import.meta.url)),
     },
   },
+  // The worker that colors the code of the review loads its grammars by dynamic imports, which only the format of ES
+  // modules splits into chunks.
+  worker: {
+    format: 'es',
+    plugins: () => [lineFeedOutput()],
+  },
   build: {
     outDir: OUT_DIRECTORY,
     emptyOutDir: true,
