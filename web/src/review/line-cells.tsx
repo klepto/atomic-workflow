@@ -1,13 +1,13 @@
-import { memo, useState } from 'react';
+import { useState } from 'react';
 import type { ThemedToken } from 'shiki/core';
-import { Hint } from '@/components/ui/hint.tsx';
+import { SharedHint } from '@/components/ui/hint.tsx';
 import { tokenStyle } from '@/lib/code-highlight.ts';
 import { cn } from '@/lib/utils.ts';
-import type { FileHighlight } from '@/review/file-highlight.ts';
 import type { FileReview } from '@/review/file-review.ts';
 import type { LineMark } from '@/review/line-mark.ts';
 import { LONG_LINE_LENGTH } from '@/review/long-line.ts';
 import { type DiffLine, type DiffSide, signOf } from '@/review/patch.ts';
+import type { LineHint, LineHintEvents } from '@/review/use-line-hint.ts';
 
 /**
  * Props of `Rail`.
@@ -44,9 +44,9 @@ interface CodeCellProps {
   readonly line: DiffLine;
 
   /**
-   * Colors of the lines of the file, or `undefined` while they load.
+   * Colored pieces of the text of the line, or `undefined` while they load or for a line without colors.
    */
-  readonly highlight: FileHighlight | undefined;
+  readonly tokens: readonly ThemedToken[] | undefined;
 
   /**
    * Classes of the cell, beside its own.
@@ -87,6 +87,21 @@ interface LineButtonProps {
    * Selects the line to comment on, or extends the selection to it.
    */
   readonly onSelect: FileReview['onSelectLine'];
+
+  /**
+   * Props that show the hint that the body of the button shares.
+   */
+  readonly hint: LineHintEvents;
+}
+
+/**
+ * Props of `LineNumberHint`.
+ */
+interface LineNumberHintProps {
+  /**
+   * Hint that the line numbers of the body share.
+   */
+  readonly hint: LineHint;
 }
 
 /**
@@ -158,17 +173,17 @@ const LongCodeText = ({ line, tokens }: CodeTextProps) => {
 };
 
 /**
- * Sign of the line `line` and its text in the colors of `highlight`, which wraps rather than scrolls. A screen reader
- * hears whether the line was added or deleted.
+ * Sign of the line `line` and its text in the colors `tokens`, which wraps rather than scrolls. A screen reader hears
+ * whether the line was added or deleted.
  */
-export const CodeCell = ({ line, highlight, className }: CodeCellProps) => (
+export const CodeCell = ({ line, tokens, className }: CodeCellProps) => (
   <div className={cn('flex min-w-0 px-2', className)}>
     <span aria-hidden="true" className="w-4 shrink-0 select-none text-muted-foreground">
       {signOf(line)}
     </span>
     {line.kind !== 'context' && <span className="sr-only">{line.kind === 'add' ? 'Added: ' : 'Deleted: '}</span>}
     <span className="min-w-0 whitespace-pre-wrap [overflow-wrap:anywhere]">
-      <CodeText line={line} tokens={highlight?.get(line)} />
+      <CodeText line={line} tokens={tokens} />
       {line.noNewline && <span className="ml-2 select-none text-muted-foreground">No newline at end of file</span>}
     </span>
   </div>
@@ -177,26 +192,37 @@ export const CodeCell = ({ line, highlight, className }: CodeCellProps) => (
 /**
  * Button that selects the line `number` of the side `side` to comment on, through `onSelect`. Shift and a click extend
  * the selection to it instead. It shows `oldNumber` and `newNumber`, each that is not `undefined`, and `null` as an
- * empty cell. Its hint says that a click comments on the line, and that a shift and a click extend the selection. It
- * renders again only when one of its props changes, so a diff of many lines keeps the cost of the hints low while the
- * review changes.
+ * empty cell. The hint that its body shares, through `hint`, says that a click comments on the line, and that a shift
+ * and a click extend the selection, so that a line costs no tooltip of its own.
  */
-export const LineButton = memo(({ side, number, oldNumber, newNumber, className, onSelect }: LineButtonProps) => (
-  <Hint description="Comment on this line" note="Shift-click to extend the selection">
-    <button
-      type="button"
-      aria-label={`Comment on ${side === 'old' ? 'old ' : ''}line ${number}`}
-      onClick={(event) => onSelect(side, number, event.shiftKey)}
-      className={cn(
-        'cursor-pointer select-none px-2 text-right text-muted-foreground tabular-nums outline-none hover:bg-primary/15 hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset',
-        className,
-      )}
-    >
-      {oldNumber !== undefined && <span>{oldNumber ?? ''}</span>}
-      {newNumber !== undefined && <span>{newNumber ?? ''}</span>}
-    </button>
-  </Hint>
-));
+export const LineButton = ({ side, number, oldNumber, newNumber, className, onSelect, hint }: LineButtonProps) => (
+  <button
+    type="button"
+    aria-label={`Comment on ${side === 'old' ? 'old ' : ''}line ${number}`}
+    {...hint}
+    onClick={(event) => onSelect(side, number, event.shiftKey)}
+    className={cn(
+      'cursor-pointer select-none px-2 text-right text-muted-foreground tabular-nums outline-none hover:bg-primary/15 hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset',
+      className,
+    )}
+  >
+    {oldNumber !== undefined && <span>{oldNumber ?? ''}</span>}
+    {newNumber !== undefined && <span>{newNumber ?? ''}</span>}
+  </button>
+);
+
+/**
+ * Hint that the line numbers of a body share, with the handle of `hint`: a click comments on the line, and a shift and
+ * a click extend the selection.
+ */
+export const LineNumberHint = ({ hint }: LineNumberHintProps) => (
+  <SharedHint
+    id={hint.id}
+    description="Comment on this line"
+    note="Shift-click to extend the selection"
+    handle={hint.handle}
+  />
+);
 
 /**
  * Header line `header` of a hunk, across the whole width of the diff with the columns `columns`.

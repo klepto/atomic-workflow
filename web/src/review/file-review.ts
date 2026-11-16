@@ -56,3 +56,8 @@ export interface FileReview {
    */
   readonly onDelete: (id: string) => void;
 }
+
+/**
+ * Functions of the review that change the comments of a thread.
+ */
+export type ThreadActions = Pick<FileReview, 'onAdd' | 'onCancel' | 'onEdit' | 'onSave' | 'onDelete'>;

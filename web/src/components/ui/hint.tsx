@@ -1,6 +1,18 @@
 import { Button as ButtonPrimitive } from '@base-ui/react/button';
 import { Tooltip as TooltipPrimitive } from '@base-ui/react/tooltip';
-import { cloneElement, createElement, type ReactElement, type ReactNode, type RefObject, useId, useState } from 'react';
+import {
+  cloneElement,
+  createElement,
+  type ReactElement,
+  type ReactNode,
+  type Ref,
+  type RefObject,
+  useEffect,
+  useId,
+  useImperativeHandle,
+  useRef,
+  useState,
+} from 'react';
 import { createPortal } from 'react-dom';
 import { cn } from '@/lib/utils.ts';
 
@@ -81,9 +93,56 @@ interface OverflowHintProps {
 }
 
 /**
+ * Functions that show and hide a `SharedHint`.
+ */
+export interface SharedHintHandle {
+  /**
+   * Shows the hint above the element `target`: at once with `immediate` or while a hint shows or just closed, else
+   * after the delay of a hint.
+   */
+  readonly show: (target: Element, immediate: boolean) => void;
+
+  /**
+   * Hides the hint.
+   */
+  readonly hide: () => void;
+}
+
+/**
+ * Props of `SharedHint`.
+ */
+interface SharedHintProps {
+  /**
+   * Prefix of the ids of the hidden description and note, which the buttons name in their `aria-describedby`:
+   * `<id>description` and `<id>note`.
+   */
+  readonly id: string;
+
+  /**
+   * What each button does, as `Hint` says.
+   */
+  readonly description: string;
+
+  /**
+   * Second line in muted text below the description, as `Hint` says.
+   */
+  readonly note?: string;
+
+  /**
+   * Handle that the buttons call to show and hide the hint.
+   */
+  readonly handle: Ref<SharedHintHandle>;
+}
+
+/**
  * Delay before a hint opens on hover, in ms.
  */
 const HINT_DELAY = 250;
+
+/**
+ * Time after a hint closes during which the next one opens at once, in ms, as the default of Base UI.
+ */
+const HINT_WARM = 400;
 
 /**
  * Classes of the popup of every hint.
@@ -151,6 +210,89 @@ export const Hint = ({ description, note, children }: HintProps) => {
         </TooltipPrimitive.Positioner>
       </TooltipPrimitive.Portal>
     </TooltipPrimitive.Root>
+  );
+};
+
+/**
+ * One hint for many buttons, such as the line numbers of a diff, so that each button costs no tooltip of its own: a
+ * popup in the style of `Hint` above the button that `handle` last showed it for. It renders hidden copies of
+ * `description` and `note` with ids from `id`, which each button names in its `aria-describedby`. The buttons call
+ * `show` on hover and on keyboard focus, and `hide` on pointer leave, blur, Escape and click.
+ */
+export const SharedHint = ({ id, description, note, handle }: SharedHintProps) => {
+  const [target, setTarget] = useState<Element | null>(null);
+  const [open, setOpen] = useState(false);
+  const shown = useRef(false);
+  const delay = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const warm = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const noted = note !== undefined && note !== '';
+
+  useImperativeHandle(
+    handle,
+    () => ({
+      show: (element, immediate) => {
+        clearTimeout(delay.current);
+        setTarget(element);
+        if (immediate || shown.current || warm.current !== undefined) {
+          shown.current = true;
+          setOpen(true);
+          return;
+        }
+        delay.current = setTimeout(() => {
+          shown.current = true;
+          setOpen(true);
+        }, HINT_DELAY);
+      },
+      hide: () => {
+        clearTimeout(delay.current);
+        if (shown.current) {
+          clearTimeout(warm.current);
+          warm.current = setTimeout(() => {
+            warm.current = undefined;
+          }, HINT_WARM);
+        }
+        shown.current = false;
+        setOpen(false);
+      },
+    }),
+    [],
+  );
+
+  useEffect(
+    () => () => {
+      clearTimeout(delay.current);
+      clearTimeout(warm.current);
+    },
+    [],
+  );
+
+  return (
+    <>
+      <div hidden>
+        <span id={`${id}description`}>{description}</span>
+        {noted && <span id={`${id}note`}>{note}</span>}
+      </div>
+      {target !== null && (
+        <TooltipPrimitive.Root
+          open={open}
+          onOpenChange={(next) => {
+            if (!next) {
+              shown.current = false;
+              setOpen(false);
+            }
+          }}
+        >
+          <TooltipPrimitive.Portal>
+            <TooltipPrimitive.Positioner anchor={target} side="top" sideOffset={6} className="isolate z-50">
+              <TooltipPrimitive.Popup data-slot="hint" className={HINT_POPUP}>
+                <span>{description}</span>
+                {noted && <span className="text-muted-foreground">{note}</span>}
+              </TooltipPrimitive.Popup>
+            </TooltipPrimitive.Positioner>
+          </TooltipPrimitive.Portal>
+        </TooltipPrimitive.Root>
+      )}
+    </>
   );
 };
 

@@ -4,7 +4,7 @@ import { Hint } from '@/components/ui/hint.tsx';
 import { MarkdownBody } from '@/conversation/markdown-body.tsx';
 import { anchorWords, type CommentAnchor } from '@/review/comment-anchor.ts';
 import { CommentComposer } from '@/review/comment-composer.tsx';
-import type { FileReview } from '@/review/file-review.ts';
+import type { FileReview, ThreadActions } from '@/review/file-review.ts';
 import type { ReviewComment } from '@/review/review-draft.ts';
 
 /**
@@ -43,6 +43,31 @@ interface CommentThreadProps {
 }
 
 /**
+ * Props of `CommentThreadView`.
+ */
+interface CommentThreadViewProps {
+  /**
+   * Comments of the thread, in the order they were added.
+   */
+  readonly comments: readonly ReviewComment[];
+
+  /**
+   * Selection to write a new comment on, or `undefined` while the thread holds none.
+   */
+  readonly selection: CommentAnchor | undefined;
+
+  /**
+   * Identifier of the comment that the user edits, or `undefined` while they edit none.
+   */
+  readonly editing: string | undefined;
+
+  /**
+   * Functions that change the comments.
+   */
+  readonly actions: ThreadActions;
+}
+
+/**
  * Comment of the review: its text, with the buttons that edit and delete it.
  */
 const CommentCard = ({ comment, onEdit, onDelete }: CommentCardProps) => (
@@ -73,33 +98,31 @@ const CommentCard = ({ comment, onEdit, onDelete }: CommentCardProps) => (
 );
 
 /**
- * Thread of the comments of `review` whose anchor `matches` accepts, with the field for a new comment when the
- * selection is such an anchor, or nothing when there is neither. The thread hangs below the lines it points at, with a
- * bar of the primary color at its left that joins it to the bar beside those lines.
+ * Thread of the comments `comments`, with the field for a new comment on `selection` when it is not `undefined`, or
+ * nothing when there is neither. The comment `editing` shows as a field that edits it. The thread hangs below the lines
+ * it points at, with a bar of the primary color at its left that joins it to the bar beside those lines.
  */
-export const CommentThread = ({ review, matches }: CommentThreadProps) => {
-  const comments = review.comments.filter((comment) => matches(comment.anchor));
-  const selection = review.selection !== undefined && matches(review.selection) ? review.selection : undefined;
+export const CommentThreadView = ({ comments, selection, editing, actions }: CommentThreadViewProps) => {
   if (comments.length === 0 && selection === undefined) return null;
   return (
     <div className="flex flex-col gap-2 border-y border-l-4 border-l-primary bg-muted/40 px-3 py-3">
       {comments.map((comment) =>
-        comment.id === review.editing ? (
+        comment.id === editing ? (
           <CommentComposer
             key={comment.id}
             label={`Edit the comment on ${anchorWords(comment.anchor)}`}
             initial={comment.body}
             submitLabel="Save"
             submitDescription="Save the changes to the comment"
-            onSubmit={(body) => review.onSave(comment.id, body)}
-            onCancel={review.onCancel}
+            onSubmit={(body) => actions.onSave(comment.id, body)}
+            onCancel={actions.onCancel}
           />
         ) : (
           <CommentCard
             key={comment.id}
             comment={comment}
-            onEdit={() => review.onEdit(comment.id)}
-            onDelete={() => review.onDelete(comment.id)}
+            onEdit={() => actions.onEdit(comment.id)}
+            onDelete={() => actions.onDelete(comment.id)}
           />
         ),
       )}
@@ -108,10 +131,23 @@ export const CommentThread = ({ review, matches }: CommentThreadProps) => {
           label={`Comment on ${anchorWords(selection)}`}
           submitLabel="Add comment"
           submitDescription="Add the comment to the review"
-          onSubmit={review.onAdd}
-          onCancel={review.onCancel}
+          onSubmit={actions.onAdd}
+          onCancel={actions.onCancel}
         />
       )}
     </div>
   );
 };
+
+/**
+ * Thread of the comments of `review` whose anchor `matches` accepts, with the field for a new comment when the
+ * selection is such an anchor, or nothing when there is neither, as `CommentThreadView` shows them.
+ */
+export const CommentThread = ({ review, matches }: CommentThreadProps) => (
+  <CommentThreadView
+    comments={review.comments.filter((comment) => matches(comment.anchor))}
+    selection={review.selection !== undefined && matches(review.selection) ? review.selection : undefined}
+    editing={review.editing}
+    actions={review}
+  />
+);
