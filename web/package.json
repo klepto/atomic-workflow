@@ -9,8 +9,9 @@
   "scripts": {
     "build": "vite build",
     "typecheck": "tsc",
-    "test": "node --import ./resolve-alias.ts --test \"src/**/*.test.ts\"",
+    "test": "node --import ./resolve-alias.ts --test \"src/**/*.test.ts\" \"perf/**/*.test.ts\"",
     "dev": "vite",
+    "perf": "node perf/run-perf.ts",
     "format": "biome format --write",
     "lint": "biome lint"
   },
@@ -29,6 +30,7 @@
     "class-variance-authority": "0.7.1",
     "clsx": "2.1.1",
     "lucide-react": "1.57.0",
+    "playwright": "1.65.1",
     "react": "19.3.1",
     "react-dom": "19.3.1",
     "react-markdown": "10.1.0",

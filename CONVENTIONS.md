@@ -135,15 +135,17 @@ A seam keeps a side effect behind an interface, so that a test can replace it.
   focus, stays in the component.
 - In `web/`, keep the key of an entry of the local storage as it is, since a new key loses what users stored. Name a
   new key `atomic-workflow:<name>`.
-- Build configuration, such as `web/vite.config.ts` and `mcp/scripts/`, is outside the seams.
+- Build configuration and tools, such as `web/vite.config.ts`, `mcp/scripts/` and the performance check of
+  `web/perf/`, are outside the seams.
 
 ## Tests
 
 Each package runs its unit tests with `npm test`: the test runner of Node.js, `node --test`, runs every file
 `src/**/*.test.ts` of the package, with no build step and no other test library. The command exits with 0 only when
-every test passes. In `web/`, `npm test` loads `web/resolve-alias.ts` with `--import`, which resolves `@/<path>` to
-`web/src/<path>` as the alias of Vite does. `npm run typecheck` and `npx biome ci` check the test files too, and no
-build bundles them.
+every test passes. In `web/`, it runs every file `perf/**/*.test.ts` too, the unit tests of the performance check
+of `web/perf/`, but not the check itself, which `npm run perf` runs in a browser. In `web/`, `npm test` loads
+`web/resolve-alias.ts` with `--import`, which resolves `@/<path>` to `web/src/<path>` as the alias of Vite does.
+`npm run typecheck` and `npx biome ci` check the test files too, and no build bundles them.
 
 - Put a test file beside the module that it tests, with the name of the module and the extension `.test.ts`:
   `patch.test.ts` beside `patch.ts`, `task-store.sqlite.test.ts` beside `task-store.sqlite.ts`.

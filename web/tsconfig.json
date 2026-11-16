@@ -17,5 +17,5 @@
     "isolatedModules": true,
     "skipLibCheck": true
   },
-  "include": ["src", "resolve-alias.ts", "vite.config.ts"]
+  "include": ["src", "perf", "resolve-alias.ts", "vite.config.ts"]
 }
