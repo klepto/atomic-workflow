@@ -1,3 +1,4 @@
+import { useEffect, useRef } from 'react';
 import type { TaskSummary, Ticket } from '@/api/types.ts';
 import { ScrollArea } from '@/components/ui/scroll-area.tsx';
 import { ChangesNotice } from '@/review/changes-notice.tsx';
@@ -5,6 +6,7 @@ import { counted } from '@/review/counted.ts';
 import { FileDiffView } from '@/review/file-diff-view.tsx';
 import { FileList } from '@/review/file-list.tsx';
 import { foldReasonOf } from '@/review/fold-reason.ts';
+import { holdAtTop } from '@/review/hold-at-top.ts';
 import { OverallComment } from '@/review/overall-comment.tsx';
 import { ReviewActionBar } from '@/review/review-action-bar.tsx';
 import { EMPTY_DRAFT } from '@/review/review-draft.ts';
@@ -70,14 +72,22 @@ export const ReviewPage = ({ task, ticket, onOpenChat }: ReviewPageProps) => {
     onOpenChat,
   });
 
+  const viewport = useRef<HTMLDivElement>(null);
+  const stopHold = useRef<() => void>(undefined);
+  useEffect(() => () => stopHold.current?.(), []);
+
   /**
-   * Shows the file at `index` if it is folded, and scrolls to it.
+   * Shows the file at `index` if it is folded, and scrolls its header to the top of the scroll area, where it stays
+   * while the chunks of lines above it render.
    */
   const jumpTo = (index: number): void => {
     const file = files[index];
     if (file !== undefined) unfold(file.summary.path);
     const smooth = !window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-    document.getElementById(fileIdOf(index))?.scrollIntoView({ block: 'start', behavior: smooth ? 'smooth' : 'auto' });
+    const section = document.getElementById(fileIdOf(index));
+    if (section === null || viewport.current === null) return;
+    stopHold.current?.();
+    stopHold.current = holdAtTop(section, viewport.current, smooth);
   };
 
   const headline =
@@ -87,7 +97,7 @@ export const ReviewPage = ({ task, ticket, onOpenChat }: ReviewPageProps) => {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <ScrollArea className="mt-14 flex-1">
+      <ScrollArea className="mt-14 flex-1" viewportRef={viewport}>
         <div className="mx-auto flex w-full max-w-6xl flex-1 flex-col gap-6 px-4 pt-6 pb-10 md:px-6">
           <header className="flex flex-col gap-1.5">
             <h1 className="min-w-0 truncate font-semibold text-xl tracking-tight">

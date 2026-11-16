@@ -1,3 +1,4 @@
+import { type CommentAnchor, coversLine } from '@/review/comment-anchor.ts';
 import type { DiffLine, FileDiff } from '@/review/patch.ts';
 import { type SplitRow, splitRowsOf } from '@/review/split-rows.ts';
 import type { DiffLayout } from '@/review/use-diff-layout.ts';
@@ -33,12 +34,22 @@ export interface SplitPiece {
 }
 
 /**
- * Part of the lines of a file that renders in one step: runs of the unified view or of the split view, with the
+ * Part of the lines of a file that renders as a whole: runs of the unified view or of the split view, with the
  * number of their lines or rows.
  */
 export type DiffChunk =
   | { readonly layout: 'unified'; readonly pieces: readonly UnifiedPiece[]; readonly size: number }
   | { readonly layout: 'split'; readonly pieces: readonly SplitPiece[]; readonly size: number };
+
+/**
+ * Height of a line of the diff, in px.
+ */
+export const LINE_HEIGHT = 20;
+
+/**
+ * Height of the header line of a hunk, in px: a line with a padding of 2 px above and below.
+ */
+const HUNK_HEADER_HEIGHT = 24;
 
 /**
  * Run of the items of one hunk, with the header of the hunk when the run starts it.
@@ -106,3 +117,31 @@ export const chunksOf = (file: FileDiff, layout: DiffLayout, step: number): read
     size: pieces.reduce((count, piece) => count + piece.items.length, 0),
   }));
 };
+
+/**
+ * Returns the height that the lines of the chunk `chunk` take once they render, in px, without the comments between
+ * them and with each line on one row: `LINE_HEIGHT` for each line or row, and more for each header of a hunk.
+ */
+export const estimatedHeightOf = (chunk: DiffChunk): number => {
+  const headers = chunk.pieces.filter((piece) => piece.header !== null).length;
+  return chunk.size * LINE_HEIGHT + headers * HUNK_HEADER_HEIGHT;
+};
+
+/**
+ * Returns the lines of the chunk `chunk`, each line of the split view once, even where both sides share it.
+ */
+const linesOf = (chunk: DiffChunk): DiffLine[] => {
+  if (chunk.layout === 'unified') return chunk.pieces.flatMap((piece) => piece.lines);
+  return chunk.pieces.flatMap((piece) =>
+    piece.rows.flatMap((row) => {
+      if (row.left === row.right) return row.left === null ? [] : [row.left];
+      return [row.left, row.right].filter((line) => line !== null);
+    }),
+  );
+};
+
+/**
+ * Returns whether the chunk `chunk` holds a line that the anchor `anchor` covers.
+ */
+export const chunkHolds = (chunk: DiffChunk, anchor: CommentAnchor): boolean =>
+  anchor.kind === 'lines' && linesOf(chunk).some((line) => coversLine(anchor, line));
