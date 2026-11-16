@@ -31,7 +31,20 @@ cd web
 npm run perf
 ```
 
-Close other heavy programs first: the measures are times on the machine that runs them.
+Close other heavy programs first: the measures are times on the machine that runs them. Run one check at a time,
+since each run uses the same browser profile.
+
+## Browser profile
+
+The browser of the check keeps its profile in `atomic-workflow-perf-browser` in the temporary directory of the system,
+from one run to the next. The first run on a machine runs the whole check twice, and counts only the second run: the
+first one warms the profile. It says so on the standard error, and takes about twice as long.
+
+The reason is the cache of GPU pipelines of the profile. Chromium draws the page on the GPU, and builds a pipeline
+for each new kind of drawing the first time it needs it. In a fresh profile, each such build stalls a frame for 60 ms
+to 300 ms, while the main thread of the page stays idle. A first scroll, and each jump to a part of the review that
+was not drawn yet, then shows frames over 50 ms at random places from run to run. The browser of a user keeps these
+pipelines in its profile, so they do not stall its frames. Delete the directory to start from a fresh profile.
 
 ## Fixture
 
@@ -68,3 +81,20 @@ Numbers on the code before task 4 changed the review, on a developer machine wit
 
 The longest frame varies most between runs: other runs gave 221 ms to 271 ms. The page of the fixture is about
 550,000 px high, so the scroll takes about 90 s, and the whole check about 2.5 minutes.
+
+## After task 4
+
+Numbers once every ticket of task 4 landed, on the same machine, three runs in a row. Run 1 started from a fresh
+browser profile, so it warmed the profile first, as `## Browser profile` says. The baseline ran in a fresh profile of
+the time, before the check kept its profile.
+
+| Measure | Baseline | Run 1 | Run 2 | Run 3 | Budget |
+|:--|--:|--:|--:|--:|--:|
+| longest task | 1779 ms | 30 ms | 28 ms | 30 ms | 50 ms |
+| click to selection | 851 ms | 50 ms | 52 ms | 46 ms | 100 ms |
+| frames over 20 ms | 100.0 % | 0.8 % | 0.6 % | 1.2 % | 5 % |
+| longest frame | 1146 ms | 29 ms | 29 ms | 29 ms | 50 ms |
+
+The longest task is the first render of the app, before the review loads its changes. The review renders its files in
+transitions, which React splits in slices of a few ms, and mounts the sections of the files and the rows of the list of
+the files 20 at a time, each step in a commit of its own, so that no commit lays out the whole page at once.

@@ -14,6 +14,7 @@ import { useChanges } from '@/review/use-changes.ts';
 import { useCommentSelection } from '@/review/use-comment-selection.ts';
 import { useDiffLayout } from '@/review/use-diff-layout.ts';
 import { useFileFolds } from '@/review/use-file-folds.ts';
+import { useGrowingCount } from '@/review/use-growing-count.ts';
 import { useReviewActions } from '@/review/use-review-actions.ts';
 import { useReviewDraft } from '@/review/use-review-draft.ts';
 
@@ -45,8 +46,10 @@ const fileIdOf = (index: number): string => `review-file-${index}`;
 /**
  * Review of the ticket `ticket` of the task `task`, as a page of its changes: the list of the changed files at the
  * top, then the diff of each file, then a field for the overall comment, with the bar of the actions at the bottom. The
- * lines of a big file load in the background, and a generated file or one with a long line shows folded until the
- * reviewer shows it, which the page keeps while it stays open. A click on a line number selects that line to comment on, and a shift and a click extend the selection. Each file
+ * rows of the list and the diffs of the files mount a few files at a time, so that no single commit lays out every
+ * file. The lines of a big file load in the background, and a generated file or one with a long line shows folded
+ * until the reviewer shows it, which the page keeps while it stays open. A click on a line number selects that line to
+ * comment on, and a shift and a click extend the selection. Each file
  * takes comments on the whole file too, such as for a file that was only moved. The comments stay in the browser store
  * until they are sent. `Request changes` adds a ticket that makes the changes that the comments ask for, approves this
  * ticket when it needs review, and opens the new ticket. `Approve` discards the comments and approves this ticket.
@@ -75,6 +78,10 @@ export const ReviewPage = ({ task, ticket, onOpenChat }: ReviewPageProps) => {
   const viewport = useRef<HTMLDivElement>(null);
   const stopHold = useRef<() => void>(undefined);
   useEffect(() => () => stopHold.current?.(), []);
+
+  // The rows of the list of the files and the sections of the files mount together, a few at a time, so that a row
+  // always has its section to jump to.
+  const mounted = useGrowingCount(changes.state === 'loaded' ? changes.commit : '', files.length);
 
   /**
    * Shows the file at `index` if it is folded, and scrolls its header to the top of the scroll area, where it stays
@@ -111,13 +118,14 @@ export const ReviewPage = ({ task, ticket, onOpenChat }: ReviewPageProps) => {
             <>
               <FileList
                 files={files.map((file) => file.summary)}
+                mounted={mounted}
                 draft={draft}
                 layout={layout}
                 onLayout={setLayout}
                 onJump={jumpTo}
               />
               <div className="flex flex-col gap-4">
-                {files.map((file, index) => (
+                {files.slice(0, mounted).map((file, index) => (
                   <FileDiffView
                     key={file.summary.path}
                     id={fileIdOf(index)}

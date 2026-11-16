@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { startTransition, useCallback, useEffect, useState } from 'react';
 import { fetchCall } from '@/api/rpc.fetch.ts';
 import type { ChangedFile, TicketChanges, TicketFilePatch } from '@/api/types.ts';
 import { errorMessage } from '@/lib/error-message.ts';
@@ -84,7 +84,8 @@ const withLines = (changes: Changes, path: string, lines: FileLines): Changes =>
  * again whenever one of them changes, with the function that loads the lines of a file again. While its work has not
  * landed, they are `none`. A failed read gives the state `failed` with the message of the failure. The lines of each
  * big file load after the changes, one file at a time, the files that are not generated first. A failed load of the
- * lines of a file gives that file the state `failed`, and the function loads it again.
+ * lines of a file gives that file the state `failed`, and the function loads it again. Loaded changes and lines arrive
+ * in a transition, so that React renders a page of many files in slices, without one long task.
  */
 export const useChanges = (taskId: number, ticketId: number, landed: boolean): [Changes, RetryFunction] => {
   const [changes, setChanges] = useState<Changes>({ state: 'loading' });
@@ -105,8 +106,10 @@ export const useChanges = (taskId: number, ticketId: number, landed: boolean): [
           setChanges({ state: 'none' });
           return;
         }
-        setChanges({ state: 'loaded', commit: found.commit, files: found.files.map(reviewFileOf) });
-        setQueue(loadOrderOf(found.files));
+        startTransition(() => {
+          setChanges({ state: 'loaded', commit: found.commit, files: found.files.map(reviewFileOf) });
+          setQueue(loadOrderOf(found.files));
+        });
       },
       (error: unknown) => {
         if (current) setChanges({ state: 'failed', message: errorMessage(error) });
@@ -129,8 +132,10 @@ export const useChanges = (taskId: number, ticketId: number, landed: boolean): [
      */
     const settle = (lines: FileLines): void => {
       if (!current) return;
-      setChanges((changes) => withLines(changes, next, lines));
-      setQueue((queue) => (queue[0] === next ? queue.slice(1) : queue));
+      startTransition(() => {
+        setChanges((changes) => withLines(changes, next, lines));
+        setQueue((queue) => (queue[0] === next ? queue.slice(1) : queue));
+      });
     };
 
     fetchCall<TicketFilePatch>('ticketFileDiff', { taskId, ticketId, commit, path: next }).then(

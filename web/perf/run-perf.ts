@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -62,6 +62,17 @@ const CLICKED_LINES: readonly number[] = [5, 12, 19];
  * Speed of the scroll from the top of the review to its bottom, in px/s.
  */
 const SCROLL_SPEED = 6000;
+
+/**
+ * Directory of the profile of the browser of the check. It outlives each run, so that the caches of the GPU in it stay
+ * warm, as in the browser of a user. See `README.md`.
+ */
+const PROFILE_DIRECTORY = join(tmpdir(), 'atomic-workflow-perf-browser');
+
+/**
+ * File in `PROFILE_DIRECTORY` that marks a profile that a whole run warmed.
+ */
+const PRIMED_MARKER = join(PROFILE_DIRECTORY, 'atomic-workflow-primed');
 
 /**
  * Returns the path of the review of the fixture ticket, such as `/task/1-perf-fixture/1-large-diff/review`.
@@ -128,21 +139,51 @@ const measureScroll = async (page: Page): Promise<readonly number[]> => {
 };
 
 /**
- * Runs every measure of the review of `fixture`, served at `url`, in a new headless Chromium.
+ * Returns whether a whole run warmed the profile in `PROFILE_DIRECTORY`.
+ */
+const isPrimed = async (): Promise<boolean> =>
+  stat(PRIMED_MARKER).then(
+    () => true,
+    // A missing marker is the answer, not a failure.
+    () => false,
+  );
+
+/**
+ * Runs every measure of the review of `fixture`, served at `url`, in a new headless Chromium on the profile in
+ * `PROFILE_DIRECTORY`. Rejects when another run uses the profile.
  */
 const measureReview = async (url: string, fixture: PerfFixture): Promise<RawMeasures> => {
   // The full Chromium in the new headless mode, which renders as the browser that users run, not the headless shell.
-  const browser = await chromium.launch({ channel: 'chromium', headless: true });
+  const context = await chromium.launchPersistentContext(PROFILE_DIRECTORY, {
+    channel: 'chromium',
+    headless: true,
+    viewport: VIEWPORT,
+  });
   try {
-    const page = await browser.newPage({ viewport: VIEWPORT });
+    const browser = context.browser();
+    if (browser === null) throw new Error('The browser of the check cannot record a trace');
+    const page = context.pages()[0] ?? (await context.newPage());
     await page.addInitScript(installProbe);
     const longestTask = await measureLoad(browser, page, url, fixture.changes.files.length);
     const clickDelay = await measureClicks(page);
     const frames = await measureScroll(page);
     return { longestTask, clickDelay, frames };
   } finally {
-    await browser.close();
+    await context.close();
   }
+};
+
+/**
+ * Runs every measure of the review of `fixture`, served at `url`. A profile that no run warmed yet gets a whole run
+ * first, whose measures do not count, so that the GPU builds and caches the pipelines that the review draws.
+ */
+const measureWarm = async (url: string, fixture: PerfFixture): Promise<RawMeasures> => {
+  if (!(await isPrimed())) {
+    process.stderr.write('Warming the browser profile of the check with a first run, once per machine.\n');
+    await measureReview(url, fixture);
+    await writeFile(PRIMED_MARKER, '');
+  }
+  return measureReview(url, fixture);
 };
 
 /**
@@ -156,7 +197,7 @@ const runPerf = async (): Promise<number> => {
     const fixture = createFixture();
     const server = await startStubServer(outDirectory, fixture);
     try {
-      const measures = measuresOf(await measureReview(new URL(reviewPathOf(fixture), server.url).href, fixture));
+      const measures = measuresOf(await measureWarm(new URL(reviewPathOf(fixture), server.url).href, fixture));
       for (const measure of measures) process.stdout.write(`${formatMeasure(measure)}\n`);
       return exitCodeOf(measures);
     } finally {

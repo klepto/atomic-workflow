@@ -20,6 +20,11 @@ interface FileListProps {
   readonly files: readonly ChangedFile[];
 
   /**
+   * Number of the first files of `files` that have a row yet. The counts at the top cover every file.
+   */
+  readonly mounted: number;
+
+  /**
    * Review, whose comments each row counts.
    */
   readonly draft: ReviewDraft;
@@ -42,10 +47,10 @@ interface FileListProps {
 
 /**
  * List of the changed files above the diff: how many files changed with their line counts and the layout of the
- * diff, then one row per file with its status, its path, the number of its comments and its line counts. A click on a
- * row scrolls to its file.
+ * diff, then one row for each of the first `mounted` files with its status, its path, the number of its comments and
+ * its line counts. A click on a row scrolls to its file.
  */
-export const FileList = ({ files, draft, layout, onLayout, onJump }: FileListProps) => (
+export const FileList = ({ files, mounted, draft, layout, onLayout, onJump }: FileListProps) => (
   <nav aria-label="Changed files" className="overflow-hidden rounded-lg border">
     <div className="flex flex-wrap items-center gap-x-3 gap-y-2 border-b bg-card px-3 py-2">
       <h2 className="font-medium text-sm">{counted(files.length, 'file changed', 'files changed')}</h2>
@@ -59,7 +64,7 @@ export const FileList = ({ files, draft, layout, onLayout, onJump }: FileListPro
     </div>
     <ScrollArea viewportClassName="max-h-80">
       <ul className="divide-y text-sm">
-        {files.map((file, index) => {
+        {files.slice(0, mounted).map((file, index) => {
           const { icon: Icon, words } = FILE_STATUSES[file.status];
           const comments = draft.comments.filter((comment) => comment.path === file.path).length;
           return (
